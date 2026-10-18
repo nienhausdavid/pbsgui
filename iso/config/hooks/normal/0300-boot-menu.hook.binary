@@ -1,0 +1,11 @@
+#!/bin/sh
+# Boot-Menüs (GRUB/UEFI und syslinux/BIOS) eindeutig benennen
+set -e
+find binary -type f \( -name '*.cfg' -o -name '*.in' \) 2>/dev/null | while read -r f; do
+  sed -i \
+    -e 's/Live system (amd64 fail-safe mode)/pbsgui Rettungsmedium: abgesicherter Modus/' \
+    -e 's/Live system (amd64)/pbsgui Rettungsmedium: Wiederherstellung starten/' \
+    -e 's/Live system (\([a-z0-9]*\) fail-safe mode)/pbsgui Rettungsmedium: abgesicherter Modus/' \
+    -e 's/\^Live system (\([a-z0-9]*\))/^pbsgui Rettungsmedium: Wiederherstellung starten/' \
+    "$f"
+done

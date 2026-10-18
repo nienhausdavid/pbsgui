@@ -273,6 +273,56 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
     return plan
 
 
+_MOUNTABLE_FS = {"vfat", "exfat", "ntfs", "ntfs3", "ext2", "ext3", "ext4", "xfs", "btrfs"}
+
+
+def mount_removable(run: Callable = subprocess.run, base: str = "/media/pbsgui") -> list[str]:
+    """Hängt alle noch nicht eingehängten Partitionen (z. B. USB-Sticks) schreibgeschützt ein; liefert die Ziele."""
+    r = run(["lsblk", "-J", "-o", "NAME,PATH,TYPE,FSTYPE,MOUNTPOINTS"], capture_output=True, text=True)
+    mounted = []
+    try:
+        tree = json.loads(r.stdout or "{}").get("blockdevices", [])
+    except ValueError:
+        return mounted
+    for disk in tree:
+        for n in Node.from_json(disk).walk():
+            if n.type != "part" or n.fstype not in _MOUNTABLE_FS or n.mountpoints:
+                continue
+            target = f"{base}/{n.name}"
+            os.makedirs(target, exist_ok=True)
+            if run(["mount", "-o", "ro", n.path, target], capture_output=True, text=True).returncode == 0:
+                mounted.append(target)
+    return mounted
+
+
+def find_key_files(roots: list[str] | None = None, mount: bool = False, run: Callable = subprocess.run) -> list[str]:
+    """Sucht exportierte pbsgui-/PBS-Schlüsseldateien (JSON mit "kdf" und "fingerprint") auf eingehängten Medien."""
+    if mount:
+        mount_removable(run)
+    found: list[str] = []
+    for root in roots or ["/media", "/mnt", "/run/media"]:
+        base = Path(root)
+        if not base.is_dir():
+            continue
+        for dirpath, dirs, files in os.walk(base):
+            if Path(dirpath).relative_to(base).parts.__len__() >= 4:
+                dirs.clear()
+                continue
+            for f in files:
+                if not f.lower().endswith(".json"):
+                    continue
+                p = Path(dirpath) / f
+                try:
+                    if p.stat().st_size > 8192:
+                        continue
+                    d = json.loads(p.read_text())
+                except (OSError, ValueError):
+                    continue
+                if isinstance(d, dict) and "kdf" in d and "fingerprint" in d:
+                    found.append(str(p))
+    return sorted(found)
+
+
 def needs_passphrase(rec: RecoveryData) -> bool:
     """Gibt es auf der Quell-Platte LUKS-Container, deren Passphrase beim Nachbau gebraucht wird?"""
     return any(n.fstype == "crypto_LUKS" for n in rec.root_disk().walk())

@@ -1,5 +1,6 @@
 """Rescue-Plan: Layout aus den Wiederherstellungsdaten nachbauen (ohne echte Geräte)."""
 import json
+import subprocess
 
 import pytest
 
@@ -326,3 +327,38 @@ def test_config_from_json_ignores_secrets(tmp_path):
                              "passphrase": "AUCH-NICHT", "unbekannt": 1}))
     cfg = RescueConfig.from_json(f)
     assert (cfg.server, cfg.namespace, cfg.token, cfg.passphrase) == ("s", "n", "", "")
+
+
+from pbsgui.core.rescue import find_key_files, mount_removable  # noqa: E402
+
+
+def test_find_key_files_recognizes_only_pbs_keys(tmp_path):
+    usb = tmp_path / "usb" / "backup"
+    usb.mkdir(parents=True)
+    (usb / "laptop-key.json").write_text(json.dumps({"kdf": None, "data": "x", "fingerprint": "aa:bb"}))
+    (usb / "anderes.json").write_text(json.dumps({"hallo": 1}))
+    (usb / "kaputt.json").write_text("{nicht json")
+    (usb / "gross.json").write_text(json.dumps({"kdf": None, "fingerprint": "x", "pad": "y" * 9000}))
+    deep = usb / "a" / "b" / "c" / "d"
+    deep.mkdir(parents=True)
+    (deep / "zu-tief.json").write_text(json.dumps({"kdf": None, "fingerprint": "x"}))
+    assert find_key_files([str(tmp_path / "usb")]) == [str(usb / "laptop-key.json")]
+    assert find_key_files([str(tmp_path / "gibt-es-nicht")]) == []
+
+
+def test_mount_removable_mounts_only_unmounted_partitions_readonly(tmp_path):
+    lsblk = json.dumps({"blockdevices": [
+        {"name": "sda", "path": "/dev/sda", "type": "disk", "children": [
+            {"name": "sda1", "path": "/dev/sda1", "type": "part", "fstype": "ext4", "mountpoints": ["/"]},
+            {"name": "sda2", "path": "/dev/sda2", "type": "part", "fstype": "crypto_LUKS", "mountpoints": [None]}]},
+        {"name": "sdb", "path": "/dev/sdb", "type": "disk", "children": [
+            {"name": "sdb1", "path": "/dev/sdb1", "type": "part", "fstype": "vfat", "mountpoints": [None]}]}]})
+    calls = []
+
+    def run(argv, **kw):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, lsblk if argv[0] == "lsblk" else "", "")
+
+    got = mount_removable(run, base=str(tmp_path / "pbs"))
+    assert got == [str(tmp_path / "pbs/sdb1")]
+    assert [c for c in calls if c[0] == "mount"] == [["mount", "-o", "ro", "/dev/sdb1", str(tmp_path / "pbs/sdb1")]]

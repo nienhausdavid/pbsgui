@@ -31,6 +31,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/*.deb --title "$GITHUB_REF_NAME" --generate-notes
 
+  iso:
+    name: Rettungs-ISO bauen
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Werkzeuge installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends live-build debootstrap debian-archive-keyring xorriso \
+            squashfs-tools mtools dosfstools grub-pc-bin grub-efi-amd64-bin grub-common isolinux syslinux-utils curl
+      - name: ISO bauen (xz-komprimiert)
+        run: sudo env ISO_COMPRESSION=xz BUILD_DIR="$RUNNER_TEMP/iso" scripts/build-iso.sh "$PWD/dist"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rescue-iso
+          path: dist/pbsgui-rescue-*.iso*
+      - name: An das GitHub-Release anhängen
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/pbsgui-rescue-*.iso dist/pbsgui-rescue-*.iso.sha256 --clobber
+
   apt-repo:
     needs: build
     runs-on: ubuntu-latest

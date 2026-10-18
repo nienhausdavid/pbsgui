@@ -1,0 +1,7 @@
+
+  pbsgui Rettungsmedium
+  ---------------------
+  pbsgui rescue          geführte Wiederherstellung eines Vollbackups
+  pbsgui rescue disks    mögliche Ziel-Platten anzeigen
+  nmtui                  Netzwerk/WLAN einrichten
+

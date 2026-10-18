@@ -119,3 +119,11 @@ Pro Profil `.service` + `.timer`:
 - Exakte Rollen/Rechte für Prune und Restore gegen die PBS-Doku verifizieren.
 - Lizenz festlegen.
 - Hinweis: BackupPilot (AGPL) wurde nur zur Orientierung gelesen, Code wird nicht übernommen.
+
+## Wiederherstellung auf neuem PC (Rettungs-ISO)
+
+Umgesetzt: Vollbackups enthalten `recovery.pxar` (Datenträger-Metadaten); `pbsgui rescue` (CLI + Textual-Assistent)
+baut das Layout mit den alten UUIDs nach (`core/rescue.py`), spielt `root.pxar` zurück und erneuert Initramfs und
+Bootloader im chroot. Die ISO entsteht mit `live-build` (`iso/`, `scripts/build-iso.sh`). Tests: Plan-Logik als
+Unit-Tests, Layout-Nachbau mit echten Loop-Geräten (`tests/test_rescue_integration.py`, root), Ende-zu-Ende in
+QEMU (`tests/vm/e2e.py`).

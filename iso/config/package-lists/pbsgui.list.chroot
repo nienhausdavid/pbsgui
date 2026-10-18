@@ -1,0 +1,45 @@
+# Basis und Netzwerk
+live-boot
+live-config
+systemd-sysv
+network-manager
+wpasupplicant
+iproute2
+iputils-ping
+curl
+ca-certificates
+openssh-client
+# Datenträger
+cryptsetup
+cryptsetup-initramfs
+lvm2
+mdadm
+gdisk
+parted
+dosfstools
+e2fsprogs
+xfsprogs
+btrfs-progs
+ntfs-3g
+exfatprogs
+efibootmgr
+grub-efi-amd64-bin
+grub-pc-bin
+# Komfort
+locales
+console-setup
+keyboard-configuration
+kbd
+less
+nano
+usbutils
+pciutils
+# Python/TUI für pbsgui
+python3
+python3-textual
+# WLAN-/Netzwerk-Firmware (non-free-firmware)
+firmware-linux-free
+firmware-iwlwifi
+firmware-realtek
+firmware-atheros
+firmware-misc-nonfree

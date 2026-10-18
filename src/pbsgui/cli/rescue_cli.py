@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ..core.pbs_api import ApiError, fetch_fingerprint
 from ..core.rescue import (RescueConfig, RescueError, build_layout_plan, candidate_disks, execute, fetch_recovery,
-                           list_full_snapshots, needs_passphrase, pick_snapshot, validate_target)
+                           find_key_files, list_full_snapshots, needs_passphrase, pick_snapshot, validate_target)
 
 DEFAULT_CONFIG = "/etc/pbsgui/rescue.json"  # in der personalisierten ISO: Server, Fingerprint, Datastore, Namespace
 
@@ -25,10 +25,11 @@ def add_arguments(sub) -> None:
     sp = sub.add_parser("rescue", help="Wiederherstellung auf einer leeren Platte (Rettungs-ISO, root)")
     sp.set_defaults(fn=cmd_rescue)
     rsub = sp.add_subparsers(dest="rescue_cmd")
-    for name, help_ in (("disks", "mögliche Ziel-Platten anzeigen"), ("snapshots", "Vollbackups des Servers auflisten"),
+    for name, help_ in (("disks", "mögliche Ziel-Platten anzeigen"),
+                        ("keys", "USB-Sticks einhängen und nach Schlüsseldateien suchen"), ("snapshots", "Vollbackups des Servers auflisten"),
                         ("run", "Wiederherstellung durchführen")):
         r = rsub.add_parser(name, help=help_)
-        if name != "disks":
+        if name not in ("disks", "keys"):
             r.add_argument("--config", help=f"JSON mit Verbindungsdaten (Standard: {DEFAULT_CONFIG}, falls vorhanden)")
             r.add_argument("--server"); r.add_argument("--port", type=int)
             r.add_argument("--datastore"); r.add_argument("--namespace"); r.add_argument("--auth-id")
@@ -91,6 +92,10 @@ def cmd_rescue(a, mgr=None) -> int:
                 print(f"{d['path']:<14} {d['size'] / 2**30:8.1f} GiB  {d['model'] or '-':<24} {d['tran'] or '-':<6}"
                       + ("  (Wechseldatenträger)" if d["removable"] else ""))
             return 0
+        if a.rescue_cmd == "keys":
+            keys = find_key_files(mount=os.geteuid() == 0)
+            print("\n".join(keys) if keys else "Keine Schlüsseldatei gefunden.")
+            return 0 if keys else 1
         if a.rescue_cmd in ("snapshots", "run"):
             return _snapshots(a) if a.rescue_cmd == "snapshots" else _run(a)
         from ..tui.rescue import run as run_tui  # ohne Unterbefehl: geführter Assistent

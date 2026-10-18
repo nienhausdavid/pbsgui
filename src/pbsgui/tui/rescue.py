@@ -28,7 +28,17 @@ Screen { align: center middle; }
 .hint { color: $text-muted; margin-bottom: 1; }
 .warn { color: $error; text-style: bold; }
 DataTable { height: 10; margin-bottom: 1; }
-Button { margin-right: 1; margin-top: 1; }
+/* Linux-Konsole: nur 16 ANSI-Farben und eine einfache Schrift. Eingabefelder und Knöpfe daher einzeilig mit
+   Hintergrundfarbe statt Rahmen (spart Platz, damit "Weiter" ohne Scrollen sichtbar bleibt). */
+Input { border: none; border-bottom: solid ansi_white; height: 2; padding: 0 1; margin-bottom: 0; background: ansi_default; color: ansi_bright_white; }
+Input:focus { border-bottom: solid ansi_bright_cyan; background: ansi_default; }
+Input > .input--placeholder { color: ansi_white; text-style: italic; }
+Button { border: none; height: 1; min-width: 14; padding: 0 2; background: ansi_blue; color: ansi_bright_white; margin-right: 2; margin-bottom: 1; margin-top: 1; }
+Button:focus { background: ansi_cyan; color: ansi_black; text-style: bold; }
+Button.-primary { background: ansi_green; color: ansi_bright_white; }
+Button.-error { background: ansi_red; color: ansi_bright_white; }
+DataTable { border: round ansi_bright_black; }
+DataTable:focus { border: round ansi_bright_cyan; }
 #log { height: 22; }
 """
 
@@ -63,6 +73,7 @@ class ConnectScreen(Screen):
             yield Button("Fingerprint abrufen", id="fp")
             yield Input(value=c.keyfile, placeholder="Schlüsseldatei (verschlüsseltes Backup), z. B. /media/usb/key.json",
                         id="keyfile")
+            yield Button("USB-Stick nach Schlüsseldatei durchsuchen", id="usb")
             yield Say(id="status")
             yield Button("Weiter", variant="primary", id="next")
         yield Footer()
@@ -87,6 +98,15 @@ class ConnectScreen(Screen):
                 return
             self.query_one("#fingerprint", Input).value = fp
             self._say("Fingerprint übernommen. Mit dem in PBS angezeigten Wert vergleichen, dann „Weiter“.")
+        elif e.button.id == "usb":
+            self._say("Suche auf USB-Sticks und anderen Datenträgern …")
+            keys = await asyncio.to_thread(rescue.find_key_files, None, True)
+            if keys:
+                self.query_one("#keyfile", Input).value = keys[0]
+                self._say(f"{len(keys)} Schlüsseldatei(en) gefunden, die erste wurde eingetragen: {keys[0]}")
+            else:
+                self._say("Keine Schlüsseldatei gefunden. USB-Stick einstecken und erneut suchen "
+                          "oder den Pfad von Hand eintragen.")
         elif e.button.id == "next":
             await self._next()
 
