@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 
 from ..core.client import PbsClient
 from ..core.models import Profile
+from ..core.onboarding import namespace_message, namespace_state
 from ..core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
 from .workers import Worker
 
@@ -189,24 +190,10 @@ class AddServerDialog(QDialog):
         self.namespace.blockSignals(False)
 
     def namespace_state(self) -> str:
-        """'root' | 'exists' | 'new' | 'unknown' für den eingegebenen Namespace."""
-        ns = self.namespace.currentText().strip().strip("/")
-        if not ns:
-            return "root"
-        if self._namespaces is None:
-            return "unknown"
-        return "exists" if ns in self._namespaces else "new"
+        return namespace_state(self._namespaces, self.namespace.currentText())
 
     def _update_ns_info(self, *_a) -> None:
-        state, weg_a = self.namespace_state(), self.mode.currentIndex() == 0
-        self.ns_info.setText({
-            "root": "Wurzel des Datastores (kein eigener Namespace).",
-            "exists": "✔ Namespace existiert.",
-            "unknown": "Namespace noch nicht geprüft (erst Verbindung prüfen und Datastore wählen).",
-            "new": ("ℹ Namespace existiert nicht und wird beim Einrichten neu angelegt." if weg_a else
-                    "⚠ Namespace existiert nicht. Mit Weg B nicht anlegbar: bitte zuerst in PBS anlegen "
-                    "oder Weg A verwenden."),
-        }[state])
+        self.ns_info.setText(namespace_message(self.namespace_state(), self.mode.currentIndex() == 0))
 
     # -- Einrichten -----------------------------------------------------------
     def _start(self) -> None:

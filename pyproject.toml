@@ -7,13 +7,14 @@ name = "pbsgui"
 version = "0.1.0"
 description = "GUI für den Proxmox Backup Client"
 requires-python = ">=3.11"
-dependencies = ["PySide6"]
+dependencies = ["textual>=0.80"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+gui = ["PySide6"]
+dev = ["pytest", "pytest-asyncio", "PySide6"]
 
 [project.scripts]
-pbsgui = "pbsgui.gui.main:main"
+pbsgui = "pbsgui.cli.main:main"
 pbsgui-run = "pbsgui.cli.run:main"
 
 [tool.setuptools.packages.find]
@@ -21,3 +22,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -49,19 +49,23 @@ def render_timer(profile: Profile) -> str:
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
-def validate_calendar(expr: str, run: Runner = subprocess.run) -> str:
+def _default_run(*args, **kwargs) -> subprocess.CompletedProcess:
+    return subprocess.run(*args, **kwargs)
+
+
+def validate_calendar(expr: str, run: Runner | None = None) -> str:
     """Prüft einen OnCalendar-Ausdruck mit systemd-analyze; liefert die Normalform."""
     if not expr.strip():
         raise SchedulerError("Zeitplan ist leer")
-    r = run(["systemd-analyze", "calendar", expr], capture_output=True, text=True)
+    r = (run or _default_run)(["systemd-analyze", "calendar", expr], capture_output=True, text=True)
     if r.returncode != 0:
         raise SchedulerError((r.stderr or r.stdout).strip() or "Ungültiger Zeitplan")
     return r.stdout
 
 
 class SystemdScheduler:
-    def __init__(self, paths: Paths, store: SecretStore, run: Runner = subprocess.run):
-        self.paths, self.store, self._run = paths, store, run
+    def __init__(self, paths: Paths, store: SecretStore, run: Runner | None = None):
+        self.paths, self.store, self._run = paths, store, run or _default_run
 
     def _ctl(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         r = self._run([*self.paths.systemctl, *args], capture_output=True, text=True)

@@ -61,3 +61,9 @@ def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None
     write_status(paths, profile, code == 0, code, "ok" if code == 0 else f"Client-Exitcode {code}")
     on_line("Backup erfolgreich" if code == 0 else f"Backup fehlgeschlagen (Exitcode {code})")
     return code
+
+
+def read_latest_status(profile: Profile) -> dict | None:
+    """Neuester Laufstatus aus Benutzer- und System-Scope (manuelle Läufe und Timer)."""
+    found = [st for sc in ("user", "system") if (st := read_status(Paths.for_scope(sc), profile))]
+    return max(found, key=lambda st: st["time"]) if found else None

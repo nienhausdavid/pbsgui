@@ -110,6 +110,14 @@ class ProfileManager:
         store = self.secrets if profile.scope == "user" else best_store("system", paths.creds)
         return SystemdScheduler(paths, store).status(profile)
 
+    def move_scope(self, profile: Profile, new_scope: str) -> None:
+        """Wechselt User/System: entfernt den Zeitplan im alten Scope, setzt den neuen Scope (speichert nicht)."""
+        if new_scope == profile.scope:
+            return
+        old = Profile.from_dict({**profile.to_dict(), "scope": profile.scope})
+        self.save(old, schedule="remove")
+        profile.scope = new_scope
+
     # -- Privilegierter Pfad ------------------------------------------------
     def _admin(self, request: dict) -> None:
         if os.geteuid() == 0:

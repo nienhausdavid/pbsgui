@@ -24,6 +24,27 @@ bleibt dessen eigene ACL bestehen (die App entfernt sie vorher).
 - Master-Key-Erzeugung (RSA), Prune, Katalog-Browser fehlen; Key-Rotation ebenso (ein Key wird nie überschrieben)
 - Keine Lizenz festgelegt
 
+## Bedienung: GUI, CLI, TUI
+Alle drei nutzen denselben Core (`pbsgui/core`), beliebig kombinierbar.
+
+| Aufruf | Was |
+|---|---|
+| `pbsgui` | Qt-GUI (braucht `pip install 'pbsgui[gui]'`) |
+| `pbsgui tui` | Terminal-Oberfläche (Textual), läuft auch über SSH ohne Display |
+| `pbsgui list / show / add / probe / backup / snapshots / restore / schedule / status / key / remove` | Kommandozeile, skriptbar (`--json` bei `list`, `snapshots`) |
+
+Beispiele:
+```bash
+pbsgui probe --server pbs.example.org --root-user root@pam        # Datastores/Namespaces ansehen
+pbsgui add --name Laptop --server pbs.example.org --datastore main --namespace laptop   # Weg A (root, einmalig)
+pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id user@pbs!tok  # Weg B
+pbsgui key export Laptop ~/laptop-key.json                       # Schlüssel sichern!
+pbsgui schedule Laptop --calendar daily --scope user
+pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
+```
+Geheimnisse werden nie als Argument akzeptiert: Prompt oder `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
+TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, d Entfernen, q Beenden.
+
 ## Entwickeln
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
