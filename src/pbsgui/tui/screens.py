@@ -25,9 +25,9 @@ class PromptScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Label(self._title)
+            yield Label(self._title, markup=False)
             if self._hint:
-                yield Static(self._hint, classes="hint")
+                yield Static(self._hint, classes="hint", markup=False)
             yield Input(value=self._value, id="prompt-input")
             yield Button("OK", variant="primary", id="ok")
             yield Button("Abbrechen", id="cancel")
@@ -54,7 +54,7 @@ class ConfirmScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Static(self._text)
+            yield Static(self._text, markup=False)
             yield Button("Ja", variant="warning", id="yes")
             yield Button("Nein", id="no")
 
@@ -77,12 +77,12 @@ class AddServerScreen(ModalScreen["tuple[Profile, str] | None"]):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="dialog"):
-            yield Label("Server hinzufügen")
+            yield Label("Server hinzufügen", markup=False)
             yield Input(value=os.uname().nodename, placeholder="Profilname", id="name")
             yield Input(placeholder="Server, z. B. pbs.example.org", id="server")
             yield Input(value="8007", placeholder="Port", id="port")
             yield Button("Fingerprint abrufen", id="fp-btn")
-            yield Static("", id="fp")
+            yield Static("", id="fp", markup=False)
             yield Checkbox("Fingerprint geprüft und vertrauenswürdig", id="fp-ok")
             with RadioSet(id="mode"):
                 yield RadioButton("A: Einmalig als root anmelden (Zugang automatisch anlegen)", value=True)
@@ -94,10 +94,10 @@ class AddServerScreen(ModalScreen["tuple[Profile, str] | None"]):
             yield Input(placeholder="Token-Secret (Weg B)", password=True, id="token-secret")
             yield Button("Verbindung prüfen & Datastores laden", id="check")
             yield Input(placeholder="Datastore", id="datastore")
-            yield Static("", id="stores")
+            yield Static("", id="stores", markup=False)
             yield Input(placeholder="Namespace (leer = Wurzel)", id="namespace")
-            yield Static("", id="ns-info")
-            yield Static("", id="status")
+            yield Static("", id="ns-info", markup=False)
+            yield Static("", id="status", markup=False)
             yield Button("Einrichten", variant="primary", id="setup")
             yield Button("Abbrechen", id="cancel")
 

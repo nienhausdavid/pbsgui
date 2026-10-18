@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>pbsgui APT-Repository</title>
+<h1>pbsgui APT-Repository</h1>
+<pre>
+curl -fsSL https://nienhausdavid.github.io/pbsgui/pbsgui.gpg | sudo tee /usr/share/keyrings/pbsgui.gpg &gt;/dev/null
+echo "deb [signed-by=/usr/share/keyrings/pbsgui.gpg] https://nienhausdavid.github.io/pbsgui stable main" | sudo tee /etc/apt/sources.list.d/pbsgui.list
+sudo apt update &amp;&amp; sudo apt install pbsgui
+</pre>

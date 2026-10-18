@@ -171,3 +171,14 @@ async def test_add_server_requires_fingerprint_confirmation(mgr):
         s.query_one("#check", Button).press()
         await pilot.pause()
         assert "Fingerprint" in text(s.query_one("#status", Static))
+
+
+async def test_brackets_in_data_do_not_break_rendering(mgr):
+    """Regression: Textual 2.x wertete [..] in Daten (Namen, Pfade) als Markup aus und stürzte ab."""
+    p = mgr.profiles()[0]
+    p.name, p.sources = "A [b, -] [/x]", ["/pfad/[test]"]
+    mgr.save(p)
+    async with PbsTui(mgr).run_test() as pilot:
+        await pilot.pause()
+        names = [t for t in (text(pilot.app.query_one("#overview", Static)),)]
+        assert "A [b, -] [/x]" in names[0] and "/pfad/[test]" in names[0]

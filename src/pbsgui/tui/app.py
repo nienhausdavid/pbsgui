@@ -5,6 +5,7 @@ import asyncio
 import time
 from pathlib import Path
 
+from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import DataTable, Footer, Header, OptionList, RichLog, Static, TabbedContent, TabPane
@@ -40,6 +41,10 @@ class PbsTui(App):
         self._snaps: list = []
         self._busy = False
 
+    def _notify(self, message: str, **kw) -> None:
+        """notify() ohne Markup-Auswertung (Fehlertexte können eckige Klammern enthalten)."""
+        self.notify(escape(message), **kw)
+
     def _q(self, selector, expect_type=None):
         """Widget der Hauptansicht, auch wenn gerade ein modaler Dialog darüber liegt.
 
@@ -54,7 +59,7 @@ class PbsTui(App):
             yield OptionList(id="profiles")
             with TabbedContent(id="main"):
                 with TabPane("Übersicht", id="tab-overview"):
-                    yield Static("", id="overview")
+                    yield Static("", id="overview", markup=False)
                 with TabPane("Snapshots", id="tab-snaps"):
                     yield DataTable(id="snaps", cursor_type="row")
                 with TabPane("Log", id="tab-log"):
@@ -111,12 +116,12 @@ class PbsTui(App):
 
     def _need(self) -> Profile | None:
         if not self.current:
-            self.notify("Kein Profil ausgewählt", severity="warning")
+            self._notify("Kein Profil ausgewählt", severity="warning")
         return self.current
 
     def _start(self) -> bool:
         if self._busy:
-            self.notify("Es läuft bereits eine Aktion", severity="warning")
+            self._notify("Es läuft bereits eine Aktion", severity="warning")
             return False
         self._busy = True
         return True
@@ -132,11 +137,11 @@ class PbsTui(App):
                 self.mgr.save(p, token=token)
                 created = self.mgr.enable_encryption(p)
             except Exception as e:
-                self.notify(f"Speichern fehlgeschlagen: {e}", severity="error")
+                self._notify(f"Speichern fehlgeschlagen: {e}", severity="error")
                 return
             self.reload(select=p.name)
             if created:
-                self.notify(f"Schlüssel erzeugt ({p.key_fingerprint}). Jetzt mit [k] sichern: ohne Kopie sind "
+                self._notify(f"Schlüssel erzeugt ({p.key_fingerprint}). Jetzt mit [k] sichern: ohne Kopie sind "
                             "Backups bei Verlust unlesbar!", severity="warning", timeout=15)
         self.push_screen(AddServerScreen(), done)
 
@@ -157,7 +162,7 @@ class PbsTui(App):
 
     def _backup_done(self, code: int) -> None:
         self._busy = False
-        self.notify("Backup erfolgreich" if code == 0 else f"Backup fehlgeschlagen (Exitcode {code})",
+        self._notify("Backup erfolgreich" if code == 0 else f"Backup fehlgeschlagen (Exitcode {code})",
                     severity="information" if code == 0 else "error")
         self.show_overview()
 
@@ -179,7 +184,7 @@ class PbsTui(App):
 
     def _fail(self, msg: str) -> None:
         self._busy = False
-        self.notify(msg, severity="error", timeout=10)
+        self._notify(msg, severity="error", timeout=10)
 
     def _show_snaps(self, snaps: list) -> None:
         self._busy = False
@@ -188,7 +193,7 @@ class PbsTui(App):
         t.clear()
         for i, s in enumerate(snaps):
             t.add_row(str(i), fmt_time(s.backup_time), s.backup_id, fmt_size(s.size), ", ".join(s.files))
-        self.notify(f"{len(snaps)} Snapshots")
+        self._notify(f"{len(snaps)} Snapshots")
 
     def action_restore(self) -> None:
         p = self._need()
@@ -196,12 +201,12 @@ class PbsTui(App):
         if not p:
             return
         if not self._snaps or t.cursor_row >= len(self._snaps):
-            self.notify("Erst mit [r] Snapshots laden und einen auswählen", severity="warning")
+            self._notify("Erst mit [r] Snapshots laden und einen auswählen", severity="warning")
             return
         snap = self._snaps[t.cursor_row]
         archives = [f.removesuffix(".didx") for f in snap.files if f.endswith((".pxar", ".pxar.didx"))]
         if not archives:
-            self.notify("Snapshot enthält kein Datei-Archiv", severity="error")
+            self._notify("Snapshot enthält kein Datei-Archiv", severity="error")
             return
         default = str(Path.home() / f"pbsgui-restore-{time.strftime('%Y%m%d-%H%M%S')}")
 
@@ -211,7 +216,7 @@ class PbsTui(App):
             tp = Path(target).expanduser()
             if tp.exists() and any(tp.iterdir()):
                 self._busy = False
-                self.notify("Zielordner ist nicht leer – bitte neuen wählen", severity="error")
+                self._notify("Zielordner ist nicht leer – bitte neuen wählen", severity="error")
                 return
 
             def work():
@@ -228,7 +233,7 @@ class PbsTui(App):
 
     def _restored(self, target: str) -> None:
         self._busy = False
-        self.notify(f"Wiederhergestellt nach {target}")
+        self._notify(f"Wiederhergestellt nach {target}")
 
     def action_schedule(self) -> None:
         p = self._need()
@@ -248,9 +253,9 @@ class PbsTui(App):
                     p.schedule = expr.strip()
                     self.mgr.save(p, schedule="install")
             except (SchedulerError, Exception) as e:
-                self.notify(str(e), severity="error", timeout=10)
+                self._notify(str(e), severity="error", timeout=10)
                 return
-            self.notify("Zeitplan aktualisiert")
+            self._notify("Zeitplan aktualisiert")
             self.show_overview()
 
         self.push_screen(PromptScreen("Zeitplan (systemd OnCalendar)", p.schedule or "daily",
@@ -262,7 +267,7 @@ class PbsTui(App):
             return
         new = "system" if p.scope == "user" else "user"
         if new == "system" and not can_use_admin():
-            self.notify("Modus 'system' braucht Administrator-Rechte", severity="error")
+            self._notify("Modus 'system' braucht Administrator-Rechte", severity="error")
             return
 
         def got(yes):
@@ -272,7 +277,7 @@ class PbsTui(App):
                 self.mgr.move_scope(p, new)
                 self.mgr.save(p, schedule="install" if p.schedule else "keep")
             except Exception as e:
-                self.notify(str(e), severity="error", timeout=10)
+                self._notify(str(e), severity="error", timeout=10)
                 return
             self.show_overview()
         self.push_screen(ConfirmScreen(f"Modus von '{p.scope}' auf '{new}' wechseln? Ein vorhandener Zeitplan "
@@ -295,18 +300,18 @@ class PbsTui(App):
             created = self.mgr.enable_encryption(p)
             self.mgr.save(p)
         except Exception as e:
-            self.notify(str(e), severity="error", timeout=10)
+            self._notify(str(e), severity="error", timeout=10)
             return
         self.show_overview()
         if created:
-            self.notify(f"Schlüssel erzeugt ({p.key_fingerprint}). Jetzt mit [k] sichern!", severity="warning", timeout=15)
+            self._notify(f"Schlüssel erzeugt ({p.key_fingerprint}). Jetzt mit [k] sichern!", severity="warning", timeout=15)
 
     def action_key(self) -> None:
         p = self._need()
         if not p:
             return
         if not self.mgr.secrets.get(p.slug, "key"):
-            self.notify("Kein automatisch erzeugter Schlüssel vorhanden", severity="warning")
+            self._notify("Kein automatisch erzeugter Schlüssel vorhanden", severity="warning")
             return
 
         def got(dest):
@@ -314,14 +319,14 @@ class PbsTui(App):
                 return
             d = Path(dest).expanduser()
             if d.exists():
-                self.notify(f"{d} existiert bereits", severity="error")
+                self._notify(f"{d} existiert bereits", severity="error")
                 return
             try:
                 self.mgr.export_key(p, str(d))
             except Exception as e:
-                self.notify(str(e), severity="error")
+                self._notify(str(e), severity="error")
                 return
-            self.notify(f"Schlüssel exportiert nach {d} (0600). Sicher aufbewahren!", severity="warning", timeout=10)
+            self._notify(f"Schlüssel exportiert nach {d} (0600). Sicher aufbewahren!", severity="warning", timeout=10)
         self.push_screen(PromptScreen("Schlüssel exportieren nach:", str(Path.home() / f"{p.slug}-key.json"),
                                       "Ohne Kopie sind verschlüsselte Backups bei Verlust nicht wiederherstellbar."), got)
 
@@ -348,7 +353,7 @@ class PbsTui(App):
                 try:
                     self.mgr.delete(p)
                 except Exception as e:
-                    self.notify(str(e), severity="error")
+                    self._notify(str(e), severity="error")
                 self.reload()
         self.push_screen(ConfirmScreen(f"Profil '{p.name}' samt Zeitplan und Geheimnissen entfernen? "
                                        "(Der Zugang auf dem PBS-Server bleibt bestehen.)"), got)

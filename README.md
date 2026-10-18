@@ -24,6 +24,14 @@ bleibt dessen eigene ACL bestehen (die App entfernt sie vorher).
 - Master-Key-Erzeugung (RSA), Prune, Katalog-Browser fehlen; Key-Rotation ebenso (ein Key wird nie überschrieben)
 - Keine Lizenz festgelegt
 
+## Installation
+Als Debian-Paket (Debian 13; reines Python, nutzt `python3-textual` und `python3-pyside6.*` der Distribution):
+```bash
+scripts/build-deb.sh dist && sudo apt install ./dist/pbsgui_*_all.deb
+```
+Ein signiertes APT-Repository über GitHub Pages ist vorbereitet, siehe [docs/RELEASING.md](docs/RELEASING.md).
+Den `proxmox-backup-client` gibt es im Proxmox-Client-Repository (`pbs-client`).
+
 ## Bedienung: GUI, CLI, TUI
 Alle drei nutzen denselben Core (`pbsgui/core`), beliebig kombinierbar.
 
