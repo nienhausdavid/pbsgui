@@ -57,8 +57,18 @@ def boot_and_login(vm: VM, luks: bool, timeout=300) -> None:
     vm.start()
     if luks:
         vm.expect(r"Please unlock disk|Enter passphrase", timeout)
-        vm.send(PASS + "\n")
-    vm.expect(r"root@[\w-]+:[~/]\S*# ", timeout)
+        for attempt in range(3):           # die Abfrage verwirft Eingaben, die zu früh kommen: notfalls wiederholen
+            time.sleep(2)
+            vm.send(PASS + "\n")
+            try:
+                vm.expect(r"root@[\w-]+:[~/]\S*# ", 40)
+                break
+            except TimeoutError:
+                if attempt == 2:
+                    raise
+                log("Passphrase nicht angenommen, neuer Versuch")
+    else:
+        vm.expect(r"root@[\w-]+:[~/]\S*# ", timeout)
     vm.send("\n")
     vm.run("true", 30)
 
@@ -98,6 +108,9 @@ def backup(a) -> None:
         boot_and_login(vm, luks=True)
         log("Quell-VM läuft")
         wait_network(vm)
+        # Das minimale Testsystem hat kein sfdisk (Paket fdisk): wie vom Notfallblatt-Check empfohlen nachinstallieren
+        out, rc = vm.run("apt-get install -y -qq fdisk >/dev/null 2>&1; command -v sfdisk", 300)
+        assert rc == 0, "fdisk konnte nicht installiert werden"
         out, rc = vm.run(
             f"PBSGUI_TOKEN_SECRET='{s['secret']}' pbsgui add --name vm --server {HOST} --datastore {DS} "
             f"--namespace {NS} --token-id '{s['auth_id']}' --fingerprint '{FP}' --mode full --backup-id quell-pc "
@@ -111,12 +124,17 @@ def backup(a) -> None:
         print(out[-2500:])
         assert rc == 0, "Backup fehlgeschlagen"
         out, _ = vm.run("base64 -w0 /root/key.json; echo", 30)
-        key_b64 = next(l for l in out.splitlines() if len(l) > 40 and " " not in l)
+        import re
+        key_b64 = re.findall(r"[A-Za-z0-9+/=]{40,}", out.split("base64 -w0", 1)[-1])[-1]
         save(key_b64=key_b64)
         out, rc = vm.run("pbsgui snapshots vm --json | head -c 600", 60)
         print(out)
-        vm.run("sync; poweroff", 20)
-        vm.proc.wait(timeout=120)
+        vm.run("sync", 30)
+        vm.send("poweroff\n")
+        try:
+            vm.proc.wait(timeout=60)
+        except Exception:
+            pass  # Daten sind synchronisiert; der Rest wird im finally beendet
         log("Backup abgeschlossen")
     finally:
         vm.kill()
@@ -145,7 +163,6 @@ def restore(a) -> None:
         key_b64 = s["key_b64"]
         vm.run("mkdir -p /media/usb /etc/pbsgui", 10)
         vm.run(f"echo {key_b64} | base64 -d > /media/usb/key.json", 10)
-        vm.run("loadkeys us", 10)
         cfg = {"server": HOST, "datastore": DS, "namespace": NS, "auth_id": s["auth_id"], "fingerprint": FP,
                "backup_id": "quell-pc"}
         vm.run(f"echo '{json.dumps(cfg)}' > /etc/pbsgui/rescue.json", 10)
@@ -157,14 +174,13 @@ def restore(a) -> None:
         print(out[-3500:])
         assert rc == 0, "Trockenlauf fehlgeschlagen"
         # Assistent auf der ersten Konsole neu starten (jetzt mit vorausgefüllter rescue.json)
-        vm.keys("q")
-        time.sleep(1)
+        vm.run("pkill -f '[p]bsgui rescue' || true", 10)   # den beim Boot gestarteten Assistenten beenden
+        time.sleep(2)
         vm.keys("clear\npbsgui rescue\n")
-        time.sleep(4)
+        time.sleep(6)
         if a.screens:
             vm.screenshot(shots / "02-verbindung.png")
-        for _ in range(6):                 # server -> ... -> token
-            vm.key("tab")
+        # Der Fokus liegt automatisch auf dem ersten leeren Feld: dem Token-Secret
         vm.keys(s["secret"])
         for _ in range(3):                 # token -> fingerprint -> Fingerprint-Knopf -> Schlüsseldatei
             vm.key("tab")
@@ -172,8 +188,8 @@ def restore(a) -> None:
         time.sleep(1)
         if a.screens:
             vm.screenshot(shots / "03-zugangsdaten.png")
-        vm.key("tab")
-        vm.key("ret")                      # Weiter
+        vm.key("tab"); vm.key("tab")       # USB-Suche -> Weiter
+        vm.key("ret")
         time.sleep(8)
         if a.screens:
             vm.screenshot(shots / "04-snapshot.png")
@@ -195,8 +211,8 @@ def restore(a) -> None:
         t0 = time.time()
         shot_done = False
         while time.time() - t0 < 3600:
-            time.sleep(20)
-            if a.screens and time.time() - t0 > 90 and not shot_done:
+            time.sleep(12)
+            if a.screens and time.time() - t0 > 20 and not shot_done:
                 vm.screenshot(shots / "07-laeuft.png")
                 shot_done = True
             out, _ = vm.run("tail -c 300 /proc/loadavg >/dev/null; pgrep -f 'proxmox-backup-client restore' >/dev/null && echo RUNNING || echo IDLE", 20)
@@ -209,8 +225,11 @@ def restore(a) -> None:
         out, _ = vm.run("lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS /dev/vda; ls /mnt/target 2>/dev/null | head", 30)
         print(out)
         vm.run("sync", 60)
-        vm.run("poweroff", 20)
-        vm.proc.wait(timeout=180)
+        vm.send("poweroff\n")
+        try:
+            vm.proc.wait(timeout=60)
+        except Exception:
+            pass  # Daten sind synchronisiert; der Rest wird im finally beendet
         log("Wiederherstellung beendet")
     finally:
         vm.kill()
@@ -238,8 +257,11 @@ def verify(a) -> None:
         print("Kennungen (UUID/PARTUUID) identisch:", same)
         assert ok and same, "Verifikation fehlgeschlagen"
         log("VERIFIKATION ERFOLGREICH: System bootet, Dateien und Kennungen identisch")
-        vm.run("poweroff", 20)
-        vm.proc.wait(timeout=120)
+        vm.send("poweroff\n")
+        try:
+            vm.proc.wait(timeout=60)
+        except Exception:
+            pass  # Daten sind synchronisiert; der Rest wird im finally beendet
     finally:
         vm.kill()
 
@@ -254,8 +276,8 @@ def cleanup(_a) -> None:
             log(f"gelöscht: {label}")
         except ApiError as e:
             log(f"{label}: {e}")
-    for f in WORK.glob("*.img"):
-        f.unlink()
+    for name in ("src-run.img", "restored.img", "blank.img"):   # nie das Quell-Image source.img
+        (WORK / name).unlink(missing_ok=True)
     STATE.unlink(missing_ok=True)
 
 

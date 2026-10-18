@@ -78,6 +78,17 @@ class ConnectScreen(Screen):
             yield Button("Weiter", variant="primary", id="next")
         yield Footer()
 
+    def on_mount(self) -> None:
+        # Fokus auf das erste noch leere Pflichtfeld (bei vorausgefüllter rescue.json: das Token-Secret)
+        self.call_after_refresh(self._focus_first_empty)
+
+    def _focus_first_empty(self) -> None:
+        for wid in ("server", "datastore", "auth-id", "token", "fingerprint"):
+            if not self.query_one(f"#{wid}", Input).value.strip():
+                self.query_one(f"#{wid}", Input).focus()
+                return
+        self.query_one("#next", Button).focus()
+
     def _v(self, wid: str) -> str:
         return self.query_one(f"#{wid}", Input).value.strip()
 
@@ -248,6 +259,10 @@ class PlanScreen(Screen):
             yield Button("Trockenlauf (nur anzeigen)", id="dry")
             yield Button("Zurück", id="back")
         yield Footer()
+
+    def on_mount(self) -> None:
+        # Tastatureingaben sollen direkt im Bestätigungsfeld landen (nicht im scrollbaren Container)
+        self.call_after_refresh(lambda: self.query_one("#confirm", Input).focus())
 
     def on_button_pressed(self, e: Button.Pressed) -> None:
         if e.button.id == "back":

@@ -14,6 +14,7 @@ cryptsetup
 cryptsetup-initramfs
 lvm2
 mdadm
+fdisk
 gdisk
 parted
 dosfstools

@@ -126,7 +126,9 @@ def test_mount_order_root_first_and_target_paths(rec_dir):
 def test_cleanup_reverse_order(rec_dir):
     plan = build_layout_plan(RecoveryData.from_dir(rec_dir), "/dev/vda", "x")
     c = [s.argv[0:2] for s in plan.cleanup]
-    assert c == [["umount", "-R"], ["vgchange", "-an"], ["cryptsetup", "close"]]  # erst VG, dann LUKS
+    cmds = [" ".join(s.argv) for s in plan.cleanup]
+    assert "umount -R" in cmds[0] and "vgchange -an" in cmds[1] and "cryptsetup close" in cmds[2]  # Aushängen, VG, LUKS
+    assert all("for i in 1 2 3 4 5" in c for c in cmds[1:])  # kurze Wiederholungen, falls das Gerät noch kurz belegt ist
 
 
 def test_errors(rec_dir, tmp_path):
@@ -171,6 +173,9 @@ def test_restore_and_finish_steps(rec_dir):
     assert any("update-initramfs -u -k all" in c for c in uefi)
     assert any("--bootloader-id=debian" in c for c in uefi) and any("--removable" in c for c in uefi)
     assert uefi[-1].endswith("update-grub")
+    assert all(" env LC_ALL=C " in c for c in uefi if c.startswith("chroot"))             # keine Locale-Warnungen
+    assert uefi[0].startswith("sh -c") and "mkdir -p proc sys dev run tmp var/tmp" in uefi[0]  # vom Backup ausgeschlossen
+    assert "chmod 1777 tmp var/tmp" in uefi[0]
     bios = [" ".join(s.argv) for s in finish_steps(rec, "/mnt/target", "/dev/vda", uefi=False)]
     assert any(c.endswith("grub-install --recheck /dev/vda") for c in bios) and not any("efi" in c for c in bios)
 
@@ -282,7 +287,8 @@ def test_execute_runs_everything_in_order_and_always_cleans_up(rec_dir, rescue_c
         path = "host/pc/2026-10-18T12:00:00Z"
     assert execute(rescue_cfg, S(), rec, plan, lines.append, popen=fp) is True
     names = [c[0] for c in fp.calls]
-    assert names.index("wipefs") < names.index(rescue_cfg.client) < names.index("chroot") < names.index("umount")
+    umount_at = next(i for i, c in enumerate(fp.calls) if "umount -R" in " ".join(c))
+    assert names.index("wipefs") < names.index(rescue_cfg.client) < names.index("chroot") < umount_at
     assert any("update-grub" in " ".join(c) for c in fp.calls)
     assert lines[-1].startswith("Wiederherstellung abgeschlossen")
 
@@ -296,7 +302,8 @@ def test_execute_failure_stops_but_still_cleans_up(rec_dir, rescue_cfg):
     assert execute(rescue_cfg, S(), rec, plan, lines.append, popen=fp) is False
     names = [c[0] for c in fp.calls]
     assert rescue_cfg.client not in names and "chroot" not in names     # nichts wurde zurückgespielt
-    assert "umount" in names and "vgchange" in names and "cryptsetup" in names[-3:] + ["cryptsetup"]  # aufgeräumt
+    joined = [" ".join(c) for c in fp.calls]
+    assert any("umount -R" in j for j in joined) and any("vgchange -an" in j for j in joined)  # aufgeräumt
     assert not any("Wiederherstellung abgeschlossen" in l for l in lines)
 
 
@@ -362,3 +369,21 @@ def test_mount_removable_mounts_only_unmounted_partitions_readonly(tmp_path):
     got = mount_removable(run, base=str(tmp_path / "pbs"))
     assert got == [str(tmp_path / "pbs/sdb1")]
     assert [c for c in calls if c[0] == "mount"] == [["mount", "-o", "ro", "/dev/sdb1", str(tmp_path / "pbs/sdb1")]]
+
+
+def test_efi_label_comes_from_boot_path_not_firmware_entries(rec_dir):
+    (rec_dir / "efibootmgr.txt").write_text(
+        "BootCurrent: 0001\nBoot0000* UiApp\tFvVol(7cb8bdc9)/FvFile(462caa21)\n"
+        "Boot0001* Ubuntu\tHD(1,GPT,x)/File(\\EFI\\ubuntu\\shimx64.efi)\n"
+        "Boot0002* UEFI QEMU\tPciRoot(0x0)/Sata(0,0,0)\n")
+    assert RecoveryData.from_dir(rec_dir).efi_label == "ubuntu"
+    (rec_dir / "efibootmgr.txt").write_text("Boot0000* UiApp\tFvVol(7cb8bdc9)\nBoot0001* Windows\tHD(1)/File(\\EFI\\BOOT\\BOOTX64.EFI)\n")
+    assert RecoveryData.from_dir(rec_dir).efi_label == "debian"   # kein passender Eintrag: Standard
+
+
+def test_dry_run_message_does_not_claim_restore(rec_dir, rescue_cfg):
+    rec = RecoveryData.from_dir(rec_dir)
+    lines = []
+    execute(rescue_cfg, type("S", (), {"path": "host/pc/x"})(), rec, build_layout_plan(rec, "/dev/vda", "pw"),
+            lines.append, dry_run=True, popen=FakePopen())
+    assert lines[-1] == "Trockenlauf beendet: es wurde nichts verändert."

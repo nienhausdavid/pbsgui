@@ -124,3 +124,20 @@ async def test_no_full_backup_gives_clear_message(lab, fake_env):
         fill(app.screen, token="x")
         app.screen.query_one("#next", Button).press()
         assert await wait_for(pilot, lambda: "Kein Vollbackup" in str(app.screen.query_one("#status").render()))
+
+
+async def test_confirm_field_has_focus_so_typing_works(lab):
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 60)) as pilot:
+        await to_plan(pilot, app)
+        assert await wait_for(pilot, lambda: app.screen.focused is app.screen.query_one("#confirm", Input))
+        await pilot.press(*"/dev/sda")                       # wie ein Benutzer: einfach lostippen
+        assert app.screen.query_one("#confirm", Input).value == "/dev/sda"
+
+
+async def test_connect_screen_focuses_first_empty_field(lab):
+    cfg = RescueConfig(server="pbs.example", datastore="store1", auth_id="u@pbs!t", fingerprint="AA")
+    app = rtui.RescueApp(cfg)
+    async with app.run_test(size=(140, 60)) as pilot:
+        await pilot.pause()
+        assert await wait_for(pilot, lambda: app.screen.focused is app.screen.query_one("#token", Input))

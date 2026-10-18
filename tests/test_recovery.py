@@ -171,3 +171,17 @@ def test_home_backup_unaffected(fake_env, profile, paths):
     store = FileStore(paths.creds)
     store.put(profile.slug, "token", "t")
     assert run_profile(profile, paths, store, lambda _l: None) == 0
+
+
+def test_missing_recovery_tools_names_the_package(monkeypatch):
+    from pbsgui.core import recovery as rec
+    monkeypatch.setattr(rec.Path, "exists", lambda self: False)   # auch /usr/sbin enthält nichts
+    miss = rec.missing_recovery_tools(which=lambda t: None if t == "sfdisk" else "/usr/bin/" + t)
+    assert miss == {"sfdisk": "fdisk"}
+    assert rec.missing_recovery_tools(which=lambda t: "/x") == {}
+
+
+def test_collect_warns_loudly_when_sfdisk_is_missing(profile, tmp_path):
+    profile.backup_mode, profile.encrypt = FULL, False
+    got = collect_recovery(tmp_path / "rec", profile, run=FakeRun(), which=lambda n: None if n == "sfdisk" else "/x")
+    assert any("sfdisk nicht installiert (Paket fdisk)" in w and "OHNE sie" in w for w in got.warnings)

@@ -71,7 +71,9 @@ TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, s Zeitplan, m Modus
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m pytest        # Tests (Fake-Client unter tests/)
+sudo env PYTHONPATH=src PATH=$PATH:/usr/sbin .venv/bin/python -m pytest tests/test_rescue_integration.py   # Layout-Nachbau mit echten Loop-Geräten (root)
 .venv/bin/pbsgui                  # GUI starten
 scripts/install-desktop.sh        # Starter + Icon im Anwendungsmenü installieren (~/.local/share)
 ```
+Ende-zu-Ende in QEMU (Backup → ISO-Wiederherstellung → Boot): `tests/vm/` (siehe Kopf von `e2e.py`).
 Debian/Ubuntu: `sudo apt install python3-venv`, dazu den `proxmox-backup-client` aus dem Proxmox-Client-Repo.

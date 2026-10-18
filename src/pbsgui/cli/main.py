@@ -20,7 +20,7 @@ from ..core.modes import FULL, HOME, describe, detect_mounts, mount_choices, pla
 from ..core.onboarding import (connect_root, connect_token, namespace_message, namespace_state,
                                provision_and_verify, verify_token_profile)
 from ..core.paths import Paths
-from ..core.recovery import collect_recovery, needs_key_export, render_sheet
+from ..core.recovery import collect_recovery, missing_recovery_tools, needs_key_export, render_sheet
 from ..core.pbs_api import ApiError, TokenExistsError, fetch_fingerprint
 from ..core.runner import read_latest_status
 from ..core.scheduler import SchedulerError, validate_calendar
@@ -212,6 +212,9 @@ def cmd_add(a, mgr: ProfileManager) -> int:
     if profile.backup_mode == FULL:
         print("Hinweis: Dateibasiertes Vollbackup, kein Systemabbild. Es läuft mit Administrator-Rechten (Modus system).")
         print(_mounts_summary(profile))
+        for tool, pkg in missing_recovery_tools().items():
+            print(f"WARNUNG: {tool} fehlt (Paket {pkg}): ohne Partitionstabelle ist keine Wiederherstellung auf einem "
+                  f"neuen PC möglich. Installieren: apt install {pkg}")
     return 0
 
 
@@ -369,6 +372,9 @@ def cmd_recovery(a, mgr) -> int:
                      "  <- PFLICHT: pbsgui key export " + p.name + " <ZIELDATEI>"))
         else:
             print("  [-] Verschlüsselung aus: kein Schlüssel nötig")
+        miss = missing_recovery_tools()
+        print(f"  {ok(not miss)} Werkzeuge für die Datenträger-Metadaten"
+              + (": fehlt " + ", ".join(f"{t} (apt install {pkg})" for t, pkg in miss.items()) if miss else ""))
         print("  [ ] Notfallblatt ausdrucken: pbsgui recovery " + p.name + " --sheet <DATEI>")
         print("  Datenträger-Metadaten werden bei jedem Vollbackup automatisch mitgesichert "
               "(/var/lib/pbsgui/recovery/" + p.slug + "/).")

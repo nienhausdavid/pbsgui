@@ -46,9 +46,10 @@ mount "/dev/$VG/root" "$MP"
 mkdir -p "$MP/boot"; mount "${LOOP}p2" "$MP/boot"
 mkdir -p "$MP/boot/efi"; mount "${LOOP}p1" "$MP/boot/efi"
 
+mkdir -p /var/cache/pbsgui-debootstrap
 debootstrap --variant=minbase --cache-dir=/var/cache/pbsgui-debootstrap \
-  --include=systemd-sysv,linux-image-amd64,grub-efi-amd64,cryptsetup-initramfs,lvm2,e2fsprogs,dosfstools,iproute2,ca-certificates,curl,python3,python3-textual,gdisk,efibootmgr,netbase,less,nano,kmod,udev,dbus,systemd-resolved,passwd,login,util-linux,mount,coreutils \
-  trixie "$MP" http://deb.debian.org/debian >/dev/null
+  --include=systemd-sysv,linux-image-amd64,grub-efi-amd64,cryptsetup-initramfs,lvm2,e2fsprogs,dosfstools,fdisk,iproute2,ca-certificates,curl,python3,python3-textual,gdisk,efibootmgr,netbase,less,nano,kmod,udev,dbus,systemd-resolved,passwd,login,util-linux,mount,coreutils \
+  trixie "$MP" http://deb.debian.org/debian || { echo "debootstrap fehlgeschlagen:" >&2; tail -25 "$MP/debootstrap/debootstrap.log" >&2; exit 1; }
 
 uuid() { blkid -s UUID -o value "$1"; }
 cat > "$MP/etc/fstab" <<FSTAB
@@ -75,7 +76,7 @@ GRUBCFG
 curl -fsSL https://enterprise.proxmox.com/debian/proxmox-archive-keyring-trixie.gpg -o "$MP/usr/share/keyrings/proxmox-archive-keyring.gpg"
 echo "deb [signed-by=/usr/share/keyrings/proxmox-archive-keyring.gpg] http://download.proxmox.com/debian/pbs-client trixie main" > "$MP/etc/apt/sources.list.d/pbs-client.list"
 cp "$DEB" "$MP/root/pbsgui.deb"
-cp /etc/resolv.conf "$MP/etc/resolv.conf"
+rm -f "$MP/etc/resolv.conf"; cp /etc/resolv.conf "$MP/etc/resolv.conf"   # echte Datei statt Symlink ins (verdeckte) /run
 for d in dev dev/pts proc sys; do mount --bind "/$d" "$MP/$d"; done
 mount -t tmpfs tmpfs "$MP/run"
 chroot "$MP" sh -eu <<'CHROOT'

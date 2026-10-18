@@ -47,6 +47,20 @@ def ensure_recoverable(profile: Profile) -> None:
             f"pbsgui key export {profile.name} <ZIELDATEI>")
 
 
+REQUIRED_TOOLS = {"lsblk": "util-linux", "blkid": "util-linux", "sfdisk": "fdisk"}
+
+
+def missing_recovery_tools(which: Callable[[str], str | None] = shutil.which) -> dict[str, str]:
+    """Werkzeuge, ohne die ein Vollbackup nicht auf einem neuen PC wiederherstellbar ist: Name -> Debian-Paket.
+
+    Gefunden im VM-Test: Ein minimal installiertes Debian hat kein sfdisk (Paket fdisk); dann fehlt im Backup die
+    Partitionstabelle. Prüfung auch in /usr/sbin, falls der PATH sie nicht enthält.
+    """
+    def have(tool: str) -> bool:
+        return bool(which(tool) or any(Path(d, tool).exists() for d in ("/usr/sbin", "/sbin", "/usr/bin")))
+    return {t: pkg for t, pkg in REQUIRED_TOOLS.items() if not have(t)}
+
+
 def _version() -> str:
     try:
         from importlib.metadata import version
@@ -70,7 +84,9 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
     def sh(argv: list[str], outfile: str | None = None, artifact: str | None = None) -> str | None:
         """Führt einen Befehl aus. outfile: stdout dorthin; artifact: Datei, die der Befehl selbst erzeugt."""
         if not which(argv[0]):
-            note(f"{argv[0]} nicht installiert")
+            hint = f" (Paket {REQUIRED_TOOLS[argv[0]]})" if argv[0] in REQUIRED_TOOLS else ""
+            note(f"{argv[0]} nicht installiert{hint}" + (": OHNE sie ist keine Wiederherstellung auf einem neuen PC "
+                                                        "möglich" if argv[0] in REQUIRED_TOOLS else ""))
             return None
         try:
             r = run(argv, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)

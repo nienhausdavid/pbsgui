@@ -87,8 +87,9 @@ class RecoveryData:
         except (OSError, ValueError):
             pass
         label = "debian"
-        try:
-            m = re.search(r"Boot[0-9A-F]{4}\*?\s+(\S+)", (d / "efibootmgr.txt").read_text())
+        try:  # Verzeichnis unter \EFI\, in dem GRUB/shim lag (nicht Firmware-Einträge wie "UiApp")
+            m = re.search(r"File\(\\EFI\\(?!BOOT\\)([^\\)]+)\\(?:grub|shim)", (d / "efibootmgr.txt").read_text(),
+                          re.I)
             label = m.group(1) if m else label
         except OSError:
             pass
@@ -215,8 +216,9 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
             plan.steps.append(Step(f"LUKS {dev} öffnen als {child.name}",
                                    ["cryptsetup", "open", "--type", "luks", "--key-file=-", dev, child.name],
                                    stdin=passphrase))
-            plan.cleanup.append(Step(f"LUKS {child.name} schließen", ["cryptsetup", "close", child.name],
-                                     ok_codes=(0, 4)))
+            plan.cleanup.append(Step(f"LUKS {child.name} schließen",
+                                     ["sh", "-c", 'for i in 1 2 3 4 5; do cryptsetup close "$1" && exit 0; sleep 2; done; exit 5',
+                                      "luks-close", child.name], ok_codes=(0, 4, 5)))
             visit(child, f"/dev/mapper/{child.name}")
             return
         if node.fstype == "LVM2_member":
@@ -244,7 +246,9 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
         plan.steps.append(Step(f"Volume Group {vg} wiederherstellen",
                                ["vgcfgrestore", "-f", str(rec.vg_files[vg]), "--force", vg], destructive=True))
         plan.steps.append(Step(f"Volume Group {vg} aktivieren", ["vgchange", "-ay", vg]))
-        plan.cleanup.append(Step(f"Volume Group {vg} deaktivieren", ["vgchange", "-an", vg], ok_codes=(0, 5)))
+        plan.cleanup.append(Step(f"Volume Group {vg} deaktivieren",
+                                 ["sh", "-c", 'for i in 1 2 3 4 5; do vgchange -an "$1" && exit 0; sleep 2; done; exit 5',
+                                  "vg-deactivate", vg], ok_codes=(0, 5)))
     if vg_pvs:
         plan.steps.append(Step("Auf Geräte warten", ["udevadm", "settle"]))
 
@@ -268,7 +272,11 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
                                                            target, dev]))
         plan.summary.append(f"{mp:<12} {node.fstype:<6} {dev}")
     # Aufräumen in umgekehrter Reihenfolge des Aufbaus: erst aushängen, dann VG deaktivieren, dann LUKS schließen
-    plan.cleanup = [Step("Zielsystem aushängen", ["umount", "-R", "-l", mount_root], ok_codes=(0, 1, 32)),
+    # erst normal, dann lazy aushängen; danach die Geräte freigeben lassen (sonst bleibt der LV/LUKS "in Benutzung")
+    plan.cleanup = [Step("Zielsystem aushängen", ["sh", "-c", 'sync; umount -R "$1" 2>/dev/null; '
+                                                  'for m in $(findmnt -rn -o TARGET -R "$1" 2>/dev/null | sort -r); '
+                                                  'do umount -l "$m" 2>/dev/null; done; udevadm settle; sleep 1',
+                                                  "umount", mount_root], ok_codes=(0, 1, 32)),
                     *reversed(plan.cleanup)]
     return plan
 
@@ -341,8 +349,12 @@ def restore_step(client: str, snapshot: str, archive: str, mount_root: str, name
 
 def finish_steps(rec: RecoveryData, mount_root: str, target_disk: str, uefi: bool) -> list[Step]:
     """Im chroot: Initramfs und Bootloader neu erzeugen (Hardware kann sich geändert haben)."""
-    chroot = lambda *a: ["chroot", mount_root, *a]
-    steps = [Step(f"/{d} einbinden", ["sh", "-c", 'mkdir -p "$2" && mount --rbind "$1" "$2" && mount --make-rslave "$2"',
+    # LC_ALL=C: die Live-Umgebung hat de_DE gesetzt, das Zielsystem nicht zwingend (sonst Locale-Warnungen)
+    chroot = lambda *a: ["chroot", mount_root, "env", "LC_ALL=C", *a]
+    steps = [Step("Leere Systemverzeichnisse anlegen (vom Backup ausgeschlossen: /tmp, /var/tmp, /proc …)",
+                  ["sh", "-c", 'cd "$1" && mkdir -p proc sys dev run tmp var/tmp mnt media && chmod 1777 tmp var/tmp',
+                   "mkdirs", mount_root])]
+    steps += [Step(f"/{d} einbinden", ["sh", "-c", 'mkdir -p "$2" && mount --rbind "$1" "$2" && mount --make-rslave "$2"',
                                       "bind", f"/{d}", f"{mount_root}/{d}"]) for d in ("dev", "proc", "sys", "run")]
     steps.append(Step("Initramfs neu erzeugen", chroot("update-initramfs", "-u", "-k", "all")))
     if uefi:
@@ -516,4 +528,5 @@ def execute(cfg: RescueConfig, snapshot, rec: RecoveryData, plan: Plan, on_line:
         on_line("==> Aufräumen")
         run_steps(plan.cleanup, on_line, env, dry_run, popen)
         if ok:
-            on_line("Wiederherstellung abgeschlossen. System neu starten und das Rettungsmedium entfernen.")
+            on_line("Trockenlauf beendet: es wurde nichts verändert." if dry_run else
+                    "Wiederherstellung abgeschlossen. System neu starten und das Rettungsmedium entfernen.")

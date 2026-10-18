@@ -18,10 +18,10 @@ So spielst du ein **Vollbackup** auf einem neuen oder leeren PC zurück. Du brau
 ## 1. Vom Rettungsmedium starten
 
 Stick einstecken, PC starten und im Boot-Menü (meist `F12`, `F11`, `Esc` oder `Entf`) den Stick wählen. Das
-Medium startet in UEFI und BIOS. Nach etwa einer halben Minute erscheint der Wiederherstellungs-Assistent
-automatisch auf der ersten Konsole.
+Das Boot-Menü (UEFI: GRUB, BIOS: syslinux) startet nach 5 Sekunden von selbst. Nach etwa einer halben Minute
+erscheint der Wiederherstellungs-Assistent automatisch auf der ersten Konsole.
 
-![Start der Rettungs-ISO](images/01-start.png)
+![Der Assistent startet automatisch](images/01-start.png)
 
 Kein Netzwerk? Mit `n` startet `nmtui` (WLAN/LAN einrichten). Lässt sich der Assistent später neu starten:
 `pbsgui rescue`. Die Tastatur ist auf Deutsch gestellt.
@@ -98,6 +98,18 @@ PBSGUI_TOKEN_SECRET=… PBSGUI_LUKS_PASSPHRASE=… \
 | „Ziel-Platte zu klein“ | Die neue Platte muss mindestens so groß sein wie die alte. |
 | Keine Ziel-Platte angeboten | Die Platte ist eingehängt oder ist der Rettungsstick. `lsblk` und `umount` prüfen. |
 | System bootet nicht (neue Hardware) | Rettungsstick erneut starten, `pbsgui rescue` nicht erneut ausführen, sondern manuell: Ziel einhängen, `chroot`, `update-initramfs -u -k all`, `grub-install`, `update-grub`. |
+
+## Getestet
+
+Der ganze Weg wurde in QEMU mit UEFI-Firmware durchgespielt: Vollbackup eines Debian-13-Testsystems (GPT, ESP,
+getrenntes `/boot`, LUKS, LVM, ext4, Swap) in einen PBS-Datastore, Wiederherstellung per ISO-Assistent (mit
+simulierten Tastendrücken, daher stammen die Bilder aus diesem Lauf) auf eine leere Platte, danach Boot der
+wiederhergestellten Platte über den Fallback-Bootloader, Entsperren per LUKS-Passphrase. Geprüft wurden Prüfsummen,
+Rechte, Besitzer, Links und dass **alle UUIDs und PARTUUIDs identisch** sind. Die Bilder zeigen Testdaten
+(Test-Server, Test-Token).
+
+Nicht getestet: echte Hardware, BIOS-Boot der ISO, Secure Boot, WLAN, andere Dateisysteme als ext4/vfat/swap im
+VM-Test (der Plan-Code kennt xfs und btrfs und ist per Unit-Test abgedeckt).
 
 ## Grenzen
 

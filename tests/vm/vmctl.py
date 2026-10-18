@@ -11,23 +11,24 @@ from pathlib import Path
 OVMF = "/usr/share/ovmf/OVMF.fd"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Z0-9]|\r")
 
-# US-Tastaturbelegung (in der Rettungs-ISO vorher per `loadkeys us` einstellen)
-SHIFT = {"!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
-         "_": "minus", "+": "equal", ":": "semicolon", '"': "apostrophe", "<": "comma", ">": "dot", "?": "slash",
-         "{": "bracket_left", "}": "bracket_right", "|": "backslash", "~": "grave_accent"}
-PLAIN = {" ": "spc", "\n": "ret", "\t": "tab", "-": "minus", "=": "equal", ".": "dot", ",": "comma", "/": "slash",
-         ";": "semicolon", "'": "apostrophe", "[": "bracket_left", "]": "bracket_right", "\\": "backslash",
-         "`": "grave_accent"}
+# Tastaturbelegung der Rettungs-ISO: Deutsch (QEMU `sendkey` kennt Scancodes, die der Gast nach seiner Belegung deutet)
+DE_PLAIN = {" ": "spc", "\n": "ret", "\t": "tab", "-": "slash", ".": "dot", ",": "comma", "+": "bracket_right",
+            "#": "backslash", "y": "z", "z": "y"}
+DE_SHIFT = {"/": "7", ":": "dot", ";": "comma", "_": "slash", "=": "0", "!": "1", '"': "2", "?": "minus",
+            "(": "8", ")": "9", "&": "6", "%": "5", "$": "4", "*": "bracket_right"}
+DE_ALTGR = {"@": "q", "|": "less", "\\": "minus", "[": "8", "]": "9", "{": "7", "}": "0"}
 
 
 def keyname(ch: str) -> str:
-    if ch in PLAIN:
-        return PLAIN[ch]
-    if ch in SHIFT:
-        return "shift-" + SHIFT[ch]
+    if ch in DE_PLAIN:
+        return DE_PLAIN[ch]
+    if ch in DE_SHIFT:
+        return "shift-" + DE_SHIFT[ch]
+    if ch in DE_ALTGR:
+        return "alt_r-" + DE_ALTGR[ch]
     if ch.isupper():
-        return "shift-" + ch.lower()
-    return ch  # a-z, 0-9
+        return "shift-" + DE_PLAIN.get(ch.lower(), ch.lower())
+    return ch  # a-x, 0-9
 
 
 class VM:
@@ -39,6 +40,7 @@ class VM:
         self.proc: subprocess.Popen | None = None
         self._ser: socket.socket | None = None
         self.buf = ""
+        self._pending = ""   # unvollständige Escape-Sequenz vom Ende des letzten Chunks
         self.pos = 0
         self.log = open(self.dir / f"{name}.log", "w")
 
@@ -130,7 +132,13 @@ class VM:
             except BlockingIOError:
                 return
             if data:
-                text = ANSI.sub("", data.decode(errors="replace"))
+                raw = self._pending + data.decode(errors="replace")
+                cut = raw.rfind("\x1b")
+                if cut != -1 and not re.search(r"\x1b(\[[0-9;?]*[A-Za-z]|[()][A-Z0-9])", raw[cut:]):
+                    raw, self._pending = raw[:cut], raw[cut:]
+                else:
+                    self._pending = ""
+                text = ANSI.sub("", raw)
                 self.buf += text
                 self.log.write(text)
                 self.log.flush()
