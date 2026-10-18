@@ -166,3 +166,72 @@ def test_window_full_profile_roundtrips_mount_selection(app, fake_env, fake_moun
     assert w.mount_list.selected() == ["/data"]
     w.mount_list.item(0).setCheckState(Qt.CheckState.Checked)
     assert w._collect().full_mounts == ["/boot", "/data"]
+
+
+# -- Dateibrowser ------------------------------------------------------------------------------------
+def make_files_dialog(app, fake_env, tmp_path, monkeypatch, sources=None):
+    import shutil
+    from pbsgui.core.manager import ProfileManager as PM
+    from pbsgui.core.models import Profile, Snapshot
+    home = tmp_path / "heim"
+    (home / "Dokumente").mkdir(parents=True)
+    (home / "Dokumente/a.txt").write_text("LOKAL ALT")
+    prof = Profile(name="p", server="s", datastore="d", auth_id="a", sources=sources or [str(home)], encrypt=False)
+    name = prof.archive_specs()[0].split(":")[0]
+    arch = tmp_path / "pxar" / name
+    (arch / "Dokumente/sub").mkdir(parents=True)
+    (arch / "Dokumente/a.txt").write_text("AUS BACKUP")
+    (arch / "Dokumente/sub/b.txt").write_text("B")
+    (arch / "notiz.txt").write_text("N")
+    monkeypatch.setenv("FAKE_PBS_TREE", str(tmp_path / "pxar"))
+    monkeypatch.setenv("PBSGUI_FUSERMOUNT", "true")
+    monkeypatch.setenv("HOME", str(home))
+    mgr = PM(Paths("user", tmp_path / "c", tmp_path / "u", tmp_path / "c/creds", tmp_path / "s"), FileStore(tmp_path / "c/creds"))
+    mgr.save(prof, token="t")
+    from pbsgui.gui.files_dialog import FilesDialog
+    d = FilesDialog(mgr, prof, Snapshot("host", "pc", 1000, files=[name]))
+    assert pump(app, lambda: d.tree.topLevelItemCount() > 0)
+    return d, home, tmp_path
+
+
+from pbsgui.core.paths import Paths  # noqa: E402
+
+
+def test_files_dialog_lazy_tree_selection_and_buttons(app, fake_env, tmp_path, monkeypatch):
+    d, home, _ = make_files_dialog(app, fake_env, tmp_path, monkeypatch)
+    top = [d.tree.topLevelItem(i).text(0) for i in range(d.tree.topLevelItemCount())]
+    assert top == ["Dokumente", "notiz.txt"]                                    # Ordner zuerst
+    folder = d.tree.topLevelItem(0)
+    assert folder.child(0).text(0) == "…"                                       # noch nicht geladen
+    d.tree.expandItem(folder)
+    assert [folder.child(i).text(0) for i in range(folder.childCount())] == ["sub", "a.txt"]
+    assert not d.btn_folder.isEnabled() and not d.btn_over.isEnabled()
+    folder.setSelected(True)
+    assert d.btn_folder.isEnabled() and d.btn_over.isEnabled()                  # Quelle liegt im Home
+    assert "2 Dateien" in d.info.text() or "Dateien" in d.info.text()
+
+
+def test_files_dialog_selecting_folder_and_child_counts_only_the_folder(app, fake_env, tmp_path, monkeypatch):
+    d, home, _ = make_files_dialog(app, fake_env, tmp_path, monkeypatch)
+    folder = d.tree.topLevelItem(0)
+    d.tree.expandItem(folder)
+    folder.setSelected(True)
+    folder.child(1).setSelected(True)                                           # a.txt zusätzlich
+    assert d.selected_paths() == ["/Dokumente"]                                  # keine doppelte Auswahl
+
+
+def test_files_dialog_overwrite_disabled_outside_home(app, fake_env, tmp_path, monkeypatch):
+    d, home, tmp = make_files_dialog(app, fake_env, tmp_path, monkeypatch, sources=["/etc"])
+    d.tree.topLevelItem(0).setSelected(True)
+    assert d.btn_folder.isEnabled() and not d.btn_over.isEnabled()
+    assert "nur für Dateien im Home" in d.btn_over.toolTip()
+
+
+def test_files_dialog_search(app, fake_env, tmp_path, monkeypatch):
+    d, *_ = make_files_dialog(app, fake_env, tmp_path, monkeypatch)
+    d.search.setText("b.txt")
+    d._do_search()
+    assert d.tree.topLevelItemCount() == 1 and d.tree.topLevelItem(0).text(0) == "/Dokumente/sub/b.txt"
+    d.search.setText("")
+    d._do_search()
+    assert d.tree.topLevelItemCount() == 2

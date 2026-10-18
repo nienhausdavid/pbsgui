@@ -22,7 +22,7 @@ bleibt dessen eigene ACL bestehen (die App entfernt sie vorher).
 ## Noch nicht / nicht verifiziert
 - Root-Login per Passwort und 2FA-Ablauf ungeprüft (getestet wurde mit API-Token)
 - System-Scope (pkexec-Helfer, System-Units) ist nur per Unit-Test mit Fake-Runner geprüft
-- Master-Key-Erzeugung (RSA), Prune, Katalog-Browser fehlen; Key-Rotation ebenso (ein Key wird nie überschrieben)
+- Master-Key-Erzeugung (RSA) und Prune fehlen; Key-Rotation ebenso (ein Key wird nie überschrieben)
 - Keine Lizenz festgelegt
 
 ## Installation
@@ -32,6 +32,15 @@ scripts/build-deb.sh dist && sudo apt install ./dist/pbsgui_*_all.deb
 ```
 Ein signiertes APT-Repository über GitHub Pages ist vorbereitet, siehe [docs/RELEASING.md](docs/RELEASING.md).
 Den `proxmox-backup-client` gibt es im Proxmox-Client-Repository (`pbs-client`).
+
+## Einzelne Dateien wiederherstellen (File-Level-Restore)
+Dateibrowser für jeden Snapshot: GUI (Snapshots → „Dateien durchsuchen …“), TUI (Snapshot wählen, `f`; Leertaste markiert, `r` in Ordner, `o` überschreiben, `/` suchen) und Kommandozeile:
+```bash
+pbsgui files NAME [ORDNER] [--search MUSTER]                       # Inhalt ansehen / suchen
+pbsgui restore NAME --path /Dokumente --path /notiz.txt --target ~/zurueck   # Auswahl in einen Ordner
+pbsgui restore NAME --path /Dokumente --overwrite                 # NUR Home: am Originalort ersetzen (mit Rückfrage)
+```
+Der Dateibaum kommt aus `catalog dump` (der Client entschlüsselt ihn selbst, geht also auch bei verschlüsselten Backups), die Daten per schreibgeschütztem FUSE-`mount`. **Überschreiben** ist nur für Pfade im eigenen Home-Verzeichnis erlaubt (sonst Abbruch), ersetzt nur vorhandene Dateien, löscht nichts und sichert die alten Fassungen vorher nach `~/.local/share/pbsgui/overwritten/<Zeit>/`. Braucht FUSE (`fusermount3`).
 
 ## Wiederherstellung auf einem neuen PC (Vollbackup)
 Stand: Vorbereitung **und** geführte Wiederherstellung (`pbsgui rescue`, Rettungs-ISO) sind eingebaut; Anleitung mit Screenshots: [docs/WIEDERHERSTELLUNG.md](docs/WIEDERHERSTELLUNG.md).

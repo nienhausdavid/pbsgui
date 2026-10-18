@@ -185,3 +185,27 @@ def test_collect_warns_loudly_when_sfdisk_is_missing(profile, tmp_path):
     profile.backup_mode, profile.encrypt = FULL, False
     got = collect_recovery(tmp_path / "rec", profile, run=FakeRun(), which=lambda n: None if n == "sfdisk" else "/x")
     assert any("sfdisk nicht installiert (Paket fdisk)" in w and "OHNE sie" in w for w in got.warnings)
+
+
+def test_confirm_key_export_checks_fingerprint_and_content(fake_env, profile, paths, monkeypatch, tmp_path):
+    import json as _json
+    m = ProfileManager(paths, FileStore(paths.creds))
+    monkeypatch.setattr(ProfileManager, "_admin", lambda self, req: None)
+    profile.backup_mode, profile.scope, profile.encrypt = FULL, "system", True
+    assert m.enable_encryption(profile)
+    real = _json.loads(m.secrets.get(profile.slug, "key"))
+    good = tmp_path / "gut.json"
+    good.write_text(_json.dumps(real))
+    assert needs_key_export(profile)
+    m.confirm_key_export(profile, str(good))
+    assert profile.key_exported_at and not needs_key_export(profile)
+    assert m.profiles_store.load(profile.name).key_exported_at == profile.key_exported_at
+    profile.key_exported_at = ""
+    for bad, msg in ((_json.dumps({"fingerprint": "ff:ff", "data": "x"}), "Falscher Schlüssel"),
+                     (_json.dumps({"foo": 1}), "keine Schlüsseldatei"),
+                     (_json.dumps({**real, "data": "anderer-inhalt"}), "beschädigt"), ("{kaputt", "nicht lesbar")):
+        f = tmp_path / "bad.json"
+        f.write_text(bad)
+        with pytest.raises(SchedulerError, match=msg):
+            m.confirm_key_export(profile, str(f))
+        assert not profile.key_exported_at

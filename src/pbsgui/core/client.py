@@ -58,7 +58,7 @@ class PbsClient:
     def _ns(self) -> list[str]:
         return ["--ns", self.profile.namespace] if self.profile.namespace else []
 
-    def _run(self, args: list[str], timeout: float | None = 120) -> str:
+    def _run(self, args: list[str], timeout: float | None = 120, merge_stderr: bool = False) -> str:
         try:
             p = subprocess.run([self.binary, *args], env=self._env(), capture_output=True,
                                text=True, timeout=timeout, stdin=subprocess.DEVNULL)
@@ -68,7 +68,7 @@ class PbsClient:
             raise ClientError("Zeitüberschreitung beim Aufruf des Clients") from None
         if p.returncode != 0:
             raise ClientError((p.stderr or p.stdout).strip() or f"Client-Exitcode {p.returncode}")
-        return p.stdout
+        return (p.stdout + p.stderr) if merge_stderr else p.stdout
 
     # -- Operationen --------------------------------------------------------
     def version(self) -> str:
@@ -132,10 +132,26 @@ class PbsClient:
                 on_line(line.rstrip("\n"))
             return proc.wait()
 
-    def catalog(self, snapshot: Snapshot, archive: str) -> str:
+    def catalog(self, snapshot: Snapshot) -> str:
+        """Dateiliste aller Archive des Snapshots (`catalog dump`; bei verschlüsselten Backups mit Schlüssel)."""
         with self._keyfile() as kf:
-            return self._run(["catalog", "dump", snapshot.path, "--archive", archive, *self._ns(),
-                              *(["--keyfile", kf] if kf else [])])
+            # Gemessen mit Client 4.2.8: `catalog dump` schreibt die Dateiliste auf STDERR (stdout bleibt leer)
+            return self._run(["catalog", "dump", snapshot.path, *self._ns(), *(["--keyfile", kf] if kf else [])],
+                             timeout=600, merge_stderr=True)
+
+    def mount(self, snapshot: Snapshot, archive: str, target: str) -> None:
+        """Hängt ein Archiv per FUSE ein. Der Client läuft danach als Hintergrundprozess weiter (Aushängen: fusermount3 -u)."""
+        with self._keyfile() as kf:
+            args = [self.binary, "mount", snapshot.path, archive, target, *self._ns(), *(["--keyfile", kf] if kf else [])]
+            try:
+                p = subprocess.run(args, env=self._env(), capture_output=True, text=True, timeout=60,
+                                   stdin=subprocess.DEVNULL)
+            except FileNotFoundError:
+                raise ClientError(f"Client nicht gefunden: {self.binary}") from None
+            except subprocess.TimeoutExpired:
+                raise ClientError("Zeitüberschreitung beim Einhängen") from None
+            if p.returncode != 0:
+                raise ClientError((p.stderr or p.stdout).strip() or f"Client-Exitcode {p.returncode}")
 
     def restore(self, snapshot: Snapshot, archive: str, target: str) -> None:
         """Stellt in einen (neuen) Zielordner wieder her; überschreibt nie das Original."""

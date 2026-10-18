@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from .client import PbsClient
+from .files import Catalog, CopyResult, load_catalog, restore_to_folder, restore_to_original
 from .keys import export_key, generate_key
 from .models import Profile, Snapshot
 from .modes import FULL
@@ -56,6 +57,20 @@ class ProfileManager:
         return PbsClient(profile, token, self.secrets.get(profile.slug, "keypass") or "",
                          key_content=self.secrets.get(profile.slug, "key") or "")
 
+    def catalogs(self, profile: Profile, snapshot: Snapshot) -> dict[str, Catalog]:
+        """Dateibäume aller Datei-Archive des Snapshots (Name ohne .didx)."""
+        return {k: v for k, v in load_catalog(self.client(profile), snapshot).items() if k.endswith(".pxar")}
+
+    def restore_files(self, profile: Profile, snapshot: Snapshot, archive: str, rels: list[str],
+                      target: str | None = None, overwrite_home: bool = False, on_line=lambda _l: None) -> CopyResult:
+        """Gewählte Dateien/Ordner zurückholen: in einen Zielordner oder (nur Home) an den Originalort."""
+        client = self.client(profile)
+        if overwrite_home:
+            return restore_to_original(client, profile, snapshot, archive, rels, on_line=on_line)
+        if not target:
+            raise SchedulerError("Zielordner fehlt")
+        return restore_to_folder(client, snapshot, archive, rels, Path(target), on_line=on_line)
+
     def has_key(self, profile: Profile) -> bool:
         return bool(profile.keyfile or self.secrets.get(profile.slug, "key"))
 
@@ -71,6 +86,25 @@ class ProfileManager:
         profile.key_fingerprint = fp
         self.save(profile, key=content)
         return True
+
+    def confirm_key_export(self, profile: Profile, path: str) -> None:
+        """Eine bereits gesicherte Schlüsseldatei prüfen (Fingerprint) und den Export als erledigt vermerken."""
+        import json as _json
+        try:
+            data = _json.loads(Path(path).read_text())
+        except (OSError, ValueError) as e:
+            raise SchedulerError(f"Schlüsseldatei nicht lesbar: {e}") from None
+        fp = data.get("fingerprint") if isinstance(data, dict) else None
+        if not fp or "data" not in data:
+            raise SchedulerError("Das ist keine Schlüsseldatei (Felder 'data'/'fingerprint' fehlen)")
+        if fp != profile.key_fingerprint:
+            raise SchedulerError(f"Falscher Schlüssel: Fingerprint der Datei {fp[:23]}… passt nicht zum Profil "
+                                 f"{profile.key_fingerprint[:23]}…")
+        stored = self.secrets.get(profile.slug, "key")
+        if stored and _json.loads(stored).get("data") != data.get("data"):
+            raise SchedulerError("Der Fingerprint stimmt, der Schlüsselinhalt aber nicht: Datei ist beschädigt")
+        profile.key_exported_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.save(profile)
 
     def export_key(self, profile: Profile, dest: str) -> None:
         content = self.secrets.get(profile.slug, "key")

@@ -13,8 +13,11 @@ from pbsgui.tui.app import PbsTui
 async def wait_for(pilot, cond, timeout=6.0):
     waited = 0.0
     while waited < timeout:
-        if cond():
-            return True
+        try:
+            if cond():
+                return True
+        except Exception:  # Screen aktiv, aber Widgets noch nicht aufgebaut
+            pass
         await pilot.pause(0.05)
         waited += 0.05
     return False
@@ -249,3 +252,49 @@ async def test_add_screen_shows_drive_list_only_for_full(mgr, monkeypatch, fake_
         await pilot.pause()
         assert s.query_one("#mounts").display is True
         assert sorted(s.query_one("#mounts", SelectionList).selected) == ["/boot", "/data"]
+
+
+# -- Dateibrowser ---------------------------------------------------------------------------------
+async def test_files_screen_browse_mark_and_restore_to_folder(mgr, tmp_path, monkeypatch):
+    from pbsgui.core.models import Snapshot
+    from pbsgui.tui.files import FilesScreen
+    from textual.widgets import Tree
+    p = mgr.profiles()[0]
+    p.sources = [str(tmp_path / "heim")]
+    mgr.profiles_store.save(p)
+    name = p.archive_specs()[0].split(":")[0]
+    arch = tmp_path / "pxar" / name
+    (arch / "Dokumente").mkdir(parents=True)
+    (arch / "Dokumente/a.txt").write_text("AUS BACKUP")
+    (arch / "notiz.txt").write_text("N")
+    monkeypatch.setenv("FAKE_PBS_TREE", str(tmp_path / "pxar"))
+    monkeypatch.setenv("PBSGUI_FUSERMOUNT", "true")
+    async with PbsTui(mgr).run_test(size=(140, 50)) as pilot:
+        await pilot.pause()
+        pilot.app.push_screen(FilesScreen(mgr, mgr.profiles()[0], Snapshot("host", "pc", 1000, files=[name])))
+        assert await wait_for(pilot, lambda: len(pilot.app.screen.query_one("#files-tree", Tree).root.children) == 1)
+        scr = pilot.app.screen
+        tree = scr.query_one("#files-tree", Tree)
+        arch_node = tree.root.children[0]
+        arch_node.expand()
+        assert await wait_for(pilot, lambda: len(arch_node.children) == 2)
+        assert [str(c.label) for c in arch_node.children] == ["[ ] Dokumente/", "[ ] notiz.txt  (1 B)"]
+        tree.move_cursor(arch_node.children[0])
+        await pilot.pause()
+        await pilot.press("space")                                              # Ordner markieren
+        await pilot.pause()
+        assert str(arch_node.children[0].label) == "[x] Dokumente/" and scr.selected() == (name, ["/Dokumente"])
+        await pilot.press("r")
+        await pilot.pause()
+        pilot.app.screen.query_one("#prompt-input", Input).value = str(tmp_path / "raus")
+        await pilot.press("enter")
+        assert await wait_for(pilot, lambda: (tmp_path / "raus/Dokumente/a.txt").exists())
+        assert (tmp_path / "raus/Dokumente/a.txt").read_text() == "AUS BACKUP"
+
+
+async def test_files_action_needs_a_loaded_snapshot(mgr):
+    async with PbsTui(mgr).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("f")
+        await pilot.pause()
+        assert pilot.app.screen.__class__.__name__ != "FilesScreen"

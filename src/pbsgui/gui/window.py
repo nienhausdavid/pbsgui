@@ -18,6 +18,7 @@ from ..core.paths import Paths
 from ..core.runner import read_status
 from ..core.scheduler import enable_linger, linger_enabled
 from .add_server import AddServerDialog
+from .files_dialog import FilesDialog
 from .mounts_widget import MountList
 from .workers import Worker
 
@@ -251,6 +252,18 @@ class MainWindow(QMainWindow):
         p = self._collect()
         if not p or not self.save_profile():
             return
+        if needs_key_export(p):   # Vollbackup ist gesperrt, bis der Schlüssel exportiert ist: erklären und Export anbieten
+            QMessageBox.information(
+                self, "Schlüssel zuerst sichern",
+                "Dieses verschlüsselte Vollbackup startet erst, wenn der Verschlüsselungs-Schlüssel exportiert wurde. "
+                "Ohne Kopie ließe sich das System auf einem neuen PC nicht wiederherstellen.\n\n"
+                "Im nächsten Schritt wählst du, wohin die Schlüsseldatei gespeichert wird (sicherer Ort, nicht nur "
+                "dieser Rechner).")
+            self.export_key_dialog()
+            if needs_key_export(self.mgr.profiles_store.load(p.name)):
+                return                                       # Export abgebrochen: nichts starten
+            p = self.mgr.profiles_store.load(p.name)
+            self.current = p
         self.log.clear()
         self.backup_btn.setEnabled(False)
 
@@ -273,7 +286,8 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         r = QPushButton("Aktualisieren"); r.clicked.connect(self.refresh_snapshots)
         rs = QPushButton("Wiederherstellen …"); rs.clicked.connect(self.restore_selected)
-        row.addWidget(r); row.addWidget(rs); row.addStretch()
+        rf = QPushButton("Dateien durchsuchen …"); rf.clicked.connect(self.browse_files)
+        row.addWidget(r); row.addWidget(rs); row.addWidget(rf); row.addStretch()
         self.snap_table = QTableWidget(0, 4)
         self.snap_table.setHorizontalHeaderLabels(["Zeit", "ID", "Größe", "Archive"])
         self.snap_table.horizontalHeader().setStretchLastSection(True)
@@ -300,6 +314,13 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"{len(snaps)} Snapshots")
 
         self.run_async(lambda _l: self.mgr.snapshots(p), done)
+
+    def browse_files(self) -> None:
+        row = self.snap_table.currentRow()
+        if not self.current or not (0 <= row < len(self._snaps)):
+            QMessageBox.information(self, "Dateien durchsuchen", "Bitte einen Snapshot auswählen.")
+            return
+        FilesDialog(self.mgr, self.current, self._snaps[row], self).exec()
 
     def restore_selected(self) -> None:
         row = self.snap_table.currentRow()

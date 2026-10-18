@@ -18,6 +18,7 @@ from ..core.models import Profile
 from ..core.modes import FULL, describe, plan_mounts
 from ..core.recovery import needs_key_export, render_sheet
 from ..core.scheduler import SchedulerError, validate_calendar
+from .files import FilesScreen
 from .screens import AddServerScreen, ConfirmScreen, MountsScreen, PromptScreen
 
 
@@ -31,7 +32,7 @@ class PbsTui(App):
     .hint { color: $text-muted; }
     """
     BINDINGS = [("a", "add", "Hinzufügen"), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
-                ("t", "restore", "Restore"), ("s", "schedule", "Zeitplan"), ("m", "scope", "Modus"),
+                ("t", "restore", "Restore"), ("f", "files", "Dateien"), ("s", "schedule", "Zeitplan"), ("m", "scope", "Modus"),
                 ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("n", "sheet", "Notfallblatt"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"),
                 ("d", "delete", "Entfernen"), ("q", "quit", "Beenden")]
 
@@ -202,6 +203,16 @@ class PbsTui(App):
         for i, s in enumerate(snaps):
             t.add_row(str(i), fmt_time(s.backup_time), s.backup_id, fmt_size(s.size), ", ".join(s.files))
         self._notify(f"{len(snaps)} Snapshots")
+
+    def action_files(self) -> None:
+        p = self._need()
+        t = self._q("#snaps", DataTable)
+        if not p:
+            return
+        if not self._snaps or t.cursor_row >= len(self._snaps):
+            self.notify("Erst mit [r] Snapshots laden und einen auswählen", severity="warning")
+            return
+        self.push_screen(FilesScreen(self.mgr, p, self._snaps[t.cursor_row]))
 
     def action_restore(self) -> None:
         p = self._need()

@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from ..core.client import ClientError
+from ..core.files import FilesError, map_to_original
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import Profile, slugify
 from ..core.modes import FULL, HOME, describe, detect_mounts, mount_choices, plan_mounts
@@ -269,8 +270,103 @@ def cmd_snapshots(a, mgr) -> int:
     return 0
 
 
+def _pick_snapshot(mgr, p: Profile, spec: str):
+    snaps = mgr.snapshots(p)
+    if not snaps:
+        raise CliError("Keine Snapshots vorhanden")
+    if spec.isdigit():
+        if int(spec) >= len(snaps):
+            raise CliError(f"Snapshot #{spec} existiert nicht (0..{len(snaps) - 1})")
+        return snaps[int(spec)]
+    snap = next((s for s in snaps if s.path == spec), None)
+    if not snap:
+        raise CliError(f"Snapshot nicht gefunden: {spec}")
+    return snap
+
+
+def _pick_archive(cats: dict, wanted: str | None) -> str:
+    names = sorted(n for n in cats if n != "recovery.pxar")
+    if wanted:
+        name = wanted.removesuffix(".didx")
+        if name not in cats:
+            raise CliError(f"Archiv nicht gefunden: {wanted}. Vorhanden: {', '.join(names)}")
+        return name
+    if len(names) == 1:
+        return names[0]
+    raise CliError("Mehrere Archive, bitte --archive wählen: " + ", ".join(names))
+
+
+def cmd_files(a, mgr) -> int:
+    """Dateien eines Snapshots auflisten/suchen (File-Level-Restore: Auswahl dann mit `restore --path`)."""
+    p = find_profile(mgr, a.name)
+    snap = _pick_snapshot(mgr, p, a.snapshot)
+    cats = mgr.catalogs(p, snap)
+    archive = _pick_archive(cats, a.archive)
+    cat = cats[archive]
+    print(f"Snapshot {snap.path}, Archiv {archive}")
+    if a.search:
+        rows = cat.search(a.search)
+        print(f"{len(rows)} Treffer" + (" (Anzeige begrenzt)" if len(rows) >= 500 else ""))
+    else:
+        path = "/" + a.path.strip("/") if a.path else "/"
+        if path != "/" and path not in cat.by_path:
+            raise CliError(f"Pfad nicht im Archiv: {path}")
+        rows = cat.children(path)
+    for e in rows:
+        shown = e.path if a.search else e.name
+        print(f"{e.kind}  {fmt_size(e.size or 0) if e.size is not None else '':>10}  {e.mtime[:10]:10}  {shown}"
+              + ("/" if e.kind == "d" else ""))
+    return 0
+
+
+def _restore_selected(a, mgr, p: Profile) -> int:
+    snap = _pick_snapshot(mgr, p, a.snapshot)
+    cats = mgr.catalogs(p, snap)
+    archive = _pick_archive(cats, a.archive)
+    cat = cats[archive]
+    rels = ["/" + x.strip("/") for x in a.path]
+    missing = [r for r in rels if r != "/" and r not in cat.by_path]
+    if missing:
+        raise CliError("Nicht im Archiv: " + ", ".join(missing) + f" (suchen mit: pbsgui files {p.name} --search NAME)")
+    files, size = cat.count(rels)
+    print(f"Auswahl: {len(rels)} Pfad(e), {files} Dateien, {fmt_size(size)}")
+    if a.overwrite:
+        try:
+            items = map_to_original(p, archive, rels)
+        except FilesError as e:
+            raise CliError(str(e))
+        outside = [i for i in items if not i.in_home]
+        if outside:
+            raise CliError("Überschreiben ist nur im Home-Verzeichnis erlaubt. Nicht erlaubt: "
+                           + ", ".join(str(i.dest) for i in outside))
+        existing = sum(1 for i in items if i.exists)
+        print(f"Am Originalort überschreiben: {len(items)} Pfad(e), davon {existing} schon vorhanden. "
+              "Überschriebene Dateien werden vorher nach ~/.local/share/pbsgui/overwritten/<Zeit>/ gesichert.")
+        if not a.yes:
+            if not sys.stdin.isatty() or input("Wirklich überschreiben? [j/N] ").strip().lower() not in ("j", "y"):
+                raise CliError("Abgebrochen (zum Bestätigen --yes nutzen)", 2)
+    elif not a.target:
+        raise CliError("--target ZIELORDNER oder --overwrite angeben")
+    try:
+        res = mgr.restore_files(p, snap, archive, rels, target=a.target, overwrite_home=a.overwrite,
+                                on_line=lambda l: print(l, flush=True))
+    except FilesError as e:
+        raise CliError(str(e))
+    print(f"{res.copied} Dateien wiederhergestellt ({fmt_size(res.bytes)})."
+          + (f" {res.safety_copies} überschriebene Dateien gesichert in {res.safety_dir}" if a.overwrite else ""))
+    for s_ in res.skipped:
+        print(f"  übersprungen: {s_}")
+    return 0
+
+
 def cmd_restore(a, mgr) -> int:
     p = find_profile(mgr, a.name)
+    if a.path:
+        return _restore_selected(a, mgr, p)
+    if a.overwrite:
+        raise CliError("--overwrite braucht --path (nur einzelne Dateien/Ordner aus dem Home, nie ein ganzes Archiv)")
+    if not a.target:
+        raise CliError("--target ZIELORDNER angeben")
     snaps = mgr.snapshots(p)
     if not snaps:
         raise CliError("Keine Snapshots vorhanden")
@@ -336,6 +432,12 @@ def cmd_key(a, mgr) -> int:
             print(f"Extern gesichert: {'ja, am ' + p.key_exported_at if p.key_exported_at else 'NEIN (pbsgui key export ...)'}")
         if p.keyfile:
             print(f"Eigene Schlüsseldatei: {p.keyfile}")
+        return 0
+    if a.action == "confirm":
+        if not a.dest:
+            raise CliError("Schlüsseldatei angeben: pbsgui key confirm NAME DATEI")
+        mgr.confirm_key_export(p, a.dest)
+        print(f"Schlüsseldatei {a.dest} stimmt mit dem Profil überein; Export vermerkt ({p.key_exported_at}).")
         return 0
     if not a.dest:
         raise CliError("Zieldatei angeben: pbsgui key export NAME ZIELDATEI")
@@ -447,9 +549,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--none", action="store_true", help="keine weiteren Laufwerke, nur das Root-Dateisystem")
     add("backup", cmd_backup, "Backup jetzt ausführen", "name")
     sp = add("snapshots", cmd_snapshots, "Snapshots auflisten", "name"); sp.add_argument("--json", action="store_true")
-    sp = add("restore", cmd_restore, "Snapshot wiederherstellen", "name")
+    sp = add("files", cmd_files, "Dateien eines Snapshots durchsuchen", "name")
+    sp.add_argument("path", nargs="?", help="Ordner im Archiv (Standard: Wurzel)")
+    sp.add_argument("--snapshot", default="0"); sp.add_argument("--archive")
+    sp.add_argument("--search", metavar="MUSTER", help="Namen suchen (Teilstring oder * ? Platzhalter)")
+    sp = add("restore", cmd_restore, "Snapshot oder einzelne Dateien wiederherstellen", "name")
     sp.add_argument("--snapshot", default="0", help="Index aus `snapshots` oder Snapshot-Pfad (Standard: neuester)")
-    sp.add_argument("--archive"); sp.add_argument("--target", required=True)
+    sp.add_argument("--archive"); sp.add_argument("--target")
+    sp.add_argument("--path", action="append", help="nur diese Datei/diesen Ordner aus dem Archiv holen (mehrfach)")
+    sp.add_argument("--overwrite", action="store_true",
+                    help="mit --path: an den Originalort zurückschreiben und vorhandene Dateien ersetzen "
+                         "(NUR im Home-Verzeichnis, alte Fassung wird vorher gesichert)")
+    sp.add_argument("--yes", action="store_true", help="--overwrite ohne Rückfrage")
     sp.add_argument("--force", action="store_true", help="auch in nicht leeren Zielordner")
     sp = add("schedule", cmd_schedule, "systemd-Zeitplan setzen/entfernen", "name")
     sp.add_argument("--calendar", help="OnCalendar-Ausdruck, z. B. daily")
@@ -457,7 +568,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--require-ac", action=argparse.BooleanOptionalAction, default=None)
     sp.add_argument("--remove", action="store_true")
     add("status", cmd_status, "Zeitplan- und Laufstatus", "name")
-    sp = add("key", cmd_key, "Verschlüsselungs-Schlüssel anzeigen/exportieren", "action")
+    sp = add("key", cmd_key, "Schlüssel anzeigen / exportieren / bereits gesicherte Datei bestätigen (info|export|confirm)", "action")
     sp.add_argument("name"); sp.add_argument("dest", nargs="?")
     sp = add("remove", cmd_remove, "Profil entfernen", "name"); sp.add_argument("--yes", action="store_true")
     sp = add("recovery", cmd_recovery, "Wiederherstellung auf neuem PC: Checkliste, Notfallblatt", "name")

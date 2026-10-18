@@ -51,7 +51,36 @@ elif args[:2] == ["key", "create"]:
     Path(args[2]).write_text(json.dumps({"kdf": None, "data": "ZmFrZQ==", "fingerprint": "aa:bb:cc:dd"}))
     os.chmod(args[2], 0o600)
 elif args[:2] == ["catalog", "dump"]:
-    print("d ./etc\nf ./etc/hosts\nd ./home")
+    tree = os.environ.get("FAKE_PBS_TREE")
+    if tree:  # echten Dateibaum im Format des Clients ausgeben (Rust-Debug-Quoting, oberste Ebene = Archivname.didx)
+        def q(p):
+            return '"' + p.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
+        for arch in sorted(Path(tree).iterdir()):
+            print(f"d {q('./' + arch.name + '.didx')}", file=sys.stderr)
+            for root, dirs, files in os.walk(arch):
+                dirs.sort()
+                for name in sorted(dirs + files):
+                    full = Path(root) / name
+                    rel = "./" + arch.name + ".didx/" + str(full.relative_to(arch))
+                    if full.is_symlink():
+                        print(f"l {q(rel)}", file=sys.stderr)
+                    elif full.is_dir():
+                        print(f"d {q(rel)}", file=sys.stderr)
+                    else:
+                        print(f"f {q(rel)} {full.stat().st_size} 2026-10-18T12:00:00Z", file=sys.stderr)
+    else:
+        print('d "./etc.pxar.didx"\nf "./etc.pxar.didx/hosts" 5 2026-10-18T12:00:00Z', file=sys.stderr)  # wie der echte Client: stderr
+elif args[:1] == ["mount"]:
+    tree = os.environ.get("FAKE_PBS_TREE")
+    if os.environ.get("FAKE_PBS_NO_MOUNT") or not tree:
+        print("Error: mount not available", file=sys.stderr)
+        sys.exit(1)
+    src, target = Path(tree) / args[2], Path(args[3])
+    if not src.is_dir():
+        print(f"Error: archive {args[2]} not found", file=sys.stderr)
+        sys.exit(1)
+    target.rmdir()
+    os.symlink(src, target)   # Testersatz für FUSE: der Einhängepunkt zeigt auf den Dateibaum
 elif args[:1] == ["restore"]:
     target = Path(args[3])
     target.mkdir(parents=True, exist_ok=True)
