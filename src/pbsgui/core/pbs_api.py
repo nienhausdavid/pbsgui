@@ -1,0 +1,154 @@
+"""Minimaler PBS-API-Client: Fingerprint holen, als root einloggen, Benutzer/Token/ACL anlegen.
+
+Das Root-Passwort wird nur für den Login verwendet und nicht gespeichert.
+NICHT gegen einen echten PBS getestet; Endpunkte nach der PBS-API-Doku.
+"""
+from __future__ import annotations
+
+import hashlib
+import http.client
+import json
+import socket
+import ssl
+import urllib.parse
+from dataclasses import dataclass
+
+
+class ApiError(RuntimeError):
+    pass
+
+
+def _ctx() -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE  # Vertrauen entsteht über den gepinnten Fingerprint
+    return ctx
+
+
+def _fmt(der: bytes) -> str:
+    h = hashlib.sha256(der).hexdigest().upper()
+    return ":".join(h[i:i + 2] for i in range(0, len(h), 2))
+
+
+def normalize_fp(fp: str) -> str:
+    return fp.replace(":", "").replace(" ", "").upper()
+
+
+def fetch_fingerprint(host: str, port: int = 8007, timeout: float = 10) -> str:
+    """SHA-256-Fingerprint des Serverzertifikats (zur Bestätigung durch den Benutzer)."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            with _ctx().wrap_socket(s, server_hostname=host) as t:
+                return _fmt(t.getpeercert(binary_form=True))
+    except OSError as e:
+        raise ApiError(f"Keine Verbindung zu {host}:{port}: {e}") from None
+
+
+@dataclass
+class ProvisionResult:
+    auth_id: str  # Token-ID, z. B. pbsgui-laptop@pbs!backup
+    secret: str   # Token-Secret, wird nur einmal geliefert
+    userid: str
+
+
+class PbsApi:
+    def __init__(self, host: str, port: int, fingerprint: str, timeout: float = 20):
+        self.host, self.port, self.timeout = host, port, timeout
+        self.fingerprint = normalize_fp(fingerprint)
+        self._ticket = ""
+        self._csrf = ""
+        self._token = ""  # "PBSAPIToken=id:secret"
+
+    # -- Transport ----------------------------------------------------------
+    def _request(self, method: str, path: str, params: dict | None = None) -> object:
+        conn = http.client.HTTPSConnection(self.host, self.port, timeout=self.timeout, context=_ctx())
+        try:
+            conn.connect()
+            seen = normalize_fp(_fmt(conn.sock.getpeercert(binary_form=True)))  # type: ignore[union-attr]
+            if seen != self.fingerprint:
+                raise ApiError("Zertifikat-Fingerprint stimmt nicht mit dem gespeicherten überein")
+            headers = {"Accept": "application/json"}
+            body = None
+            query = ""
+            data = urllib.parse.urlencode({k: str(v) for k, v in (params or {}).items()})
+            if method == "GET":
+                query = f"?{data}" if data else ""
+            else:
+                body = data
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+            if self._ticket:
+                headers["Cookie"] = f"PBSAuthCookie={urllib.parse.quote(self._ticket, safe='')}"
+                if method != "GET":
+                    headers["CSRFPreventionToken"] = self._csrf
+            if self._token:
+                headers["Authorization"] = self._token
+            conn.request(method, f"/api2/json{path}{query}", body=body, headers=headers)
+            resp = conn.getresponse()
+            raw = resp.read().decode("utf-8", "replace")
+        except (OSError, ssl.SSLError) as e:
+            raise ApiError(f"Verbindungsfehler: {e}") from None
+        finally:
+            conn.close()
+        if resp.status >= 400:
+            msg = raw
+            try:
+                msg = json.loads(raw).get("message") or raw
+            except ValueError:
+                pass
+            raise ApiError(f"HTTP {resp.status}: {msg.strip()}")
+        try:
+            return json.loads(raw).get("data")
+        except ValueError:
+            raise ApiError("Ungültige Antwort des Servers") from None
+
+    # -- Anmeldung ----------------------------------------------------------
+    def login(self, username: str, password: str, tfa_code: str = "") -> None:
+        data = self._request("POST", "/access/ticket", {"username": username, "password": password})
+        ticket = (data or {}).get("ticket", "")  # type: ignore[union-attr]
+        if "!tfa!" in ticket:  # zweiter Faktor nötig
+            if not tfa_code:
+                raise ApiError("Zwei-Faktor-Code erforderlich")
+            data = self._request("POST", "/access/ticket", {
+                "username": username, "password": f"totp:{tfa_code}", "tfa-challenge": ticket})
+        d = data or {}
+        if not d.get("ticket"):  # type: ignore[union-attr]
+            raise ApiError("Anmeldung fehlgeschlagen")
+        self._ticket, self._csrf = d["ticket"], d.get("CSRFPreventionToken", "")  # type: ignore[index]
+
+    def use_token(self, auth_id: str, secret: str) -> None:
+        self._token = f"PBSAPIToken={auth_id}:{secret}"
+        self._ticket = ""
+
+    # -- Provisionierung ----------------------------------------------------
+    def provision(self, datastore: str, hostname: str, namespace: str = "",
+                  role: str = "DatastoreBackup", token_name: str = "backup") -> ProvisionResult:
+        userid = f"pbsgui-{hostname}@pbs"
+        self._request("POST", "/access/users", {"userid": userid, "comment": f"pbsgui {hostname}"})
+        tok = self._request("POST", f"/access/users/{urllib.parse.quote(userid, safe='')}/token/{token_name}",
+                            {"comment": "pbsgui"})
+        tok = tok or {}
+        auth_id = tok.get("tokenid") or f"{userid}!{token_name}"  # type: ignore[union-attr]
+        secret = tok.get("value", "")  # type: ignore[union-attr]
+        if not secret:
+            raise ApiError("Server lieferte kein Token-Secret")
+        acl_path = f"/datastore/{datastore}"
+        if namespace:
+            self._request("POST", f"/admin/datastore/{datastore}/namespace", {"name": namespace})
+            acl_path += "/" + namespace
+        # Benutzer UND Token brauchen eine ACL (effektive Rechte = Schnitt)
+        for who in (userid, auth_id):
+            self._request("PUT", "/access/acl", {"path": acl_path, "role": role,
+                                                  "auth-id": who, "propagate": 1})
+        return ProvisionResult(auth_id=auth_id, secret=secret, userid=userid)
+
+    def deprovision(self, userid: str) -> None:
+        self._request("DELETE", f"/access/users/{urllib.parse.quote(userid, safe='')}")
+
+    def check_backup_permission(self, datastore: str, namespace: str = "") -> bool:
+        """Mit Token angemeldet: darf dieser Token in dem Datastore sichern?"""
+        path = f"/datastore/{datastore}" + (f"/{namespace}" if namespace else "")
+        data = self._request("GET", "/access/permissions", {"path": path})
+        privs = {}
+        if isinstance(data, dict):
+            privs = data.get(path) or data
+        return bool(isinstance(privs, dict) and privs.get("Datastore.Backup"))

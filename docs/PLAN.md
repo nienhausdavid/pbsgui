@@ -3,7 +3,7 @@
 GUI für `proxmox-backup-client`. Kein eigener Client: dünner, testbarer Wrapper um
 den offiziellen Client, die PBS-API und systemd.
 
-Status: Planung. Erste Ziel-Plattform: Linux (Debian 13, Ubuntu). Windows/macOS später.
+Status: Prototyp (siehe README). Profile liegen als JSON, nicht TOML. Erste Ziel-Plattform: Linux (Debian 13, Ubuntu). Windows/macOS später.
 
 ## Stack
 
@@ -69,7 +69,7 @@ Zusätzlich: Eintrag wieder entfernen (Token/Benutzer serverseitig löschen).
 | Backend | Wann | Anmerkung |
 |---|---|---|
 | `systemd-creds` (System) | Modus „System“ | `LoadCredentialEncrypted=`, an Host/TPM gebunden |
-| `systemd-creds --user` | Modus „Benutzer“, systemd >= 256 | Debian 13 (257), Ubuntu ab 25.04 |
+| `systemd-creds --user` | Modus „Benutzer“, systemd >= 256 | Debian 13 (257), Ubuntu ab 25.04. Der Runner entschlüsselt selbst; `LoadCredentialEncrypted=` scheitert im User-Manager (getestet, Exit 243) |
 | Datei 0600 | Fallback in Modus „Benutzer“ | z. B. Ubuntu 24.04 (systemd 255) |
 | libsecret/Keyring | nur GUI-Interaktion | nicht für Timer: ohne Login keine Sitzung |
 
