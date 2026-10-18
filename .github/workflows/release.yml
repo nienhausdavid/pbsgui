@@ -5,6 +5,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Bestehendes Release (z. B. v0.3.0), an das die ISO angehängt werden soll"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -42,24 +47,32 @@ jobs:
     name: Rettungs-ISO bauen
     needs: build
     runs-on: ubuntu-latest
+    # Debian 13 im Container: live-build der Ubuntu-Runner ist zu alt (kennt --bootloaders u. a. nicht)
+    container:
+      image: debian:trixie
+      options: --privileged
     steps:
-      - uses: actions/checkout@v4
       - name: Werkzeuge installieren
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends live-build debootstrap debian-archive-keyring xorriso \
-            squashfs-tools mtools dosfstools grub-pc-bin grub-efi-amd64-bin grub-common isolinux syslinux-utils curl
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates curl gh python3 \
+            live-build debootstrap xorriso squashfs-tools mtools dosfstools grub-pc-bin grub-efi-amd64-bin grub-common \
+            isolinux syslinux-utils
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: ISO bauen (xz-komprimiert)
-        run: sudo env ISO_COMPRESSION=xz BUILD_DIR="$RUNNER_TEMP/iso" scripts/build-iso.sh "$PWD/dist"
+        run: ISO_COMPRESSION=xz BUILD_DIR=/tmp/iso scripts/build-iso.sh "$PWD/dist"
       - uses: actions/upload-artifact@v4
         with:
           name: rescue-iso
           path: dist/pbsgui-rescue-*.iso*
       - name: An das GitHub-Release anhängen
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/pbsgui-rescue-*.iso dist/pbsgui-rescue-*.iso.sha256 --clobber
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: gh release upload "$TAG" dist/pbsgui-rescue-*.iso dist/pbsgui-rescue-*.iso.sha256 --clobber --repo "$GITHUB_REPOSITORY"
 
   apt-repo:
     needs: build

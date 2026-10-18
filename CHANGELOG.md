@@ -14,6 +14,9 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
   belegten Platz, beim ersten Home-Backup unbestimmt). Gegen den echten Server geprüft: 480 von 480 MB gelesen.
 
 ### Behoben
+- Release-Workflow: Die ISO wird in einem Debian-13-Container gebaut (der `live-build` der Ubuntu-Runner war zu alt);
+  mit `workflow_dispatch` und `tag=vX.Y.Z` lässt sich eine ISO nachträglich an ein vorhandenes Release hängen.
+- `.sha256`-Datei der ISO enthält den Dateinamen ohne Pfad.
 - `pbsgui-run` und `pbsgui backup` geben Ausgaben sofort aus (vorher gepuffert, wenn sie in eine Pipe liefen).
 
 ## [0.3.0] - 2026-10-18

@@ -56,5 +56,5 @@ iso=$(ls -1 "$work"/*.iso 2>/dev/null | head -1)
 [ -n "$iso" ] || { echo "Keine ISO erzeugt" >&2; exit 1; }
 dest="$out/pbsgui-rescue-$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/pyproject.toml" | head -1)-amd64.iso"
 mv "$iso" "$dest"
-sha256sum "$dest" > "$dest.sha256"
+(cd "$out" && sha256sum "$(basename "$dest")" > "$(basename "$dest").sha256")   # relativer Name: prüfbar mit sha256sum -c
 echo "$dest"
