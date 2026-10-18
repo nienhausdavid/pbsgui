@@ -30,12 +30,18 @@ text = re.sub(r"\[Unreleased\]: (\S+)/compare/v\S+\.\.\.HEAD",
               lambda mm: f"[Unreleased]: {mm.group(1)}/compare/v{new}...HEAD", text)
 text = text.replace("[Unreleased]: ", f"[Unreleased]: ", 1)
 link = re.search(r"\[Unreleased\]: (\S+)/compare", text).group(1)
-text = text.rstrip("\n") + f"\n[{new}]: {link}/releases/tag/v{new}\n"
+text = re.sub(r"(\[Unreleased\]: [^\n]*\n)", lambda mm: mm.group(1) + f"[{new}]: {link}/releases/tag/v{new}\n", text, count=1)
 open("CHANGELOG.md", "w", encoding="utf-8").write(text)
 PY
 sed -i "s/^version = \"$old\"/version = \"$new\"/" pyproject.toml
 echo "Tests laufen …"
-python3 -m pytest -q >/dev/null 2>&1 || .venv/bin/python -m pytest -q || { echo "Tests fehlgeschlagen: Release abgebrochen (Änderungen mit git checkout . zurücknehmen)." >&2; exit 1; }
+py=${PYTHON:-python3}
+[ -z "${PYTHON:-}" ] && [ -x .venv/bin/python ] && py=.venv/bin/python
+if ! PYTHONPATH="$root/src" "$py" -m pytest -q; then
+  git checkout -q -- pyproject.toml CHANGELOG.md      # saubere Ausgangslage wiederherstellen
+  echo "Tests fehlgeschlagen: Release abgebrochen, nichts wurde committet oder getaggt." >&2
+  exit 1
+fi
 git add pyproject.toml CHANGELOG.md
 git commit -q -m "Release v$new"
 git tag -a "v$new" -m "pbsgui $new"
