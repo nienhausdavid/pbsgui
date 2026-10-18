@@ -107,3 +107,10 @@ def test_run_backup_full_as_root_runs_with_system_paths(profile, paths, monkeypa
     monkeypatch.setattr(manager_mod, "run_profile", lambda p, paths, store, on_line: got.update(scope=paths.scope) or 0)
     monkeypatch.setattr(manager_mod, "best_store", lambda scope, d: FileStore(d))
     assert m.run_backup(profile) == 0 and got["scope"] == "system"
+
+
+@pytest.mark.parametrize("fstype", ["nfs", "nfs4", "cifs", "smb3", "fuse.sshfs", "9p", "virtiofs", "ceph",
+                                    "glusterfs", "afs", "autofs", "fuse.rclone", "vboxsf", "overlay", "tmpfs"])
+def test_network_and_virtual_filesystems_are_never_included(fstype):
+    """Allowlist: nur bekannte lokale Dateisysteme bekommen --include-dev, alles Netzwerk-/Virtuelle nie."""
+    assert local_mounts(f"srv:/share /daten {fstype} rw 0 0\n/dev/sda1 /boot ext4 rw 0 0\n") == ["/boot"]
