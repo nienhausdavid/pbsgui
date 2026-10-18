@@ -7,14 +7,45 @@ import os
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, RadioButton, RadioSet, Static
+from textual.widgets import Button, Checkbox, Input, Label, RadioButton, RadioSet, SelectionList, Static
 
 from ..core.manager import can_use_admin
 from ..core.models import Profile
-from ..core.modes import FULL, HOME
+from ..core.modes import FULL, HOME, mount_choices
 from ..core.onboarding import (connect_root, connect_token, namespace_message, namespace_state,
                                provision_and_verify, verify_token_profile)
 from ..core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
+
+
+def mount_selection(selected: list[str] | None, **kw) -> SelectionList:
+    """Auswahlliste der erkannten Laufwerke (Bind-Duplikate gesperrt, USB nur auf ausdrückliche Wahl)."""
+    items = [(f"{m.mountpoint}  ({m.fstype}, {m.kind})", m.mountpoint, on) for m, on in mount_choices(selected)
+             if not m.bind]
+    return SelectionList[str](*items, **kw)
+
+
+class MountsScreen(ModalScreen["list[str] | None"]):
+    """Laufwerke eines Vollbackup-Profils wählen (Leertaste = an/aus)."""
+    BINDINGS = [("escape", "cancel", "Abbrechen")]
+
+    def __init__(self, selected: list[str] | None):
+        super().__init__()
+        self._selected = selected
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Label("Laufwerke mitsichern (Leertaste = an/aus)", markup=False)
+            yield Static("USB-Laufwerke werden nur gesichert, wenn du sie ausdrücklich auswählst. "
+                         "Bind-Mount-Duplikate werden nie doppelt gesichert.", classes="hint", markup=False)
+            yield mount_selection(self._selected, id="mounts")
+            yield Button("Speichern", variant="primary", id="ok")
+            yield Button("Abbrechen", id="cancel")
+
+    def on_button_pressed(self, e: Button.Pressed) -> None:
+        self.dismiss(list(self.query_one("#mounts", SelectionList).selected) if e.button.id == "ok" else None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class PromptScreen(ModalScreen[str | None]):
@@ -99,6 +130,8 @@ class AddServerScreen(ModalScreen["tuple[Profile, str] | None"]):
                 yield RadioButton("Nur mein Home-Verzeichnis (empfohlen, kein sudo nötig)", value=True)
                 yield RadioButton("Vollständiges System, Dateiebene (braucht Administrator-Rechte)", id="scope-full",
                                   disabled=not can_use_admin())
+            yield Label("Laufwerke (nur bei Vollbackup; Leertaste = an/aus)", markup=False, id="mounts-label")
+            yield mount_selection(None, id="mounts")
             yield Button("Verbindung prüfen & Datastores laden", id="check")
             yield Input(placeholder="Datastore", id="datastore")
             yield Static("", id="stores", markup=False)
@@ -133,7 +166,18 @@ class AddServerScreen(ModalScreen["tuple[Profile, str] | None"]):
         if e.input.id == "namespace":
             self._update_ns()
 
-    def on_radio_set_changed(self, _e) -> None:
+    def on_mount(self) -> None:
+        self._sync_mounts()
+
+    def _sync_mounts(self) -> None:
+        full = self.query_one("#scope", RadioSet).pressed_index == 1
+        self.query_one("#mounts").display = full
+        self.query_one("#mounts-label").display = full
+
+    def on_radio_set_changed(self, e) -> None:
+        if e.radio_set.id == "scope":
+            self._sync_mounts()
+            return
         self._invalidate()
         self._update_ns()
 
@@ -261,4 +305,6 @@ class AddServerScreen(ModalScreen["tuple[Profile, str] | None"]):
         full = self.query_one("#scope", RadioSet).pressed_index == 1
         self.dismiss((Profile(name=name, server=host, port=port, datastore=ds, namespace=ns, auth_id=auth_id,
                               fingerprint=fp, backup_id=hostname, backup_mode=FULL if full else HOME,
-                              scope="system" if full else "user", sources=["/"] if full else []), secret))
+                              scope="system" if full else "user", sources=["/"] if full else [],
+                              full_mounts=list(self.query_one("#mounts", SelectionList).selected) if full else None),
+                      secret))

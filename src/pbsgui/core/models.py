@@ -27,6 +27,7 @@ class Profile:
     namespace: str = ""
     backup_id: str = field(default_factory=socket.gethostname)
     backup_mode: str = "home"  # "home" = nur Home, "full" = ganzes System (braucht System-Modus/root)
+    full_mounts: list[str] | None = None  # Vollbackup: gewählte Laufwerke; None = Standardauswahl (intern)
     sources: list[str] = field(default_factory=list)
     excludes: list[str] = field(default_factory=list)
     encrypt: bool = True  # clientseitige Verschlüsselung standardmäßig an

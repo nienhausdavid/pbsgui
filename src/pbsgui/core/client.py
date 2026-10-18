@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from typing import Callable, Iterator
 
 from .models import Profile, Snapshot
-from .modes import DEFAULT_FULL_EXCLUDES, FULL, local_mounts
+from .modes import DEFAULT_FULL_EXCLUDES, FULL, plan_mounts
 
 
 class ClientError(RuntimeError):
@@ -82,7 +82,9 @@ class PbsClient:
     def test_connection(self) -> None:
         self.list_snapshots()
 
-    def backup_args(self, keyfile: str = "", mounts: list[str] | None = None) -> list[str]:
+    def backup_args(self, keyfile: str = "", mounts: list[str] | None = None,
+                    binds: list[str] | None = None) -> list[str]:
+        """mounts/binds überschreiben die Erkennung (für Tests); sonst wird die aktuelle Mount-Tabelle gelesen."""
         p = self.profile
         keyfile = keyfile or p.keyfile
         if not p.effective_sources:
@@ -90,8 +92,10 @@ class PbsClient:
         args = ["backup", *p.archive_specs(), "--backup-id", p.backup_id, *self._ns()]
         excludes = list(p.excludes)
         if p.backup_mode == FULL:
-            excludes = [*DEFAULT_FULL_EXCLUDES, *excludes]
-            for mount in (local_mounts() if mounts is None else mounts):  # /boot, /boot/efi, getrenntes /home …
+            if mounts is None:
+                mounts, binds = plan_mounts(p.full_mounts)  # gewählte Laufwerke, Bind-Duplikate
+            excludes = [*DEFAULT_FULL_EXCLUDES, *(binds or []), *excludes]  # Duplikate nicht doppelt lesen
+            for mount in mounts:
                 args += ["--include-dev", mount]
             args += ["--skip-lost-and-found", "true"]
         for pattern in excludes:

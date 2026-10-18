@@ -171,3 +171,61 @@ def test_add_full_mode_rejects_sources(env, capsys, server, monkeypatch):
     monkeypatch.setattr("pbsgui.cli.main.can_use_admin", lambda: True)
     code, _, err = add_b(capsys, server, "--mode", "full", "--source", "/home", source=False)
     assert code == 1 and "--source" in err
+
+
+@pytest.fixture
+def full_env(env, monkeypatch, fake_mounts):
+    monkeypatch.setattr("pbsgui.cli.main.can_use_admin", lambda: True)
+    monkeypatch.setattr(manager_mod.ProfileManager, "_admin", lambda self, req: None)
+    return env
+
+
+def test_mounts_lists_with_defaults(full_env, capsys):
+    code, out, _ = run(capsys, "mounts")
+    assert code == 0
+    row = {l.split()[0]: l for l in out.splitlines() if l.startswith("/")}
+    assert "ja" in row["/boot"] and "ja" in row["/data"]
+    assert "USB-Laufwerk" in row["/media/david/STICK"] and "nein" in row["/media/david/STICK"]  # USB nicht Standard
+    assert "Duplikat" in row["/srv/dup"] and "nein" in row["/srv/dup"]
+
+
+def test_add_full_default_mounts_and_summary(full_env, capsys, server):
+    code, out, err = add_b(capsys, server, "--mode", "full", source=False)
+    assert code == 0, err
+    assert "Mitgesicherte Laufwerke: /boot, /data" in out and "Bind-Mount-Duplikate (übersprungen): /srv/dup" in out
+    assert json.loads(run(capsys, "list", "--json")[1])[0]["full_mounts"] is None  # None = Standardauswahl
+
+
+def test_add_full_explicit_usb_mount(full_env, capsys, server):
+    code, out, err = add_b(capsys, server, "--mode", "full", "--mount", "/boot", "--mount", "/media/david/STICK",
+                           source=False)
+    assert code == 0, err
+    assert "Mitgesicherte Laufwerke: /boot, /media/david/STICK" in out  # USB nur auf ausdrückliche Wahl
+    assert json.loads(run(capsys, "list", "--json")[1])[0]["full_mounts"] == ["/boot", "/media/david/STICK"]
+
+
+@pytest.mark.parametrize("bad", ["/nicht/da", "/srv/dup"])  # unbekannt und Bind-Duplikat
+def test_add_full_rejects_unknown_or_duplicate_mount(full_env, capsys, server, bad):
+    code, _, err = add_b(capsys, server, "--mode", "full", "--mount", bad, source=False)
+    assert code == 1 and "Kein auswählbares Laufwerk" in err
+
+
+def test_add_mount_requires_full_mode(full_env, capsys, server):
+    code, _, err = add_b(capsys, server, "--mount", "/boot")
+    assert code == 1 and "--mode full" in err
+
+
+def test_mounts_set_auto_none(full_env, capsys, server):
+    add_b(capsys, server, "--mode", "full", source=False)
+    show = lambda: json.loads(run(capsys, "list", "--json")[1])[0]["full_mounts"]
+    assert run(capsys, "mounts", "Test", "--set", "/data")[0] == 0 and show() == ["/data"]
+    code, out, _ = run(capsys, "mounts", "Test", "--none")
+    assert show() == [] and "keine (nur das Root-Dateisystem)" in out
+    assert run(capsys, "mounts", "Test", "--auto")[0] == 0 and show() is None
+    assert run(capsys, "mounts", "Test", "--set", "/nope")[0] == 1
+
+
+def test_mounts_set_rejected_for_home_profile(env, capsys, server, fake_mounts):
+    add_b(capsys, server)
+    code, _, err = run(capsys, "mounts", "Test", "--set", "/boot")
+    assert code == 1 and "Vollbackup" in err

@@ -16,7 +16,7 @@ from pathlib import Path
 from ..core.client import ClientError
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import Profile, slugify
-from ..core.modes import FULL, HOME, describe
+from ..core.modes import FULL, HOME, describe, detect_mounts, mount_choices, plan_mounts
 from ..core.onboarding import (connect_root, connect_token, namespace_message, namespace_state,
                                provision_and_verify, verify_token_profile)
 from ..core.paths import Paths
@@ -180,15 +180,21 @@ def cmd_add(a, mgr: ProfileManager) -> int:
         print(f"Zugang angelegt: {auth_id}")
     else:
         auth_id = a.token_id
+    full_mounts = None
     if a.mode == FULL:
         if a.source:
             raise CliError("--source passt nicht zu --mode full (das ganze System wird gesichert)")
         sources, scope = ["/"], "system"
+        if a.mount is not None:
+            full_mounts = _validate_mounts(a.mount)
     else:
+        if a.mount:
+            raise CliError("--mount gilt nur mit --mode full")
         sources, scope = a.source or [str(Path.home())], a.scope
     profile = Profile(name=a.name, server=a.server, port=a.port, datastore=a.datastore, namespace=ns,
                       auth_id=auth_id, fingerprint=fp, backup_id=hostname, sources=sources,
-                      excludes=a.exclude or [], encrypt=not a.no_encrypt, scope=scope, backup_mode=a.mode)
+                      excludes=a.exclude or [], encrypt=not a.no_encrypt, scope=scope, backup_mode=a.mode,
+                      full_mounts=full_mounts)
     if not weg_a:
         verify_token_profile(profile, secret)
         print("Verbindung mit dem Client geprüft.")
@@ -204,6 +210,41 @@ def cmd_add(a, mgr: ProfileManager) -> int:
     print(f"\nProfil '{profile.name}' angelegt: {describe(profile.backup_mode)} (Quellen: {', '.join(sources)}).")
     if profile.backup_mode == FULL:
         print("Hinweis: Dateibasiertes Vollbackup, kein Systemabbild. Es läuft mit Administrator-Rechten (Modus system).")
+        print(_mounts_summary(profile))
+    return 0
+
+
+def _validate_mounts(paths: list[str]) -> list[str]:
+    ok = {m.mountpoint for m in detect_mounts() if not m.bind}
+    unknown = [p for p in paths if p not in ok]
+    if unknown:
+        raise CliError("Kein auswählbares Laufwerk eingehängt unter: " + ", ".join(unknown) +
+                       ". Siehe `pbsgui mounts`.")
+    return paths
+
+
+def _mounts_summary(p: Profile) -> str:
+    chosen, binds = plan_mounts(p.full_mounts)
+    text = "Mitgesicherte Laufwerke: " + (", ".join(chosen) if chosen else "keine (nur das Root-Dateisystem)")
+    return text + (f"\nBind-Mount-Duplikate (übersprungen): {', '.join(binds)}" if binds else "")
+
+
+def cmd_mounts(a, mgr) -> int:
+    """Erkannte Laufwerke anzeigen; mit NAME und --set/--auto/--none die Auswahl eines Vollbackup-Profils ändern."""
+    p = find_profile(mgr, a.name) if a.name else None
+    if a.set is not None or a.auto or a.none:
+        if not p or p.backup_mode != FULL:
+            raise CliError("Die Auswahl gibt es nur für ein Profil mit Vollbackup (NAME angeben)")
+        p.full_mounts = None if a.auto else ([] if a.none else _validate_mounts(a.set))
+        mgr.save(p)
+        print("Auswahl gespeichert.")
+    selected = None if not p else p.full_mounts
+    rows = [[m.mountpoint, m.fstype, m.kind, "ja" if m.default_selected else "nein", ("ja" if on else "nein")]
+            for m, on in mount_choices(selected)]
+    header = ["Einhängepunkt", "Typ", "Art", "Standard", "Gesichert" if p else "Würde gesichert"]
+    print(table(rows, header) if rows else "Keine weiteren lokalen Laufwerke erkannt (nur das Root-Dateisystem).")
+    if p:
+        print("\n" + _mounts_summary(p))
     return 0
 
 
@@ -349,9 +390,18 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument("--exclude", action="append", help="Ausschlussmuster (mehrfach)")
             sp.add_argument("--backup-id", help="Standard: Hostname")
             sp.add_argument("--no-encrypt", action="store_true", help="clientseitige Verschlüsselung AUS (nicht empfohlen)")
+            sp.add_argument("--mount", action="append", metavar="PFAD",
+                            help="nur mit --mode full: genau diese Laufwerke mitsichern (mehrfach; "
+                                 "Standard: interne Laufwerke). USB-Laufwerke nur so.")
             sp.add_argument("--scope", choices=["user", "system"], default="user")
             sp.add_argument("--replace-token", action="store_true", help="vorhandenen Token löschen und neu erzeugen")
             sp.add_argument("--export-key", metavar="DATEI", help="erzeugten Schlüssel gleich exportieren")
+    sp = sub.add_parser("mounts", help="Erkannte Laufwerke anzeigen / Auswahl eines Vollbackup-Profils ändern")
+    sp.set_defaults(fn=cmd_mounts)
+    sp.add_argument("name", nargs="?")
+    sp.add_argument("--set", action="append", metavar="PFAD", help="genau diese Laufwerke sichern (mehrfach)")
+    sp.add_argument("--auto", action="store_true", help="Standardauswahl (interne Laufwerke)")
+    sp.add_argument("--none", action="store_true", help="keine weiteren Laufwerke, nur das Root-Dateisystem")
     add("backup", cmd_backup, "Backup jetzt ausführen", "name")
     sp = add("snapshots", cmd_snapshots, "Snapshots auflisten", "name"); sp.add_argument("--json", action="store_true")
     sp = add("restore", cmd_restore, "Snapshot wiederherstellen", "name")

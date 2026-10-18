@@ -128,3 +128,41 @@ def test_window_full_profile_locks_sources_and_scope(app, fake_env, profile, pat
     assert w.sources.count() == 1 and w.sources.item(0).text() == "/"
     assert not w.sources.isEnabled() and not w.src_add.isEnabled() and not w.f_scope.isEnabled()
     assert "Vollständiges System" in w.mode_info.text()
+
+
+def test_mount_list_defaults_and_selection(app, fake_mounts):
+    from pbsgui.gui.mounts_widget import MountList
+    ml = MountList()
+    ml.load(None)
+    assert ml.selected() == ["/boot", "/data"]  # USB und Duplikat nicht angehakt
+    ml.load(["/data", "/media/david/STICK", "/srv/dup"])
+    assert ml.selected() == ["/data", "/media/david/STICK"]  # Duplikat bleibt gesperrt (nicht in der Auswahl)
+    assert not (ml.item(3).flags() & __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.ItemFlag.ItemIsEnabled)
+
+
+def test_dialog_full_shows_drive_list_and_stores_selection(app, fake_mounts):
+    from PySide6.QtCore import Qt
+    from pbsgui.core.models import Profile
+    d = AddServerDialog(admin_ok=True)
+    d.show()
+    assert d.mount_list.isHidden()  # nur bei Vollbackup sichtbar
+    d.scope_full.setChecked(True)
+    assert not d.mount_list.isHidden() and d.mount_list.selected() == ["/boot", "/data"]
+    d.mount_list.item(1).setCheckState(Qt.CheckState.Unchecked)  # /data abwählen
+    d.mount_list.item(2).setCheckState(Qt.CheckState.Checked)    # USB ausdrücklich dazu
+    p = d._scoped(Profile(name="x", server="s", datastore="d", auth_id="a"))
+    assert p.full_mounts == ["/boot", "/media/david/STICK"] and p.sources == ["/"]
+    d.scope_home.setChecked(True)
+    p = d._scoped(Profile(name="x", server="s", datastore="d", auth_id="a"))
+    assert p.full_mounts is None
+
+
+def test_window_full_profile_roundtrips_mount_selection(app, fake_env, fake_mounts, profile, paths):
+    from PySide6.QtCore import Qt
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    profile.backup_mode, profile.scope, profile.sources, profile.full_mounts = "full", "user", [], ["/data"]
+    mgr.profiles_store.save(profile)
+    w = window_mod.MainWindow(mgr)
+    assert w.mount_list.selected() == ["/data"]
+    w.mount_list.item(0).setCheckState(Qt.CheckState.Checked)
+    assert w._collect().full_mounts == ["/boot", "/data"]

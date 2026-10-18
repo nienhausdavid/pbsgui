@@ -15,9 +15,9 @@ from textual.widgets.option_list import Option
 from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import Profile
-from ..core.modes import FULL, describe
+from ..core.modes import FULL, describe, plan_mounts
 from ..core.scheduler import SchedulerError, validate_calendar
-from .screens import AddServerScreen, ConfirmScreen, PromptScreen
+from .screens import AddServerScreen, ConfirmScreen, MountsScreen, PromptScreen
 
 
 class PbsTui(App):
@@ -31,7 +31,7 @@ class PbsTui(App):
     """
     BINDINGS = [("a", "add", "Hinzufügen"), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
                 ("t", "restore", "Restore"), ("s", "schedule", "Zeitplan"), ("m", "scope", "Modus"),
-                ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("o", "sources", "Quellen"),
+                ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"),
                 ("d", "delete", "Entfernen"), ("q", "quit", "Beenden")]
 
     def __init__(self, manager: ProfileManager | None = None):
@@ -107,7 +107,10 @@ class PbsTui(App):
             f"Datastore:     {p.datastore}" + (f" / Namespace {p.namespace}" if p.namespace else ""),
             f"Zugang:        {p.auth_id}", f"Backup-ID:     {p.backup_id}",
             f"Umfang:        {describe(p.backup_mode)}",
-            f"Quellen:       {', '.join(p.effective_sources) or '-'}", f"Ausschlüsse:   {', '.join(p.excludes) or '-'}",
+            f"Quellen:       {', '.join(p.effective_sources) or '-'}",
+            *([f"Laufwerke:     {', '.join(plan_mounts(p.full_mounts)[0]) or 'keine (nur Root-Dateisystem)'}"]
+              if p.backup_mode == FULL else []),
+            f"Ausschlüsse:   {', '.join(p.excludes) or '-'}",
             f"Verschlüsselt: {'ja' if p.encrypt else 'NEIN – Backups liegen unverschlüsselt auf dem Server'}  ({key})",
             f"Zeitplan:      {p.schedule or '-'}  [{p.scope}, {schedule_text(self.mgr, p)}]",
             f"Letzter Lauf:  {last_run_text(p)}"]))
@@ -349,6 +352,26 @@ class PbsTui(App):
             self.mgr.save(p)
             self.show_overview()
         self.push_screen(PromptScreen("Quellordner (durch Komma getrennt)", ", ".join(p.sources)), got)
+
+    def action_mounts(self) -> None:
+        p = self._need()
+        if not p:
+            return
+        if p.backup_mode != FULL:
+            self.notify("Laufwerke gibt es nur bei einem Vollbackup", severity="warning")
+            return
+
+        def got(sel):
+            if sel is None:
+                return
+            p.full_mounts = sel
+            try:
+                self.mgr.save(p)
+            except Exception as e:
+                self.notify(str(e), severity="error", timeout=10)
+                return
+            self.show_overview()
+        self.push_screen(MountsScreen(p.full_mounts), got)
 
     def action_delete(self) -> None:
         p = self._need()

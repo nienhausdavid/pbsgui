@@ -1,6 +1,6 @@
 """TUI-Tests mit Textual-Pilot (Fake-Client und lokaler TLS-Testserver)."""
 import pytest
-from textual.widgets import Button, Checkbox, DataTable, Input, RichLog, Static, TabbedContent
+from textual.widgets import Button, Checkbox, DataTable, Input, RichLog, SelectionList, Static, TabbedContent
 
 from fake_pbs_api import pytestmark, server  # noqa: F401
 from pbsgui.core import manager as manager_mod
@@ -204,3 +204,48 @@ async def test_add_screen_full_option_disabled_without_admin(mgr, monkeypatch):
         await pilot.press("a")
         await pilot.pause()
         assert pilot.app.screen.query_one("#scope-full").disabled is True
+
+
+async def test_overview_and_edit_mounts_in_full_mode(mgr, fake_mounts, monkeypatch):
+    pushed = []
+    monkeypatch.setattr(manager_mod.ProfileManager, "_admin", lambda self, req: pushed.append(req))  # statt pkexec
+    p = mgr.profiles()[0]
+    p.backup_mode, p.scope, p.sources = "full", "system", []
+    mgr.profiles_store.save(p)
+    async with PbsTui(mgr).run_test(size=(140, 50)) as pilot:
+        await pilot.pause()
+        assert "Laufwerke:     /boot, /data" in text(pilot.app.query_one("#overview", Static))
+        await pilot.press("u")
+        await pilot.pause()
+        sel = pilot.app.screen.query_one("#mounts", SelectionList)
+        assert sorted(sel.selected) == ["/boot", "/data"]
+        assert len(sel.options) == 3  # /boot, /data, USB; das Bind-Duplikat wird nicht angeboten
+        sel.deselect("/boot")
+        sel.select("/media/david/STICK")  # USB nur auf ausdrückliche Wahl
+        pilot.app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        assert mgr.profiles()[0].full_mounts is not None
+        assert sorted(mgr.profiles()[0].full_mounts) == ["/data", "/media/david/STICK"]
+        assert pushed and sorted(pushed[-1]["profile"]["full_mounts"]) == ["/data", "/media/david/STICK"]  # System-Kopie
+
+
+async def test_mounts_action_refused_for_home_profile(mgr):
+    async with PbsTui(mgr).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("u")
+        await pilot.pause()
+        assert pilot.app.screen.__class__.__name__ != "MountsScreen"
+
+
+async def test_add_screen_shows_drive_list_only_for_full(mgr, monkeypatch, fake_mounts):
+    monkeypatch.setattr("pbsgui.tui.screens.can_use_admin", lambda: True)
+    async with PbsTui(mgr).run_test(size=(140, 60)) as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        s = pilot.app.screen
+        assert s.query_one("#mounts").display is False
+        s.query_one("#scope").query("RadioButton").last().value = True
+        await pilot.pause()
+        assert s.query_one("#mounts").display is True
+        assert sorted(s.query_one("#mounts", SelectionList).selected) == ["/boot", "/data"]

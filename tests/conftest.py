@@ -30,3 +30,18 @@ def profile():
     return Profile(name="Laptop", server="pbs.example", datastore="store1",
                    auth_id="pbsgui-laptop@pbs!backup", fingerprint="AA:BB",
                    backup_id="laptop", sources=["/home/david", "/etc"], excludes=["*.tmp"], encrypt=False)
+
+
+FAKE_MOUNTS = None
+
+
+@pytest.fixture
+def fake_mounts(monkeypatch):
+    """Feste Mount-Tabelle: /boot (intern), /data (intern), USB unter /media, Bind-Duplikat."""
+    from pbsgui.core import modes
+    mounts = [modes.MountInfo("/boot", "ext4", "/dev/sda2"), modes.MountInfo("/data", "xfs", "/dev/sdb1"),
+              modes.MountInfo("/media/david/STICK", "vfat", "/dev/sdc1", usb=True),
+              modes.MountInfo("/srv/dup", "xfs", "/dev/sdb1", bind=True)]
+    monkeypatch.setattr(modes, "detect_mounts", lambda *a, **k: mounts)
+    monkeypatch.setattr("pbsgui.cli.main.detect_mounts", lambda *a, **k: mounts)
+    return mounts

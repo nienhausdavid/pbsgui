@@ -1,26 +1,58 @@
-"""Backup-Umfang: nur das eigene Home-Verzeichnis oder das ganze System (dateibasiert)."""
+"""Backup-Umfang: nur das eigene Home-Verzeichnis oder das ganze System (dateibasiert).
+
+Beim Vollbackup bestimmt der Benutzer, welche eingehängten Laufwerke mitgesichert werden. Erkannt werden
+lokale Dateisysteme über /proc/self/mountinfo, dazu USB-Laufwerke (über sysfs) und Bind-Mounts (Duplikate).
+"""
 from __future__ import annotations
+
+import os
+import re
+from dataclasses import dataclass
 
 HOME = "home"
 FULL = "full"
 
-# Vollbackup: Pseudo- und flüchtige Verzeichnisse (die liegen meist auf anderen Dateisystemen und würden
-# ohnehin übersprungen; die Muster sind eine zusätzliche Absicherung) und Wechselmedien/Swap
-DEFAULT_FULL_EXCLUDES = ["/proc", "/sys", "/dev", "/run", "/tmp", "/var/tmp", "/mnt", "/media",
-                         "/lost+found", "/swapfile", "/swap.img", "/var/cache/apt/archives"]
+# Pseudo- und flüchtige Verzeichnisse (liegen meist auf anderen Dateisystemen und würden ohnehin übersprungen;
+# die Muster sind eine zusätzliche Absicherung) sowie Swap-Dateien. Bewusst KEINE Container-/Docker-Verzeichnisse
+# und nicht /mnt, /media: dort eingehängte Laufwerke wählt der Benutzer selbst aus.
+DEFAULT_FULL_EXCLUDES = ["/proc", "/sys", "/dev", "/run", "/tmp", "/var/tmp", "/lost+found", "/swapfile",
+                         "/swap.img", "/var/cache/apt/archives"]
 
-# Der Client geht standardmäßig nicht über Dateisystemgrenzen. Einzubeziehen sind lokale, dauerhafte
-# Dateisysteme (z. B. /boot, /boot/efi, getrenntes /home), nicht Netzlaufwerke, tmpfs oder Wechselmedien.
-LOCAL_FS = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "jfs", "reiserfs", "zfs"}
-_SKIP_PREFIXES = ("/media", "/mnt", "/run", "/tmp", "/var/tmp", "/proc", "/sys", "/dev", "/snap")
+# Der Client geht standardmäßig nicht über Dateisystemgrenzen. Nur diese lokalen Typen kommen als Auswahl in
+# Frage; Netzwerk- (nfs, cifs, sshfs …), virtuelle (tmpfs, overlay …) und Pseudo-Dateisysteme nie.
+LOCAL_FS = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "jfs", "reiserfs", "zfs", "exfat", "ntfs3"}
+_HIDDEN_PREFIXES = ("/proc", "/sys", "/dev", "/tmp", "/var/tmp", "/snap")
+# Mounts, die ohne ausdrückliche Auswahl NICHT mitkommen (Wechselmedien, manuelle Mounts)
+_OPT_IN_PREFIXES = ("/media", "/mnt", "/run")
+_SUBVOL_FS = {"btrfs", "zfs"}  # Subvolumes haben root != "/" und sind trotzdem keine Bind-Mounts
+
+
+@dataclass
+class MountInfo:
+    mountpoint: str
+    fstype: str
+    source: str
+    usb: bool = False
+    bind: bool = False  # Duplikat eines bereits eingehängten Verzeichnisses
+
+    @property
+    def default_selected(self) -> bool:
+        """Standardmäßig mitsichern: interne Laufwerke außerhalb von /media, /mnt, /run, keine Duplikate."""
+        return not (self.usb or self.bind or any(
+            self.mountpoint == p or self.mountpoint.startswith(p + "/") for p in _OPT_IN_PREFIXES))
+
+    @property
+    def kind(self) -> str:
+        return "Bind-Mount (Duplikat)" if self.bind else ("USB-Laufwerk" if self.usb else "internes Laufwerk")
 
 
 def _unescape(path: str) -> str:
-    # /proc/mounts maskiert Leerzeichen & Co. als \040 usw.
+    # mountinfo maskiert Leerzeichen & Co. als \040 usw.
     out, i = [], 0
     while i < len(path):
-        if path[i] == "\\" and path[i + 1:i + 4].isdigit() and len(path[i + 1:i + 4]) == 3:
-            out.append(chr(int(path[i + 1:i + 4], 8)))
+        octal = path[i + 1:i + 4]
+        if path[i] == "\\" and len(octal) == 3 and octal.isdigit():
+            out.append(chr(int(octal, 8)))
             i += 4
         else:
             out.append(path[i])
@@ -28,26 +60,71 @@ def _unescape(path: str) -> str:
     return "".join(out)
 
 
-def local_mounts(proc_mounts: str | None = None) -> list[str]:
-    """Einhängepunkte lokaler Dateisysteme unterhalb von `/` (ohne `/` selbst), für `--include-dev`."""
-    if proc_mounts is None:
+def is_usb(source: str, sys_class_block: str = "/sys/class/block", _depth: int = 0) -> bool:
+    """True, wenn das Blockgerät (auch hinter LUKS/LVM) an einem USB-Bus hängt."""
+    if _depth > 5 or not source.startswith("/dev/"):
+        return False
+    name = os.path.basename(os.path.realpath(source)) if os.path.exists(source) else os.path.basename(source)
+    node = os.path.join(sys_class_block, name)
+    if re.search(r"/usb\d+/", os.path.realpath(node) + "/"):
+        return True
+    slaves = os.path.join(node, "slaves")  # dm-crypt/LVM: darunterliegende Geräte prüfen
+    try:
+        return any(is_usb("/dev/" + s, sys_class_block, _depth + 1) for s in os.listdir(slaves))
+    except OSError:
+        return False
+
+
+def detect_mounts(mountinfo: str | None = None, usb_check=None) -> list[MountInfo]:
+    """Eingehängte lokale Dateisysteme als Auswahl für `--include-dev` (ohne `/`)."""
+    if mountinfo is None:
         try:
-            with open("/proc/mounts") as f:
-                proc_mounts = f.read()
+            with open("/proc/self/mountinfo") as f:
+                mountinfo = f.read()
         except OSError:
             return []
-    found: list[str] = []
-    for line in proc_mounts.splitlines():
-        parts = line.split()
-        if len(parts) < 3:
+    usb_check = usb_check or is_usb
+    seen: dict[tuple[str, str], str] = {}   # (major:minor, root) -> erster Einhängepunkt
+    devices: dict[str, str] = {}            # major:minor -> erster Einhängepunkt
+    out: list[MountInfo] = []
+    for line in mountinfo.splitlines():
+        if " - " not in line:
             continue
-        mountpoint, fstype = _unescape(parts[1]), parts[2]
-        if mountpoint == "/" or fstype not in LOCAL_FS or mountpoint in found:
+        left, right = line.split(" - ", 1)
+        lt, rt = left.split(), right.split()
+        if len(lt) < 6 or len(rt) < 2:
             continue
-        if any(mountpoint == p or mountpoint.startswith(p + "/") for p in _SKIP_PREFIXES):
+        majmin, root, mountpoint = lt[2], _unescape(lt[3]), _unescape(lt[4])
+        fstype, source = rt[0], _unescape(rt[1])
+        dup = (majmin, root) in seen or (root != "/" and fstype not in _SUBVOL_FS and majmin in devices)
+        seen.setdefault((majmin, root), mountpoint)
+        devices.setdefault(majmin, mountpoint)
+        if mountpoint == "/" or fstype not in LOCAL_FS:
             continue
-        found.append(mountpoint)
-    return found
+        if any(mountpoint == p or mountpoint.startswith(p + "/") for p in _HIDDEN_PREFIXES):
+            continue
+        if any(m.mountpoint == mountpoint for m in out):
+            continue
+        out.append(MountInfo(mountpoint, fstype, source, usb=usb_check(source), bind=dup))
+    return out
+
+
+def plan_mounts(selected: list[str] | None, detected: list[MountInfo] | None = None) -> tuple[list[str], list[str]]:
+    """(einzubeziehende Mounts, auszuschließende Bind-Mount-Duplikate).
+
+    selected=None: Standardauswahl (interne Laufwerke). Nicht mehr eingehängte oder doppelte Einträge entfallen.
+    """
+    detected = detect_mounts() if detected is None else detected
+    real = [m for m in detected if not m.bind]
+    chosen = [m.mountpoint for m in real if (m.default_selected if selected is None else m.mountpoint in selected)]
+    return chosen, [m.mountpoint for m in detected if m.bind]
+
+
+def mount_choices(selected: list[str] | None, detected: list[MountInfo] | None = None) -> list[tuple[MountInfo, bool]]:
+    """Erkannte Mounts mit Auswahlzustand für Listen in GUI/TUI (Bind-Duplikate nie angehakt)."""
+    detected = detect_mounts() if detected is None else detected
+    return [(m, False if m.bind else (m.default_selected if selected is None else m.mountpoint in selected))
+            for m in detected]
 
 
 def describe(mode: str) -> str:

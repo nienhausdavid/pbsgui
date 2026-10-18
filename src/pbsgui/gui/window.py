@@ -17,6 +17,7 @@ from ..core.paths import Paths
 from ..core.runner import read_status
 from ..core.scheduler import enable_linger, linger_enabled
 from .add_server import AddServerDialog
+from .mounts_widget import MountList
 from .workers import Worker
 
 PRESETS = [("Vorlage wählen …", ""), ("Täglich 02:00", "*-*-* 02:00:00"), ("Stündlich", "hourly"), ("Wöchentlich (Mo 03:00)", "Mon *-*-* 03:00:00"),
@@ -100,6 +101,9 @@ class MainWindow(QMainWindow):
                                 "Administrator-Rechten.") if full else "Nur das eigene Home-Verzeichnis (und weitere "
                                 "gewählte Ordner).")
         self.f_scope.setEnabled(not full)
+        self.mount_label.setVisible(full); self.mount_list.setVisible(full)
+        if full:
+            self.mount_list.load(p.full_mounts)
         self.excludes.setPlainText("\n".join(p.excludes))
         self.f_enc.setChecked(p.encrypt); self.f_key.setText(p.keyfile); self.f_master.setText(p.master_pubkey)
         self.refresh_key_info()
@@ -131,7 +135,10 @@ class MainWindow(QMainWindow):
         self.src_rm = QPushButton("Entfernen"); self.src_rm.clicked.connect(self.remove_source)
         row.addWidget(self.src_add); row.addWidget(self.src_rm); row.addStretch()
         self.mode_info = QLabel(""); self.mode_info.setWordWrap(True)
+        self.mount_label = QLabel("Laufwerke mitsichern (Haken = ja):")
+        self.mount_list = MountList(); self.mount_list.setMaximumHeight(120)
         lay.addWidget(self.mode_info); lay.addWidget(self.sources); lay.addLayout(row)
+        lay.addWidget(self.mount_label); lay.addWidget(self.mount_list)
         lay.addWidget(QLabel("Ausschlüsse (ein Muster pro Zeile)"))
         self.excludes = QPlainTextEdit(); self.excludes.setMaximumHeight(70)
         lay.addWidget(self.excludes)
@@ -161,6 +168,8 @@ class MainWindow(QMainWindow):
         p.namespace = self.f_ns.text().strip()
         if p.backup_mode != FULL:  # beim Vollbackup ist die Quelle fest `/`
             p.sources = [self.sources.item(i).text() for i in range(self.sources.count())]
+        else:
+            p.full_mounts = self.mount_list.selected()
         p.excludes = [l.strip() for l in self.excludes.toPlainText().splitlines() if l.strip()]
         p.encrypt, p.keyfile = self.f_enc.isChecked(), self.f_key.text().strip()
         p.master_pubkey = self.f_master.text().strip()

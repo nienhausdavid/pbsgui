@@ -19,6 +19,7 @@ from ..core.models import Profile
 from ..core.modes import FULL, HOME
 from ..core.onboarding import namespace_message, namespace_state
 from ..core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
+from .mounts_widget import MountList
 from .workers import Worker
 
 
@@ -82,9 +83,13 @@ class AddServerDialog(QDialog):
                                  "/tmp, Wechselmedien). Es ist KEIN Abbild: für eine Neuinstallation brauchst du "
                                  "Partitionierung und Bootloader separat.")
         self.scope_note.setWordWrap(True)
+        self.mount_label = QLabel("Laufwerke mitsichern (Haken = ja; USB-Laufwerke nur auf ausdrücklichen Haken):")
+        self.mount_list = MountList(); self.mount_list.setMaximumHeight(130)
         box = QGroupBox("Umfang"); bl = QVBoxLayout(box)
-        for w in (self.scope_home, self.scope_full, self.scope_note):
+        for w in (self.scope_home, self.scope_full, self.scope_note, self.mount_label, self.mount_list):
             bl.addWidget(w)
+        self.scope_full.toggled.connect(self._scope_toggled)
+        self._scope_toggled(False)
 
         self.status = QLabel(""); self.status.setWordWrap(True)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -212,6 +217,12 @@ class AddServerDialog(QDialog):
     def namespace_state(self) -> str:
         return namespace_state(self._namespaces, self.namespace.currentText())
 
+    def _scope_toggled(self, full: bool) -> None:
+        self.mount_label.setVisible(full)
+        self.mount_list.setVisible(full)
+        if full:
+            self.mount_list.load(None)  # Standardauswahl: interne Laufwerke
+
     def backup_mode(self) -> str:
         return FULL if self.scope_full.isChecked() else HOME
 
@@ -220,8 +231,9 @@ class AddServerDialog(QDialog):
         profile.backup_mode = self.backup_mode()
         if profile.backup_mode == FULL:
             profile.scope, profile.sources = "system", ["/"]
+            profile.full_mounts = self.mount_list.selected()
         else:
-            profile.scope, profile.sources = "user", [str(Path.home())]
+            profile.scope, profile.sources, profile.full_mounts = "user", [str(Path.home())], None
         return profile
 
     def _update_ns_info(self, *_a) -> None:
