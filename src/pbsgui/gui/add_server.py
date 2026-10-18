@@ -7,19 +7,25 @@ from __future__ import annotations
 
 import socket
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QLabel,
+                               QLineEdit, QMessageBox, QPushButton, QRadioButton, QSpinBox, QStackedWidget,
+                               QVBoxLayout, QWidget)
 
 from ..core.client import PbsClient
+from pathlib import Path
+
+from ..core.manager import can_use_admin
 from ..core.models import Profile
+from ..core.modes import FULL, HOME
 from ..core.onboarding import namespace_message, namespace_state
 from ..core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
 from .workers import Worker
 
 
 class AddServerDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, admin_ok: bool | None = None):
         super().__init__(parent)
+        self.admin_ok = can_use_admin() if admin_ok is None else admin_ok
         self.setWindowTitle("Server hinzufügen")
         self.setMinimumWidth(520)
         self.profile: Profile | None = None
@@ -66,6 +72,20 @@ class AddServerDialog(QDialog):
         sel.addRow("", self.check_btn); sel.addRow("Datastore", self.datastore)
         sel.addRow("Namespace", self.namespace); sel.addRow("", self.ns_info)
 
+        self.scope_home = QRadioButton("Nur mein Home-Verzeichnis sichern (empfohlen für Desktop, kein sudo nötig)")
+        self.scope_full = QRadioButton("Vollständiges System sichern (Dateiebene, braucht Administrator-Rechte)")
+        self.scope_home.setChecked(True)
+        if not self.admin_ok:
+            self.scope_full.setEnabled(False)
+            self.scope_full.setToolTip("Keine Administrator-Rechte erkannt (sudo/pkexec)")
+        self.scope_note = QLabel("Ein Vollbackup sichert `/` plus lokale Dateisysteme wie /boot (ohne /proc, /sys, "
+                                 "/tmp, Wechselmedien). Es ist KEIN Abbild: für eine Neuinstallation brauchst du "
+                                 "Partitionierung und Bootloader separat.")
+        self.scope_note.setWordWrap(True)
+        box = QGroupBox("Umfang"); bl = QVBoxLayout(box)
+        for w in (self.scope_home, self.scope_full, self.scope_note):
+            bl.addWidget(w)
+
         self.status = QLabel(""); self.status.setWordWrap(True)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Einrichten")
@@ -73,7 +93,7 @@ class AddServerDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
 
         lay = QVBoxLayout(self)
-        lay.addLayout(form); lay.addWidget(self.stack); lay.addLayout(sel)
+        lay.addLayout(form); lay.addWidget(self.stack); lay.addLayout(sel); lay.addWidget(box)
         lay.addWidget(self.status); lay.addWidget(self.buttons)
 
         self.mode.currentIndexChanged.connect(self._mode_changed)
@@ -192,6 +212,18 @@ class AddServerDialog(QDialog):
     def namespace_state(self) -> str:
         return namespace_state(self._namespaces, self.namespace.currentText())
 
+    def backup_mode(self) -> str:
+        return FULL if self.scope_full.isChecked() else HOME
+
+    def _scoped(self, profile: Profile) -> Profile:
+        """Setzt Umfang, Modus (System/Benutzer) und Quellen gemäß der Auswahl."""
+        profile.backup_mode = self.backup_mode()
+        if profile.backup_mode == FULL:
+            profile.scope, profile.sources = "system", ["/"]
+        else:
+            profile.scope, profile.sources = "user", [str(Path.home())]
+        return profile
+
     def _update_ns_info(self, *_a) -> None:
         self.ns_info.setText(namespace_message(self.namespace_state(), self.mode.currentIndex() == 0))
 
@@ -238,8 +270,9 @@ class AddServerDialog(QDialog):
                     self._busy("Bitte erneut auf „Einrichten“ klicken." if yes else
                                "Abgebrochen: Token wurde nicht ersetzt.", False)
                     return
-                self._finish(Profile(name=name, server=host, port=port, datastore=ds, namespace=ns,
-                                     auth_id=res.auth_id, fingerprint=fp, backup_id=hostname), res.secret)
+                self._finish(self._scoped(Profile(name=name, server=host, port=port, datastore=ds, namespace=ns,
+                                                  auth_id=res.auth_id, fingerprint=fp, backup_id=hostname)),
+                             res.secret)
         else:
             auth_id, secret = self.auth_id.text().strip(), self.secret.text()
             prof = Profile(name=name, server=host, port=port, datastore=ds, namespace=ns,
@@ -250,7 +283,7 @@ class AddServerDialog(QDialog):
                 return None
 
             def done(_):
-                self._finish(prof, secret)
+                self._finish(self._scoped(prof), secret)
 
         self._busy("Richte ein …")
         self._worker = Worker(work, self)

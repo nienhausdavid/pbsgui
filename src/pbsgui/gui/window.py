@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDia
                                QTabWidget, QVBoxLayout, QWidget)
 
 from ..core.manager import ProfileManager, can_use_admin
+from ..core.modes import DEFAULT_FULL_EXCLUDES, FULL
 from ..core.models import Profile
 from ..core.paths import Paths
 from ..core.runner import read_status
@@ -90,8 +91,15 @@ class MainWindow(QMainWindow):
         p = self.current
         if not p:
             return
+        full = p.backup_mode == FULL
         self.f_id.setText(p.backup_id); self.f_ns.setText(p.namespace)
-        self.sources.clear(); self.sources.addItems(p.sources)
+        self.sources.clear(); self.sources.addItems(p.effective_sources)
+        self.sources.setEnabled(not full); self.src_add.setEnabled(not full); self.src_rm.setEnabled(not full)
+        self.mode_info.setText(("Vollständiges System (Dateiebene): Quelle `/` plus lokale Dateisysteme wie /boot. "
+                                f"Standard-Ausschlüsse: {', '.join(DEFAULT_FULL_EXCLUDES)}. Läuft mit "
+                                "Administrator-Rechten.") if full else "Nur das eigene Home-Verzeichnis (und weitere "
+                                "gewählte Ordner).")
+        self.f_scope.setEnabled(not full)
         self.excludes.setPlainText("\n".join(p.excludes))
         self.f_enc.setChecked(p.encrypt); self.f_key.setText(p.keyfile); self.f_master.setText(p.master_pubkey)
         self.refresh_key_info()
@@ -119,10 +127,11 @@ class MainWindow(QMainWindow):
         self.sources = QListWidget()
         self.sources.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         row = QHBoxLayout()
-        b1 = QPushButton("Ordner hinzufügen …"); b1.clicked.connect(self.add_source)
-        b2 = QPushButton("Entfernen"); b2.clicked.connect(self.remove_source)
-        row.addWidget(b1); row.addWidget(b2); row.addStretch()
-        lay.addWidget(self.sources); lay.addLayout(row)
+        self.src_add = QPushButton("Ordner hinzufügen …"); self.src_add.clicked.connect(self.add_source)
+        self.src_rm = QPushButton("Entfernen"); self.src_rm.clicked.connect(self.remove_source)
+        row.addWidget(self.src_add); row.addWidget(self.src_rm); row.addStretch()
+        self.mode_info = QLabel(""); self.mode_info.setWordWrap(True)
+        lay.addWidget(self.mode_info); lay.addWidget(self.sources); lay.addLayout(row)
         lay.addWidget(QLabel("Ausschlüsse (ein Muster pro Zeile)"))
         self.excludes = QPlainTextEdit(); self.excludes.setMaximumHeight(70)
         lay.addWidget(self.excludes)
@@ -150,7 +159,8 @@ class MainWindow(QMainWindow):
             return None
         p.backup_id = self.f_id.text().strip() or p.backup_id
         p.namespace = self.f_ns.text().strip()
-        p.sources = [self.sources.item(i).text() for i in range(self.sources.count())]
+        if p.backup_mode != FULL:  # beim Vollbackup ist die Quelle fest `/`
+            p.sources = [self.sources.item(i).text() for i in range(self.sources.count())]
         p.excludes = [l.strip() for l in self.excludes.toPlainText().splitlines() if l.strip()]
         p.encrypt, p.keyfile = self.f_enc.isChecked(), self.f_key.text().strip()
         p.master_pubkey = self.f_master.text().strip()
@@ -220,9 +230,8 @@ class MainWindow(QMainWindow):
         self.backup_btn.setEnabled(False)
 
         def work(on_line):
-            c = self.mgr.client(p)
             on_line(f"Starte Backup '{p.name}' …")
-            return c.backup(on_line)
+            return self.mgr.run_backup(p, on_line)
 
         def done(code):
             self.backup_btn.setEnabled(True)
@@ -376,9 +385,8 @@ class MainWindow(QMainWindow):
         dlg = AddServerDialog(self)
         if dlg.exec() and dlg.profile:
             p = dlg.profile
-            p.sources = [str(Path.home())]
             try:
-                self.mgr.save(p, token=dlg.token)
+                self.mgr.save(p, token=dlg.token)  # Vollbackup: System-Kopie per pkexec (Passwortabfrage)
                 created = self.mgr.enable_encryption(p)  # Verschlüsselung ist Standard: Key automatisch erzeugen
             except Exception as e:
                 QMessageBox.warning(self, "Speichern fehlgeschlagen", str(e))

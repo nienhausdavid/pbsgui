@@ -182,3 +182,25 @@ async def test_brackets_in_data_do_not_break_rendering(mgr):
         await pilot.pause()
         names = [t for t in (text(pilot.app.query_one("#overview", Static)),)]
         assert "A [b, -] [/x]" in names[0] and "/pfad/[test]" in names[0]
+
+
+async def test_overview_shows_scope_and_full_locks_sources(mgr):
+    p = mgr.profiles()[0]
+    p.backup_mode, p.scope, p.sources = "full", "user", []
+    mgr.profiles_store.save(p)  # System-Kopie per pkexec wird hier bewusst umgangen
+    async with PbsTui(mgr).run_test() as pilot:
+        await pilot.pause()
+        ov = text(pilot.app.query_one("#overview", Static))
+        assert "Vollständiges System" in ov and "Quellen:       /" in ov
+        await pilot.press("o")
+        await pilot.pause()
+        assert pilot.app.screen.__class__.__name__ != "PromptScreen"  # Quellen sind beim Vollbackup fest
+
+
+async def test_add_screen_full_option_disabled_without_admin(mgr, monkeypatch):
+    monkeypatch.setattr("pbsgui.tui.screens.can_use_admin", lambda: False)
+    async with PbsTui(mgr).run_test(size=(140, 60)) as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        assert pilot.app.screen.query_one("#scope-full").disabled is True

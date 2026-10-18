@@ -16,11 +16,12 @@ from pathlib import Path
 from ..core.client import ClientError
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import Profile, slugify
+from ..core.modes import FULL, HOME, describe
 from ..core.onboarding import (connect_root, connect_token, namespace_message, namespace_state,
                                provision_and_verify, verify_token_profile)
 from ..core.paths import Paths
 from ..core.pbs_api import ApiError, TokenExistsError, fetch_fingerprint
-from ..core.runner import read_latest_status, run_profile
+from ..core.runner import read_latest_status
 from ..core.scheduler import SchedulerError, validate_calendar
 
 
@@ -91,9 +92,9 @@ def cmd_list(a, mgr: ProfileManager) -> int:
         print("Keine Profile. Mit `pbsgui add` einen Server hinzufügen.")
         return 0
     rows = [[p.name, f"{p.server}:{p.port}", p.datastore + (f"/{p.namespace}" if p.namespace else ""),
-             "ja" if p.encrypt else "NEIN", p.scope, p.schedule or "-", schedule_text(mgr, p), last_run_text(p)]
+             "System" if p.backup_mode == FULL else "Home", "ja" if p.encrypt else "NEIN", p.scope, p.schedule or "-", schedule_text(mgr, p), last_run_text(p)]
             for p in profiles]
-    print(table(rows, ["Name", "Server", "Datastore/Namespace", "Verschl.", "Modus", "Zeitplan", "Status", "Letzter Lauf"]))
+    print(table(rows, ["Name", "Server", "Datastore/Namespace", "Umfang", "Verschl.", "Modus", "Zeitplan", "Status", "Letzter Lauf"]))
     return 0
 
 
@@ -147,6 +148,9 @@ def cmd_probe(a, mgr) -> int:
 
 
 def cmd_add(a, mgr: ProfileManager) -> int:
+    if a.mode == FULL and not can_use_admin():
+        raise CliError("Ein Vollbackup braucht Administrator-Rechte (sudo/pkexec), die hier nicht erkannt wurden. "
+                       "Mit --mode home nur das Home-Verzeichnis sichern.")
     if any(p.slug == slugify(a.name) for p in mgr.profiles()):
         raise CliError(f"Profil '{a.name}' existiert bereits")
     fp = _confirm_fingerprint(a)
@@ -176,10 +180,15 @@ def cmd_add(a, mgr: ProfileManager) -> int:
         print(f"Zugang angelegt: {auth_id}")
     else:
         auth_id = a.token_id
-    sources = a.source or [str(Path.home())]
+    if a.mode == FULL:
+        if a.source:
+            raise CliError("--source passt nicht zu --mode full (das ganze System wird gesichert)")
+        sources, scope = ["/"], "system"
+    else:
+        sources, scope = a.source or [str(Path.home())], a.scope
     profile = Profile(name=a.name, server=a.server, port=a.port, datastore=a.datastore, namespace=ns,
                       auth_id=auth_id, fingerprint=fp, backup_id=hostname, sources=sources,
-                      excludes=a.exclude or [], encrypt=not a.no_encrypt, scope=a.scope)
+                      excludes=a.exclude or [], encrypt=not a.no_encrypt, scope=scope, backup_mode=a.mode)
     if not weg_a:
         verify_token_profile(profile, secret)
         print("Verbindung mit dem Client geprüft.")
@@ -192,13 +201,15 @@ def cmd_add(a, mgr: ProfileManager) -> int:
             print(f"Schlüssel exportiert nach {a.export_key}")
         else:
             print(f"Jetzt sichern: pbsgui key export {profile.name} <ZIELDATEI>")
-    print(f"\nProfil '{profile.name}' angelegt (Quellen: {', '.join(sources)}).")
+    print(f"\nProfil '{profile.name}' angelegt: {describe(profile.backup_mode)} (Quellen: {', '.join(sources)}).")
+    if profile.backup_mode == FULL:
+        print("Hinweis: Dateibasiertes Vollbackup, kein Systemabbild. Es läuft mit Administrator-Rechten (Modus system).")
     return 0
 
 
 def cmd_backup(a, mgr) -> int:
     p = find_profile(mgr, a.name)
-    return run_profile(p, Paths.for_scope("user"), mgr.secrets, on_line=lambda l: print(l, flush=True))
+    return mgr.run_backup(p, on_line=lambda l: print(l, flush=True))
 
 
 def cmd_snapshots(a, mgr) -> int:
@@ -332,7 +343,9 @@ def build_parser() -> argparse.ArgumentParser:
         if nm == "add":
             sp.add_argument("--datastore", required=True)
             sp.add_argument("--namespace", default="")
-            sp.add_argument("--source", action="append", help="Quellordner (mehrfach; Standard: Home)")
+            sp.add_argument("--mode", choices=[HOME, FULL], default=HOME,
+                            help="Umfang: home = nur Home-Verzeichnis (Standard), full = ganzes System (braucht Admin)")
+            sp.add_argument("--source", action="append", help="Quellordner (mehrfach; Standard: Home; nur mit --mode home)")
             sp.add_argument("--exclude", action="append", help="Ausschlussmuster (mehrfach)")
             sp.add_argument("--backup-id", help="Standard: Hostname")
             sp.add_argument("--no-encrypt", action="store_true", help="clientseitige Verschlüsselung AUS (nicht empfohlen)")

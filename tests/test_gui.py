@@ -101,3 +101,30 @@ def test_encryption_off_shows_warning(app, fake_env, profile, paths):
     mgr.save(profile, token="t")
     w = window_mod.MainWindow(mgr)
     assert "unverschlüsselt" in w.key_info.text() and not w.key_btn.isEnabled()
+
+
+def test_dialog_full_scope_disabled_without_admin(app):
+    d = AddServerDialog(admin_ok=False)
+    assert not d.scope_full.isEnabled() and d.scope_home.isChecked()
+    assert d.backup_mode() == "home"
+
+
+def test_dialog_scope_sets_mode_sources_and_scope(app):
+    from pbsgui.core.models import Profile
+    d = AddServerDialog(admin_ok=True)
+    assert d.scope_full.isEnabled()
+    p = d._scoped(Profile(name="x", server="s", datastore="d", auth_id="a"))
+    assert p.backup_mode == "home" and p.scope == "user" and p.sources == [str(__import__("pathlib").Path.home())]
+    d.scope_full.setChecked(True)
+    p = d._scoped(Profile(name="x", server="s", datastore="d", auth_id="a"))
+    assert p.backup_mode == "full" and p.scope == "system" and p.sources == ["/"]
+
+
+def test_window_full_profile_locks_sources_and_scope(app, fake_env, profile, paths):
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    profile.backup_mode, profile.scope, profile.sources = "full", "user", []
+    mgr.profiles_store.save(profile)  # direkt speichern (System-Kopie braucht pkexec)
+    w = window_mod.MainWindow(mgr)
+    assert w.sources.count() == 1 and w.sources.item(0).text() == "/"
+    assert not w.sources.isEnabled() and not w.src_add.isEnabled() and not w.f_scope.isEnabled()
+    assert "Vollständiges System" in w.mode_info.text()

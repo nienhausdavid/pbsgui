@@ -5,6 +5,7 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md). Status: **Prototyp**.
 
 ## Was funktioniert (getestet gegen einen Fake-Client)
 - Profile mit Quellordnern, Ausschlüssen, Namespace, Verschlüsselungs-Flag
+- Backup-Umfang beim Einrichten wählbar: **nur Home** (Standard, kein sudo, Benutzer-Modus) oder **ganzes System** (Dateiebene, braucht Administrator-Rechte, läuft im System-Modus über `pkexec`/systemd). Vollbackup sichert `/` plus lokale Dateisysteme wie `/boot` (`--include-dev`), ohne `/proc`, `/sys`, `/tmp`, Wechselmedien u. Ä.; es ist **kein** Systemabbild
 - Server einrichten: Weg A (einmalig als root, legt Benutzer/Token/ACLs an) oder Weg B (vorhandener Token), mit Fingerprint-Pinning
 - Clientseitige Verschlüsselung standardmäßig an: Key wird automatisch erzeugt (ohne Passphrase, da der Client sie nur per TTY akzeptiert), verschlüsselt im Geheimnis-Speicher abgelegt und nur kurz als 0600-Datei im tmpfs bereitgestellt; Export-Dialog zur Sicherung
 - Beim Einrichten: Datastores laden, Namespaces live prüfen (vorhanden / wird angelegt / mit Weg B nicht anlegbar)
@@ -46,7 +47,8 @@ Alle drei nutzen denselben Core (`pbsgui/core`), beliebig kombinierbar.
 Beispiele:
 ```bash
 pbsgui probe --server pbs.example.org --root-user root@pam        # Datastores/Namespaces ansehen
-pbsgui add --name Laptop --server pbs.example.org --datastore main --namespace laptop   # Weg A (root, einmalig)
+pbsgui add --name Laptop --server pbs.example.org --datastore main --namespace laptop   # Weg A (root, einmalig), nur Home
+pbsgui add --name Server --server pbs.example.org --datastore main --mode full             # ganzes System (braucht Admin)
 pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id user@pbs!tok  # Weg B
 pbsgui key export Laptop ~/laptop-key.json                       # Schlüssel sichern!
 pbsgui schedule Laptop --calendar daily --scope user

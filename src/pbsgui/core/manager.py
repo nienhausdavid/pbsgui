@@ -17,6 +17,8 @@ from pathlib import Path
 from .client import PbsClient
 from .keys import export_key, generate_key
 from .models import Profile, Snapshot
+from .modes import FULL
+from .runner import run_profile
 from .paths import Paths
 from .scheduler import SchedulerError, SystemdScheduler
 from .secrets import SecretStore, best_store
@@ -81,6 +83,8 @@ class ProfileManager:
     def save(self, profile: Profile, token: str | None = None, keypass: str | None = None,
              schedule: str = "keep", key: str | None = None) -> None:
         """schedule: "install" | "remove" | "keep"."""
+        if profile.backup_mode == FULL and profile.scope != "system":
+            raise SchedulerError("Ein Vollbackup braucht den System-Modus (Zugriff auf alle Dateien).")
         self.profiles_store.save(profile)
         if token:
             self.secrets.put(profile.slug, "token", token)
@@ -110,10 +114,30 @@ class ProfileManager:
         store = self.secrets if profile.scope == "user" else best_store("system", paths.creds)
         return SystemdScheduler(paths, store).status(profile)
 
+    def run_backup(self, profile: Profile, on_line=print) -> int:
+        """Führt das Backup jetzt aus. Vollbackup läuft privilegiert (pkexec), Home-Backup als Benutzer."""
+        if profile.backup_mode != FULL:
+            return run_profile(profile, Paths.for_scope("user"), self.secrets, on_line=on_line)
+        if os.geteuid() == 0:
+            paths = Paths.for_scope("system")
+            return run_profile(profile, paths, best_store("system", paths.creds), on_line=on_line)
+        root = str(Path(__file__).resolve().parents[2])  # .../src
+        cmd = ["pkexec", "env", f"PYTHONPATH={root}", sys.executable, "-m", "pbsgui.cli.run", profile.slug,
+               "--scope", "system"]
+        on_line("Vollbackup braucht Administrator-Rechte: Passwortabfrage …")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                text=True, bufsize=1)
+        assert proc.stdout
+        for line in proc.stdout:
+            on_line(line.rstrip("\n"))
+        return proc.wait()
+
     def move_scope(self, profile: Profile, new_scope: str) -> None:
         """Wechselt User/System: entfernt den Zeitplan im alten Scope, setzt den neuen Scope (speichert nicht)."""
         if new_scope == profile.scope:
             return
+        if profile.backup_mode == FULL:
+            raise SchedulerError("Ein Vollbackup braucht den System-Modus und kann nicht gewechselt werden.")
         old = Profile.from_dict({**profile.to_dict(), "scope": profile.scope})
         self.save(old, schedule="remove")
         profile.scope = new_scope

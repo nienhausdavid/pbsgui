@@ -29,11 +29,11 @@ def run(capsys, *args):
     return code, out.out, out.err
 
 
-def add_b(capsys, server, *extra, ns="a", name="Test"):
+def add_b(capsys, server, *extra, ns="a", name="Test", source=True):
     fp = fetch_fingerprint("127.0.0.1", server)
     return run(capsys, "add", "--name", name, "--server", "127.0.0.1", "--port", str(server), "--fingerprint", fp,
                "--datastore", "store1", "--namespace", ns, "--token-id", "u@pbs!t", "--backup-id", "host",
-               "--source", "/etc", *extra)
+               *(["--source", "/etc"] if source else []), *extra)
 
 
 def test_list_empty(env, capsys):
@@ -145,3 +145,29 @@ def test_remove(env, capsys, server):
 def test_secrets_not_accepted_as_args(env, capsys, server):
     with pytest.raises(SystemExit):
         main(["add", "--name", "x", "--server", "s", "--datastore", "d", "--password", "x"])
+
+
+def test_add_full_mode_needs_admin(env, capsys, server, monkeypatch):
+    monkeypatch.setattr("pbsgui.cli.main.can_use_admin", lambda: False)
+    code, _, err = add_b(capsys, server, "--mode", "full", source=False)
+    assert code == 1 and "Administrator-Rechte" in err
+    assert "Keine Profile" in run(capsys, "list")[1]
+
+
+def test_add_full_mode_creates_system_profile(env, capsys, server, monkeypatch):
+    monkeypatch.setattr("pbsgui.cli.main.can_use_admin", lambda: True)
+    pushed = []
+    monkeypatch.setattr(manager_mod.ProfileManager, "_admin", lambda self, req: pushed.append(req))
+    code, out, err = add_b(capsys, server, "--mode", "full", source=False)
+    assert code == 0, err
+    assert "Vollständiges System" in out and "kein Systemabbild" in out
+    p = json.loads(run(capsys, "list", "--json")[1])[0]
+    assert p["backup_mode"] == "full" and p["scope"] == "system" and p["sources"] == ["/"]
+    assert pushed and pushed[0]["profile"]["backup_mode"] == "full"  # System-Kopie wurde angefordert
+    assert "System" in run(capsys, "list")[1]
+
+
+def test_add_full_mode_rejects_sources(env, capsys, server, monkeypatch):
+    monkeypatch.setattr("pbsgui.cli.main.can_use_admin", lambda: True)
+    code, _, err = add_b(capsys, server, "--mode", "full", "--source", "/home", source=False)
+    assert code == 1 and "--source" in err

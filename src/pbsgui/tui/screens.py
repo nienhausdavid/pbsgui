@@ -9,7 +9,9 @@ from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, RadioButton, RadioSet, Static
 
+from ..core.manager import can_use_admin
 from ..core.models import Profile
+from ..core.modes import FULL, HOME
 from ..core.onboarding import (connect_root, connect_token, namespace_message, namespace_state,
                                provision_and_verify, verify_token_profile)
 from ..core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
@@ -92,6 +94,11 @@ class AddServerScreen(ModalScreen["tuple[Profile, str] | None"]):
             yield Input(placeholder="2FA-Code (optional)", id="tfa")
             yield Input(placeholder="Token-ID benutzer@pbs!name (Weg B)", id="token-id")
             yield Input(placeholder="Token-Secret (Weg B)", password=True, id="token-secret")
+            yield Label("Umfang", markup=False)
+            with RadioSet(id="scope"):
+                yield RadioButton("Nur mein Home-Verzeichnis (empfohlen, kein sudo nötig)", value=True)
+                yield RadioButton("Vollständiges System, Dateiebene (braucht Administrator-Rechte)", id="scope-full",
+                                  disabled=not can_use_admin())
             yield Button("Verbindung prüfen & Datastores laden", id="check")
             yield Input(placeholder="Datastore", id="datastore")
             yield Static("", id="stores", markup=False)
@@ -251,5 +258,7 @@ class AddServerScreen(ModalScreen["tuple[Profile, str] | None"]):
         except Exception as ex:  # Fehler anzeigen, Dialog bleibt offen
             self._say(f"Fehler: {ex}")
             return
+        full = self.query_one("#scope", RadioSet).pressed_index == 1
         self.dismiss((Profile(name=name, server=host, port=port, datastore=ds, namespace=ns, auth_id=auth_id,
-                              fingerprint=fp, backup_id=hostname), secret))
+                              fingerprint=fp, backup_id=hostname, backup_mode=FULL if full else HOME,
+                              scope="system" if full else "user", sources=["/"] if full else []), secret))

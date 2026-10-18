@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from typing import Callable, Iterator
 
 from .models import Profile, Snapshot
+from .modes import DEFAULT_FULL_EXCLUDES, FULL, local_mounts
 
 
 class ClientError(RuntimeError):
@@ -81,13 +82,19 @@ class PbsClient:
     def test_connection(self) -> None:
         self.list_snapshots()
 
-    def backup_args(self, keyfile: str = "") -> list[str]:
+    def backup_args(self, keyfile: str = "", mounts: list[str] | None = None) -> list[str]:
         p = self.profile
         keyfile = keyfile or p.keyfile
-        if not p.sources:
+        if not p.effective_sources:
             raise ClientError("Keine Quellpfade im Profil")
         args = ["backup", *p.archive_specs(), "--backup-id", p.backup_id, *self._ns()]
-        for pattern in p.excludes:
+        excludes = list(p.excludes)
+        if p.backup_mode == FULL:
+            excludes = [*DEFAULT_FULL_EXCLUDES, *excludes]
+            for mount in (local_mounts() if mounts is None else mounts):  # /boot, /boot/efi, getrenntes /home …
+                args += ["--include-dev", mount]
+            args += ["--skip-lost-and-found", "true"]
+        for pattern in excludes:
             args += ["--exclude", pattern]
         if p.encrypt:
             if not keyfile:

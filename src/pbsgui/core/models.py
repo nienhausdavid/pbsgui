@@ -26,6 +26,7 @@ class Profile:
     port: int = 8007
     namespace: str = ""
     backup_id: str = field(default_factory=socket.gethostname)
+    backup_mode: str = "home"  # "home" = nur Home, "full" = ganzes System (braucht System-Modus/root)
     sources: list[str] = field(default_factory=list)
     excludes: list[str] = field(default_factory=list)
     encrypt: bool = True  # clientseitige Verschlüsselung standardmäßig an
@@ -44,11 +45,15 @@ class Profile:
     def repository(self) -> str:
         return f"{self.auth_id}@{self.server}:{self.port}:{self.datastore}"
 
+    @property
+    def effective_sources(self) -> list[str]:
+        return ["/"] if self.backup_mode == "full" else self.sources
+
     def archive_specs(self) -> list[str]:
         """`name.pxar:/pfad`-Angaben für den Client; Namen werden eindeutig gemacht."""
         seen: dict[str, int] = {}
         specs = []
-        for src in self.sources:
+        for src in self.effective_sources:
             base = archive_name(src)
             n = seen.get(base, 0)
             seen[base] = n + 1

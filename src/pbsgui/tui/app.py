@@ -15,8 +15,7 @@ from textual.widgets.option_list import Option
 from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import Profile
-from ..core.paths import Paths
-from ..core.runner import run_profile
+from ..core.modes import FULL, describe
 from ..core.scheduler import SchedulerError, validate_calendar
 from .screens import AddServerScreen, ConfirmScreen, PromptScreen
 
@@ -107,7 +106,8 @@ class PbsTui(App):
             f"Profil:        {p.name}", f"Server:        {p.server}:{p.port}",
             f"Datastore:     {p.datastore}" + (f" / Namespace {p.namespace}" if p.namespace else ""),
             f"Zugang:        {p.auth_id}", f"Backup-ID:     {p.backup_id}",
-            f"Quellen:       {', '.join(p.sources) or '-'}", f"Ausschlüsse:   {', '.join(p.excludes) or '-'}",
+            f"Umfang:        {describe(p.backup_mode)}",
+            f"Quellen:       {', '.join(p.effective_sources) or '-'}", f"Ausschlüsse:   {', '.join(p.excludes) or '-'}",
             f"Verschlüsselt: {'ja' if p.encrypt else 'NEIN – Backups liegen unverschlüsselt auf dem Server'}  ({key})",
             f"Zeitplan:      {p.schedule or '-'}  [{p.scope}, {schedule_text(self.mgr, p)}]",
             f"Letzter Lauf:  {last_run_text(p)}"]))
@@ -133,7 +133,8 @@ class PbsTui(App):
             if not res:
                 return
             p, token = res
-            p.sources = [str(Path.home())]
+            if not p.sources:
+                p.sources = [str(Path.home())]
             try:
                 self.mgr.save(p, token=token)
                 created = self.mgr.enable_encryption(p)
@@ -155,8 +156,7 @@ class PbsTui(App):
         self.write_log(f"Starte Backup '{p.name}' …")
 
         def work():
-            code = run_profile(p, Paths.for_scope("user"), self.mgr.secrets,
-                               on_line=lambda l: self.call_from_thread(self.write_log, l))
+            code = self.mgr.run_backup(p, on_line=lambda l: self.call_from_thread(self.write_log, l))
             self.call_from_thread(self._backup_done, code)
 
         self.run_worker(work, thread=True)
@@ -266,6 +266,9 @@ class PbsTui(App):
         p = self._need()
         if not p:
             return
+        if p.backup_mode == FULL:
+            self.notify("Ein Vollbackup braucht den System-Modus und kann nicht gewechselt werden", severity="warning")
+            return
         new = "system" if p.scope == "user" else "user"
         if new == "system" and not can_use_admin():
             self._notify("Modus 'system' braucht Administrator-Rechte", severity="error")
@@ -334,6 +337,9 @@ class PbsTui(App):
     def action_sources(self) -> None:
         p = self._need()
         if not p:
+            return
+        if p.backup_mode == FULL:
+            self.notify("Beim Vollbackup ist die Quelle fest `/` (Ausschlüsse im Profil anpassen)", severity="warning")
             return
 
         def got(text):
