@@ -457,6 +457,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("recovery", cmd_recovery, "Wiederherstellung auf neuem PC: Checkliste, Notfallblatt", "name")
     sp.add_argument("--sheet", metavar="DATEI", help="Notfallblatt (ohne Geheimnisse) speichern")
     sp.add_argument("--collect", metavar="VERZEICHNIS", help="Datenträger-Metadaten jetzt sammeln (braucht root)")
+    from .rescue_cli import add_arguments as add_rescue
+    add_rescue(sub)
     add("tui", cmd_tui, "Terminal-Oberfläche starten")
     return ap
 

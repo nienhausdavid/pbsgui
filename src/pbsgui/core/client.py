@@ -7,7 +7,10 @@ import subprocess
 from contextlib import contextmanager
 from typing import Callable, Iterator
 
+from pathlib import Path
+
 from .models import Profile, Snapshot
+from .paths import Paths
 from .modes import DEFAULT_FULL_EXCLUDES, FULL, plan_mounts
 
 
@@ -83,13 +86,20 @@ class PbsClient:
         self.list_snapshots()
 
     def backup_args(self, keyfile: str = "", mounts: list[str] | None = None,
-                    binds: list[str] | None = None) -> list[str]:
+                    binds: list[str] | None = None, recovery_dir: str | None = None) -> list[str]:
         """mounts/binds überschreiben die Erkennung (für Tests); sonst wird die aktuelle Mount-Tabelle gelesen."""
         p = self.profile
         keyfile = keyfile or p.keyfile
         if not p.effective_sources:
             raise ClientError("Keine Quellpfade im Profil")
-        args = ["backup", *p.archive_specs(), "--backup-id", p.backup_id, *self._ns()]
+        specs = p.archive_specs()
+        if p.backup_mode == FULL:
+            # Eigenes kleines Archiv mit den Datenträger-Metadaten: die Rettungs-ISO holt damit das Layout in
+            # Sekunden, ohne das ganze System entpacken zu müssen (der Client kann kein Teil-Restore).
+            rd = Path(recovery_dir) if recovery_dir else Paths.for_scope("system").state / "recovery" / p.slug
+            if rd.is_dir():
+                specs.append(f"recovery.pxar:{rd}")
+        args = ["backup", *specs, "--backup-id", p.backup_id, *self._ns()]
         excludes = list(p.excludes)
         if p.backup_mode == FULL:
             if mounts is None:

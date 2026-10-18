@@ -168,3 +168,15 @@ def test_run_backup_full_as_root_runs_with_system_paths(profile, paths, monkeypa
     monkeypatch.setattr(manager_mod, "run_profile", lambda p, paths, store, on_line: got.update(scope=paths.scope) or 0)
     monkeypatch.setattr(manager_mod, "best_store", lambda scope, d: FileStore(d))
     assert m.run_backup(profile) == 0 and got["scope"] == "system"
+
+
+def test_full_backup_adds_recovery_archive_only_if_present(profile, tmp_path):
+    profile.backup_mode = FULL
+    rec = tmp_path / "rec"
+    args = PbsClient(profile, "x").backup_args(mounts=[], binds=[], recovery_dir=str(rec))
+    assert not any(a.startswith("recovery.pxar") for a in args)   # Verzeichnis fehlt: kein Archiv
+    rec.mkdir()
+    args = PbsClient(profile, "x").backup_args(mounts=[], binds=[], recovery_dir=str(rec))
+    assert f"recovery.pxar:{rec}" in args and "root.pxar:/" in args
+    profile.backup_mode = HOME
+    assert not any(a.startswith("recovery.pxar") for a in PbsClient(profile, "x").backup_args(recovery_dir=str(rec)))

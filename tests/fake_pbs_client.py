@@ -55,7 +55,16 @@ elif args[:2] == ["catalog", "dump"]:
 elif args[:1] == ["restore"]:
     target = Path(args[3])
     target.mkdir(parents=True, exist_ok=True)
-    (target / "restored.txt").write_text("fake restore\n")
+    tree = os.environ.get("FAKE_PBS_TREE")
+    if tree:  # Integrationstests: echten Dateibaum zurückspielen (Archivname -> Unterordner)
+        import subprocess
+        src = Path(tree) / args[2]
+        if not src.is_dir():
+            print(f"Error: archive {args[2]} not found", file=sys.stderr)
+            sys.exit(1)
+        subprocess.run(["cp", "-a", f"{src}/.", str(target)], check=True)
+    else:
+        (target / "restored.txt").write_text("fake restore\n")
 else:
     print(f"fake client: unbekannter Befehl {args}", file=sys.stderr)
     sys.exit(2)
