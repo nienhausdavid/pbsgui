@@ -10,6 +10,7 @@ from .window import MainWindow
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("pbsgui")
+    app.setDesktopFileName("pbsgui")  # Wayland: ordnet Fenster dem Starter und Icon zu
     win = MainWindow()
     win.show()
     return app.exec()

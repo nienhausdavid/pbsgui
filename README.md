@@ -21,5 +21,6 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md). Status: **Prototyp**.
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m pytest        # Tests (Fake-Client unter tests/)
 .venv/bin/pbsgui                  # GUI starten
+scripts/install-desktop.sh        # Starter + Icon im Anwendungsmenü installieren (~/.local/share)
 ```
 Debian/Ubuntu: `sudo apt install python3-venv`, dazu den `proxmox-backup-client` aus dem Proxmox-Client-Repo.
