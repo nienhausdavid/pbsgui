@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from rich.markup import escape
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import DataTable, Footer, Header, OptionList, RichLog, Static, TabbedContent, TabPane
@@ -75,7 +76,7 @@ class PbsTui(App):
         lst = self._q("#profiles", OptionList)
         profiles = self.mgr.profiles()
         lst.clear_options()
-        lst.add_options([Option(p.name, id=p.slug) for p in profiles])
+        lst.add_options([Option(Text(p.name), id=p.slug) for p in profiles])  # Text: kein Markup
         idx = next((i for i, p in enumerate(profiles) if p.name == select), 0) if profiles else None
         if idx is not None:
             lst.highlighted = idx
