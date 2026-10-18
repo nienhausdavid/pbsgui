@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDia
 
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.modes import DEFAULT_FULL_EXCLUDES, FULL
+from ..core.recovery import needs_key_export, render_sheet
 from ..core.models import Profile
 from ..core.paths import Paths
 from ..core.runner import read_status
@@ -122,10 +123,11 @@ class MainWindow(QMainWindow):
         self.f_master = QLineEdit(); self.f_master.setPlaceholderText("optional – RSA-Master-Public-Key (.pem)")
         self.key_info = QLabel(""); self.key_info.setWordWrap(True)
         self.key_btn = QPushButton("Schlüssel exportieren …"); self.key_btn.clicked.connect(self.export_key_dialog)
+        self.sheet_btn = QPushButton("Notfallblatt speichern …"); self.sheet_btn.clicked.connect(self.save_sheet)
         form.addRow("Backup-ID", self.f_id); form.addRow("Namespace", self.f_ns)
         form.addRow(self.f_enc); form.addRow("Eigene Schlüsseldatei", self.f_key)
         form.addRow("Master-Public-Key", self.f_master)
-        form.addRow(self.key_info); form.addRow("", self.key_btn)
+        form.addRow(self.key_info); form.addRow("", self.key_btn); form.addRow("", self.sheet_btn)
         lay.addLayout(form)
         lay.addWidget(QLabel("Quellordner"))
         self.sources = QListWidget()
@@ -201,12 +203,16 @@ class MainWindow(QMainWindow):
             text, can_export = f"Eigene Schlüsseldatei: {p.keyfile}", False
         elif self.mgr.secrets.get(p.slug, "key"):
             text, can_export = f"Automatisch erzeugter Schlüssel, Fingerprint: {p.key_fingerprint}", True
+            text += (f"\nExtern gesichert am {p.key_exported_at}." if p.key_exported_at else
+                     "\nNOCH NICHT exportiert" + (" – das Vollbackup ist bis dahin gesperrt!" if needs_key_export(p)
+                                                    else "."))
         elif p.encrypt:
             text, can_export = "Der Schlüssel wird beim Speichern automatisch erzeugt.", False
         else:
             text, can_export = "Verschlüsselung ist aus: Backups liegen unverschlüsselt auf dem Server.", False
         self.key_info.setText(text)
         self.key_btn.setEnabled(can_export)
+        self.sheet_btn.setVisible(p.backup_mode == FULL)
 
     def _offer_key_export(self, p: Profile) -> None:
         """Ohne Schlüssel sind verschlüsselte Backups unwiederbringlich verloren: Kopie anbieten."""
@@ -216,6 +222,15 @@ class MainWindow(QMainWindow):
             "Geht er verloren (z. B. Festplattendefekt), sind alle Backups UNWIDERRUFLICH unlesbar. "
             "Bitte jetzt eine Kopie an einem sicheren Ort ablegen (Passwortmanager, USB-Stick).")
         self.export_key_dialog()
+
+    def save_sheet(self) -> None:
+        p = self.current
+        if not p:
+            return
+        dest, _ = QFileDialog.getSaveFileName(self, "Notfallblatt speichern", str(Path.home() / f"notfallblatt-{p.slug}.txt"))
+        if dest:
+            Path(dest).write_text(render_sheet(p))
+            self.statusBar().showMessage(f"Notfallblatt gespeichert: {dest} (enthält keine Geheimnisse)")
 
     def export_key_dialog(self) -> None:
         p = self.current
@@ -228,6 +243,7 @@ class MainWindow(QMainWindow):
         try:
             self.mgr.export_key(p, dest)
             self.statusBar().showMessage(f"Schlüssel exportiert nach {dest}")
+            self.refresh_key_info()
         except Exception as e:
             QMessageBox.warning(self, "Export fehlgeschlagen", str(e))
 

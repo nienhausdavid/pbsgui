@@ -229,3 +229,22 @@ def test_mounts_set_rejected_for_home_profile(env, capsys, server, fake_mounts):
     add_b(capsys, server)
     code, _, err = run(capsys, "mounts", "Test", "--set", "/boot")
     assert code == 1 and "Vollbackup" in err
+
+
+def test_recovery_checklist_and_sheet(full_env, capsys, server, monkeypatch):
+    add_b(capsys, server, "--mode", "full", source=False)
+    code, out, _ = run(capsys, "recovery", "Test")
+    assert code == 0 and "[ ] Verschlüsselungs-Schlüssel extern gesichert" in out and "PFLICHT" in out
+    assert "gesperrt" in out
+    code, _, err = run(capsys, "backup", "Test")
+    assert code == 4  # Vollbackup ohne Schlüssel-Export
+    sheet = env_path = full_env / "blatt.txt"
+    code, out, _ = run(capsys, "recovery", "Test", "--sheet", str(sheet))
+    assert code == 0 and "root.pxar" in sheet.read_text() and "geheim" not in sheet.read_text()
+    assert oct(sheet.stat().st_mode & 0o777) == "0o600"
+    assert run(capsys, "recovery", "Test", "--sheet", str(sheet))[0] == 1  # nie überschreiben
+    key = full_env / "key.json"
+    assert run(capsys, "key", "export", "Test", str(key))[0] == 0
+    out = run(capsys, "recovery", "Test")[1]
+    assert "[x] Verschlüsselungs-Schlüssel extern gesichert" in out and "gesperrt" not in out
+    assert "Extern gesichert: ja" in run(capsys, "key", "info", "Test")[1]

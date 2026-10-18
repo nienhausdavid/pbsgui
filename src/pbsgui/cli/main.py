@@ -20,6 +20,7 @@ from ..core.modes import FULL, HOME, describe, detect_mounts, mount_choices, pla
 from ..core.onboarding import (connect_root, connect_token, namespace_message, namespace_state,
                                provision_and_verify, verify_token_profile)
 from ..core.paths import Paths
+from ..core.recovery import collect_recovery, needs_key_export, render_sheet
 from ..core.pbs_api import ApiError, TokenExistsError, fetch_fingerprint
 from ..core.runner import read_latest_status
 from ..core.scheduler import SchedulerError, validate_calendar
@@ -328,6 +329,8 @@ def cmd_key(a, mgr) -> int:
         stored = bool(mgr.secrets.get(p.slug, "key"))
         print(f"Verschlüsselung: {'an' if p.encrypt else 'AUS'}")
         print(f"Automatischer Schlüssel: {'ja, Fingerprint ' + p.key_fingerprint if stored else 'nein'}")
+        if stored:
+            print(f"Extern gesichert: {'ja, am ' + p.key_exported_at if p.key_exported_at else 'NEIN (pbsgui key export ...)'}")
         if p.keyfile:
             print(f"Eigene Schlüsseldatei: {p.keyfile}")
         return 0
@@ -337,6 +340,40 @@ def cmd_key(a, mgr) -> int:
         raise CliError(f"{a.dest} existiert bereits")
     mgr.export_key(p, a.dest)
     print(f"Schlüssel exportiert nach {a.dest} (Rechte 0600). An einem sicheren Ort aufbewahren.")
+    return 0
+
+
+def cmd_recovery(a, mgr) -> int:
+    """Vorbereitung für die Wiederherstellung auf einem neuen PC: Checkliste, Notfallblatt, Metadaten."""
+    p = find_profile(mgr, a.name)
+    if a.sheet:
+        if Path(a.sheet).exists():
+            raise CliError(f"{a.sheet} existiert bereits")
+        Path(a.sheet).write_text(render_sheet(p))
+        os.chmod(a.sheet, 0o600)
+        print(f"Notfallblatt gespeichert: {a.sheet} (enthält keine Geheimnisse; ausdrucken und sicher aufbewahren)")
+    if a.collect:
+        got = collect_recovery(Path(a.collect), p)
+        print(f"{len(got.files)} Dateien nach {a.collect} geschrieben.")
+        for w in got.warnings:
+            print(f"  Warnung: {w}")
+    if not (a.sheet or a.collect):
+        ok = lambda b: "[x]" if b else "[ ]"
+        full = p.backup_mode == FULL
+        print(f"Wiederherstellung auf einem neuen PC: Profil '{p.name}'")
+        print(f"  {ok(full)} Vollbackup (Dateiebene)" + ("" if full else "  <- nur bei --mode full sinnvoll"))
+        if p.encrypt:
+            exported = bool(p.key_exported_at or p.keyfile)
+            print(f"  {ok(exported)} Verschlüsselungs-Schlüssel extern gesichert"
+                  + (f" (exportiert am {p.key_exported_at})" if p.key_exported_at else
+                     "  <- PFLICHT: pbsgui key export " + p.name + " <ZIELDATEI>"))
+        else:
+            print("  [-] Verschlüsselung aus: kein Schlüssel nötig")
+        print("  [ ] Notfallblatt ausdrucken: pbsgui recovery " + p.name + " --sheet <DATEI>")
+        print("  Datenträger-Metadaten werden bei jedem Vollbackup automatisch mitgesichert "
+              "(/var/lib/pbsgui/recovery/" + p.slug + "/).")
+        if needs_key_export(p):
+            print("\nVollbackup und Zeitplan sind gesperrt, bis der Schlüssel exportiert ist.")
     return 0
 
 
@@ -417,6 +454,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("key", cmd_key, "Verschlüsselungs-Schlüssel anzeigen/exportieren", "action")
     sp.add_argument("name"); sp.add_argument("dest", nargs="?")
     sp = add("remove", cmd_remove, "Profil entfernen", "name"); sp.add_argument("--yes", action="store_true")
+    sp = add("recovery", cmd_recovery, "Wiederherstellung auf neuem PC: Checkliste, Notfallblatt", "name")
+    sp.add_argument("--sheet", metavar="DATEI", help="Notfallblatt (ohne Geheimnisse) speichern")
+    sp.add_argument("--collect", metavar="VERZEICHNIS", help="Datenträger-Metadaten jetzt sammeln (braucht root)")
     add("tui", cmd_tui, "Terminal-Oberfläche starten")
     return ap
 

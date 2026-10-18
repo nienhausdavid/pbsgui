@@ -33,6 +33,13 @@ scripts/build-deb.sh dist && sudo apt install ./dist/pbsgui_*_all.deb
 Ein signiertes APT-Repository über GitHub Pages ist vorbereitet, siehe [docs/RELEASING.md](docs/RELEASING.md).
 Den `proxmox-backup-client` gibt es im Proxmox-Client-Repository (`pbs-client`).
 
+## Wiederherstellung auf einem neuen PC (Vollbackup)
+Stand: **Vorbereitung ist eingebaut, die geführte Wiederherstellung (`pbsgui rescue`) noch nicht.**
+- Bei jedem Vollbackup (als root) sammelt die App Datenträger-Metadaten nach `/var/lib/pbsgui/recovery/<profil>/` und sichert sie damit im Backup mit: Partitionstabellen (sfdisk/sgdisk), LVM-Metadaten, LUKS-Header (nur bei verschlüsseltem Backup), UUIDs, EFI-Einträge, Paketliste, `MANIFEST.json`.
+- **Pflicht:** Ein verschlüsseltes Vollbackup (und sein Zeitplan) startet erst, wenn der Schlüssel exportiert wurde (`pbsgui key export`), denn der Schlüssel im Geheimnis-Speicher ist an den alten Rechner gebunden.
+- `pbsgui recovery NAME` zeigt die Checkliste, `--sheet DATEI` schreibt das **Notfallblatt** (Server, Fingerprint, Namespace, Anleitung; ohne Geheimnisse) zum Ausdrucken.
+- Grenzen: dateibasiert, kein Abbild; andere Hardware, Secure Boot und TPM-gebundene LUKS-Schlüssel können Handarbeit nötig machen; ein laufendes System wird ohne Snapshot gesichert.
+
 ## Bedienung: GUI, CLI, TUI
 Alle drei nutzen denselben Core (`pbsgui/core`), beliebig kombinierbar.
 
@@ -57,7 +64,7 @@ pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
 ```
 Geheimnisse werden nie als Argument akzeptiert: Prompt oder `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
-TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, u Laufwerke, d Entfernen, q Beenden.
+TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, u Laufwerke, n Notfallblatt, d Entfernen, q Beenden.
 
 ## Entwickeln
 ```bash

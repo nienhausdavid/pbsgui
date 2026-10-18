@@ -16,6 +16,7 @@ from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import Profile
 from ..core.modes import FULL, describe, plan_mounts
+from ..core.recovery import needs_key_export, render_sheet
 from ..core.scheduler import SchedulerError, validate_calendar
 from .screens import AddServerScreen, ConfirmScreen, MountsScreen, PromptScreen
 
@@ -31,7 +32,7 @@ class PbsTui(App):
     """
     BINDINGS = [("a", "add", "Hinzufügen"), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
                 ("t", "restore", "Restore"), ("s", "schedule", "Zeitplan"), ("m", "scope", "Modus"),
-                ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"),
+                ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("n", "sheet", "Notfallblatt"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"),
                 ("d", "delete", "Entfernen"), ("q", "quit", "Beenden")]
 
     def __init__(self, manager: ProfileManager | None = None):
@@ -112,6 +113,9 @@ class PbsTui(App):
               if p.backup_mode == FULL else []),
             f"Ausschlüsse:   {', '.join(p.excludes) or '-'}",
             f"Verschlüsselt: {'ja' if p.encrypt else 'NEIN – Backups liegen unverschlüsselt auf dem Server'}  ({key})",
+            *([("Schlüssel-Export: " + (f"am {p.key_exported_at}" if p.key_exported_at else
+                "NOCH NICHT" + (" – Vollbackup gesperrt! Mit [k] sichern" if needs_key_export(p) else "")))]
+              if p.encrypt and not p.keyfile else []),
             f"Zeitplan:      {p.schedule or '-'}  [{p.scope}, {schedule_text(self.mgr, p)}]",
             f"Letzter Lauf:  {last_run_text(p)}"]))
 
@@ -336,6 +340,23 @@ class PbsTui(App):
             self._notify(f"Schlüssel exportiert nach {d} (0600). Sicher aufbewahren!", severity="warning", timeout=10)
         self.push_screen(PromptScreen("Schlüssel exportieren nach:", str(Path.home() / f"{p.slug}-key.json"),
                                       "Ohne Kopie sind verschlüsselte Backups bei Verlust nicht wiederherstellbar."), got)
+
+    def action_sheet(self) -> None:
+        p = self._need()
+        if not p:
+            return
+
+        def got(dest):
+            if not dest:
+                return
+            d = Path(dest).expanduser()
+            if d.exists():
+                self.notify(f"{d} existiert bereits", severity="error")
+                return
+            d.write_text(render_sheet(p))
+            self.notify(f"Notfallblatt gespeichert: {d} (ohne Geheimnisse)")
+        self.push_screen(PromptScreen("Notfallblatt speichern nach:", str(Path.home() / f"notfallblatt-{p.slug}.txt"),
+                                      "Enthält Server, Fingerprint und Anleitung, aber keine Geheimnisse."), got)
 
     def action_sources(self) -> None:
         p = self._need()

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import grp
 import json
+import time
 import os
 import shutil
 import subprocess
@@ -18,6 +19,7 @@ from .client import PbsClient
 from .keys import export_key, generate_key
 from .models import Profile, Snapshot
 from .modes import FULL
+from .recovery import RecoveryError, ensure_recoverable
 from .runner import run_profile
 from .paths import Paths
 from .scheduler import SchedulerError, SystemdScheduler
@@ -75,6 +77,8 @@ class ProfileManager:
         if not content:
             raise SchedulerError("Kein automatisch erzeugter Schlüssel vorhanden")
         export_key(content, dest)
+        profile.key_exported_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.save(profile)  # merkt sich den Export (bei Vollbackup auch in der System-Kopie)
 
     def snapshots(self, profile: Profile) -> list[Snapshot]:
         return self.client(profile).list_snapshots()
@@ -85,6 +89,8 @@ class ProfileManager:
         """schedule: "install" | "remove" | "keep"."""
         if profile.backup_mode == FULL and profile.scope != "system":
             raise SchedulerError("Ein Vollbackup braucht den System-Modus (Zugriff auf alle Dateien).")
+        if schedule == "install":
+            ensure_recoverable(profile)  # Vollbackup-Zeitplan erst nach Schlüssel-Export
         self.profiles_store.save(profile)
         if token:
             self.secrets.put(profile.slug, "token", token)
@@ -116,6 +122,11 @@ class ProfileManager:
 
     def run_backup(self, profile: Profile, on_line=print) -> int:
         """Führt das Backup jetzt aus. Vollbackup läuft privilegiert (pkexec), Home-Backup als Benutzer."""
+        try:
+            ensure_recoverable(profile)
+        except RecoveryError as e:
+            on_line(f"Fehler: {e}")
+            return 4
         if profile.backup_mode != FULL:
             return run_profile(profile, Paths.for_scope("user"), self.secrets, on_line=on_line)
         if os.geteuid() == 0:

@@ -59,7 +59,7 @@ Section: utils
 Priority: optional
 Architecture: all
 Depends: python3 (>= 3.11), python3-textual (>= 0.80), python3-pyside6.qtcore, python3-pyside6.qtgui, python3-pyside6.qtwidgets
-Recommends: proxmox-backup-client, systemd
+Recommends: proxmox-backup-client, systemd, gdisk, efibootmgr
 Maintainer: David Nienhaus <noreply@users.noreply.github.com>
 Homepage: https://github.com/nienhausdavid/pbsgui
 Description: GUI, CLI und TUI für den Proxmox Backup Client

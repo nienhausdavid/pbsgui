@@ -33,6 +33,7 @@ class Profile:
     encrypt: bool = True  # clientseitige Verschlüsselung standardmäßig an
     keyfile: str = ""  # optional: eigene, extern verwaltete Schlüsseldatei
     key_fingerprint: str = ""  # Fingerprint des automatisch erzeugten Keys (öffentlich)
+    key_exported_at: str = ""  # Zeitpunkt des Schlüssel-Exports (Pflicht beim Vollbackup)
     master_pubkey: str = ""  # optional: RSA-Master-Public-Key (--master-pubkey-file)
     schedule: str = ""  # systemd OnCalendar, leer = kein Zeitplan
     scope: str = "user"  # "user" | "system"

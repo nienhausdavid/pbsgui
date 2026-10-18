@@ -10,6 +10,8 @@ from typing import Callable
 from .client import ClientError, PbsClient
 from .models import Profile
 from .paths import Paths
+from .recovery import RecoveryError, collect_recovery, ensure_recoverable
+from .modes import FULL
 from .secrets import SecretStore
 
 
@@ -42,6 +44,20 @@ def read_status(paths: Paths, profile: Profile) -> dict | None:
 def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None,
                 on_line: Callable[[str], None] = print, binary: str | None = None) -> int:
     """Gibt den Exitcode zurück (0 = Erfolg). Unter systemd kommen Geheimnisse aus $CREDENTIALS_DIRECTORY."""
+    try:
+        ensure_recoverable(profile)
+    except RecoveryError as e:  # auch für Zeitplan-Läufe: kein Vollbackup ohne exportierten Schlüssel
+        on_line(f"Fehler: {e}")
+        write_status(paths, profile, False, 4, "Schlüssel nicht exportiert")
+        return 4
+    if profile.backup_mode == FULL and os.geteuid() == 0:
+        try:  # Datenträger-Metadaten landen unter /var/lib/pbsgui und damit im Backup selbst
+            got = collect_recovery(paths.state / "recovery" / profile.slug, profile)
+            on_line(f"Wiederherstellungsdaten gesammelt ({len(got.files)} Dateien, {len(got.warnings)} Warnungen)")
+            for w in got.warnings:
+                on_line(f"  Warnung: {w}")
+        except Exception as e:  # nie das Backup selbst verhindern
+            on_line(f"Warnung: Wiederherstellungsdaten nicht gesammelt: {e}")
     secret = _credential("token") or (store.get(profile.slug, "token") if store else None)
     if not secret:
         on_line("Fehler: Kein API-Token-Secret gefunden")
