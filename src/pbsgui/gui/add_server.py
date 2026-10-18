@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QMessageBox, QComboBox, QDialog, QDial
 
 from ..core.client import PbsClient
 from ..core.models import Profile
-from ..core.pbs_api import PbsApi, TokenExistsError, fetch_fingerprint
+from ..core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
 from .workers import Worker
 
 
@@ -108,9 +108,16 @@ class AddServerDialog(QDialog):
                 api = PbsApi(host, port, fp)
                 api.login(user, pw, tfa)
                 try:
-                    return api.provision(ds, hostname, ns, replace_token=self._replace_token)
+                    res = api.provision(ds, hostname, ns, replace_token=self._replace_token)
                 except TokenExistsError as e:
                     return e  # Rückfrage im GUI-Thread
+                # Neue ACLs greifen bei PBS erst nach einigen Sekunden: darauf warten und prüfen
+                check = PbsApi(host, port, fp)
+                check.use_token(res.auth_id, res.secret)
+                if not check.wait_for_backup_permission(ds, ns):
+                    raise ApiError("Zugang wurde angelegt, die Rechte sind auf dem Server aber nach 30 s noch "
+                                   "nicht wirksam. Bitte in PBS prüfen und es später erneut versuchen.")
+                return res
 
             def done(res):
                 if isinstance(res, TokenExistsError):

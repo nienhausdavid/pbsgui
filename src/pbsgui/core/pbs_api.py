@@ -11,6 +11,7 @@ import json
 import re
 import socket
 import ssl
+import time
 import urllib.parse
 from dataclasses import dataclass
 
@@ -186,7 +187,20 @@ class PbsApi:
                                                   "auth-id": who, "propagate": 1})
         return ProvisionResult(auth_id=auth_id, secret=secret, userid=userid)
 
-    def deprovision(self, userid: str) -> None:
+    def deprovision(self, userid: str, datastore: str = "", namespace: str = "", token_name: str = "backup",
+                    role: str = "DatastoreBackup") -> None:
+        """Entfernt ACLs, dann den Benutzer (samt Tokens).
+
+        Gemessen an PBS 4.2: Beim Löschen des Benutzers bleibt dessen eigene ACL bestehen
+        (nur die Token-ACL verschwindet), deshalb werden die ACLs vorher ausdrücklich entfernt.
+        """
+        if datastore:
+            path = f"/datastore/{datastore}" + (f"/{namespace.strip('/')}" if namespace.strip("/") else "")
+            for who in (f"{userid}!{token_name}", userid):
+                try:
+                    self._request("PUT", "/access/acl", {"path": path, "role": role, "auth-id": who, "delete": 1})
+                except ApiError:
+                    pass  # ACL gab es nicht (mehr)
         self._request("DELETE", f"/access/users/{urllib.parse.quote(userid, safe='')}")
 
     def check_backup_permission(self, datastore: str, namespace: str = "") -> bool:
@@ -197,3 +211,19 @@ class PbsApi:
         if isinstance(data, dict):
             privs = data.get(path) or data
         return bool(isinstance(privs, dict) and privs.get("Datastore.Backup"))
+
+    def wait_for_backup_permission(self, datastore: str, namespace: str = "", timeout: float = 30,
+                                   interval: float = 2, sleep=time.sleep) -> bool:
+        """Wartet, bis frisch vergebene ACLs wirksam sind.
+
+        Gemessen an PBS 4.2: neue ACLs greifen erst nach mehreren Sekunden (zwischen 3 und 8 s),
+        bis dahin liefert /access/permissions {} und der Client „permission check failed“.
+        """
+        waited = 0.0
+        while True:
+            if self.check_backup_permission(datastore, namespace):
+                return True
+            if waited >= timeout:
+                return False
+            sleep(interval)
+            waited += interval

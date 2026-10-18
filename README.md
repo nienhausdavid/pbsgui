@@ -10,8 +10,14 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md). Status: **Prototyp**.
 - Zeitpläne als systemd-Timer, wählbar pro Profil: Benutzer- oder System-Units
 - Geheimnisse verschlüsselt über `systemd-creds` (Fallback: Datei 0600)
 
+## Gegen echten PBS 4.2 geprüft (Token-Anmeldung)
+Provisionierung (Benutzer, Token, verschachtelter Namespace, ACLs), Wiederholbarkeit, Backup, Restore
+(Inhalt identisch), Isolation (Token sieht fremde Namespaces nicht), Aufräumen.
+Erkenntnisse: neue ACLs greifen erst nach 3–8 s (die App wartet darauf); beim Löschen eines Benutzers
+bleibt dessen eigene ACL bestehen (die App entfernt sie vorher).
+
 ## Noch nicht / nicht verifiziert
-- Nicht gegen einen echten PBS-Server getestet (PBS-API-Endpunkte nach Doku, 2FA-Ablauf ungeprüft)
+- Root-Login per Passwort und 2FA-Ablauf ungeprüft (getestet wurde mit API-Token)
 - System-Scope (pkexec-Helfer, System-Units) ist nur per Unit-Test mit Fake-Runner geprüft
 - Schlüssel erzeugen, Master-Key, Prune, Katalog-Browser fehlen
 - Keine Lizenz festgelegt

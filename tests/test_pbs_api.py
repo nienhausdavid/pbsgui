@@ -134,3 +134,27 @@ def test_existing_token_requires_confirmation_then_replaced(server):
     assert not any(m == "DELETE" for m, *_ in LOG)  # ohne Zustimmung wird nichts gelöscht
     assert api.provision("s", "host", replace_token=True).secret == "SECRET"
     assert [p for m, p, *_ in LOG if m == "DELETE"] == ["/api2/json" + token_path]
+
+
+def test_wait_for_permission_polls_until_effective(server):
+    api = PbsApi("127.0.0.1", server, fetch_fingerprint("127.0.0.1", server))
+    api.use_token("a@pbs!t", "x")
+    answers = iter([False, False, True])
+    api.check_backup_permission = lambda ds, ns="": next(answers)
+    sleeps = []
+    assert api.wait_for_backup_permission("s", sleep=sleeps.append) is True
+    assert sleeps == [2, 2]
+
+
+def test_wait_for_permission_times_out(server):
+    api = PbsApi("127.0.0.1", server, fetch_fingerprint("127.0.0.1", server))
+    api.check_backup_permission = lambda ds, ns="": False
+    assert api.wait_for_backup_permission("s", timeout=4, interval=2, sleep=lambda _s: None) is False
+
+
+def test_deprovision_removes_acls_before_user(server):
+    _login(server).deprovision("pbsgui-host@pbs", "s", "ns1")
+    calls = [(m, p.removeprefix("/api2/json"), f.get("auth-id"), f.get("delete")) for m, p, f, h in LOG[1:]]
+    assert calls[0][0] == "PUT" and calls[0][2] == "pbsgui-host@pbs!backup" and calls[0][3] == "1"
+    assert calls[1][0] == "PUT" and calls[1][2] == "pbsgui-host@pbs"
+    assert calls[2] == ("DELETE", "/access/users/pbsgui-host%40pbs", None, None)
