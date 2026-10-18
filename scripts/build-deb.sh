@@ -15,6 +15,7 @@ install -d "$d/DEBIAN" "$d/usr/lib/python3/dist-packages" "$d/usr/bin" "$d/usr/s
   "$d/usr/share/icons/hicolor/scalable/apps" "$d/usr/share/doc/$pkg"
 cp -r "$root/src/pbsgui" "$d/usr/lib/python3/dist-packages/pbsgui"
 find "$d" -name __pycache__ -type d -prune -exec rm -rf {} +
+printf '__version__ = "%s"\n' "$version" > "$d/usr/lib/python3/dist-packages/pbsgui/_version.py"   # ohne pip-Metadaten
 
 mk() { # mk NAME MODUL FUNKTION
   printf '#!/usr/bin/python3\nimport sys\nfrom %s import %s as main\nsys.exit(main() or 0)\n' "$2" "$3" > "$d/usr/bin/$1"

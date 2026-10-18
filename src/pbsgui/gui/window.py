@@ -37,7 +37,8 @@ def fmt_size(n: int) -> str:
 class MainWindow(QMainWindow):
     def __init__(self, manager: ProfileManager | None = None):
         super().__init__()
-        self.setWindowTitle("pbsgui – Proxmox Backup")
+        from .. import __version__
+        self.setWindowTitle(f"pbsgui {__version__} – Proxmox Backup")
         self.resize(1000, 640)
         self.mgr = manager or ProfileManager()
         self.admin_ok = can_use_admin()

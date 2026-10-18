@@ -502,7 +502,9 @@ def cmd_tui(a, mgr) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from .. import __version__
     ap = argparse.ArgumentParser(prog="pbsgui", description="Proxmox-Backup-Client-Oberfläche. Ohne Befehl: GUI.")
+    ap.add_argument("--version", action="version", version=f"pbsgui {__version__}")
     sub = ap.add_subparsers(dest="cmd")
 
     def add(name, fn, help_, *names):

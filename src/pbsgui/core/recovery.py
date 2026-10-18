@@ -62,11 +62,8 @@ def missing_recovery_tools(which: Callable[[str], str | None] = shutil.which) ->
 
 
 def _version() -> str:
-    try:
-        from importlib.metadata import version
-        return version("pbsgui")
-    except Exception:
-        return "unbekannt"
+    from .. import __version__
+    return __version__
 
 
 def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,

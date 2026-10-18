@@ -15,14 +15,25 @@
    Auf dem kostenlosen Plan muss das Repository dafür **öffentlich** sein.
 3. Lizenz festlegen (`LICENSE` und `usr/share/doc/pbsgui/copyright` in `scripts/build-deb.sh`).
 
+## Versionen
+
+Versionsnummern nach [Semantic Versioning](https://semver.org/lang/de/): `MAJOR.MINOR.PATCH`. Einzige Quelle ist
+`version` in `pyproject.toml`; daraus entstehen `pbsgui --version`, das `.deb` (`pbsgui_<version>_all.deb`) und die ISO
+(`pbsgui-rescue-<version>-amd64.iso`). Änderungen werden laufend in `CHANGELOG.md` unter `[Unreleased]` eingetragen.
+
 ## Neue Version veröffentlichen
 
 ```bash
-# Version in pyproject.toml erhöhen, committen, dann:
-git tag v0.2.0 && git push origin v0.2.0
+# 1. Änderungen unter "## [Unreleased]" in CHANGELOG.md eintragen und committen
+# 2. Release vorbereiten (Version erhöhen, CHANGELOG abschließen, Tests, Commit und Tag; noch nichts veröffentlicht):
+scripts/release.sh 0.4.0
+# 3. Prüfen (git log, git show), dann veröffentlichen:
+git push origin main && git push origin v0.4.0      # oder gleich: scripts/release.sh 0.4.0 --push
 ```
-Der Workflow `Release` baut das `.deb`, legt ein GitHub-Release an und aktualisiert das APT-Repository
-(alle früheren Release-`.deb` bleiben enthalten).
+Der Tag startet den Workflow `Release`: Er prüft, dass Tag und `pyproject.toml` übereinstimmen, baut das `.deb` und die
+ISO, legt das GitHub-Release mit den Notizen aus dem CHANGELOG an und aktualisiert das APT-Repository (alle früheren
+Release-`.deb` bleiben enthalten). Ein einmal veröffentlichter Tag wird nicht verschoben: Fehler in einem Release
+behebt man mit dem nächsten PATCH-Release.
 
 ## Installation für Nutzer
 

@@ -24,6 +24,7 @@ from .screens import AddServerScreen, ConfirmScreen, MountsScreen, PromptScreen
 
 class PbsTui(App):
     TITLE = "pbsgui – Proxmox Backup"
+    SUB_TITLE = ""
     CSS = """
     #profiles { width: 30; border: round $primary; }
     #main { border: round $primary; }
@@ -69,6 +70,8 @@ class PbsTui(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        from .. import __version__
+        self.sub_title = f"Version {__version__}"
         self._q("#snaps", DataTable).add_columns("#", "Zeit", "ID", "Größe", "Dateien")
         self.reload()
 

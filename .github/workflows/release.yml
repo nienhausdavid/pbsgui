@@ -25,11 +25,18 @@ jobs:
         with:
           name: deb
           path: dist/*.deb
+      - name: Release-Notizen aus dem CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" '/^## \[/{p=($0 ~ "^## \\[" v "\\]")} p' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "CHANGELOG.md hat keinen Abschnitt für $ver" >&2; exit 1; }
+          cat notes.md
       - name: GitHub-Release anlegen
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.deb --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/*.deb --title "pbsgui ${GITHUB_REF_NAME#v}" --notes-file notes.md
 
   iso:
     name: Rettungs-ISO bauen
