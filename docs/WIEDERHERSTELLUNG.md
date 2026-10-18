@@ -54,7 +54,23 @@ ganze System.
 
 ![Schritt 3: Ziel-Platte](images/05-platte.png)
 
-Wähle die Platte, trage bei verschlüsseltem Original die **LUKS-Passphrase** ein und gehe weiter.
+Wähle die Platte und entscheide, wie die neue Platte **verschlüsselt** werden soll:
+
+| Auswahl | Was passiert | Du brauchst |
+|---|---|---|
+| **Wie im Original** (Standard) | Das System wird so aufgebaut, wie es war. War es mit LUKS verschlüsselt, wird der gesicherte LUKS-Header zurückgespielt. | die alte LUKS-Passphrase (falls das Original verschlüsselt war) |
+| **Neu mit LUKS verschlüsseln** | Ein neuer LUKS2-Container mit neuer Passphrase, auch wenn das Original unverschlüsselt war. Die Datenpartitionen (nicht EFI und nicht `/boot`) kommen hinein, `crypttab` und Initramfs werden angepasst. | eine neue Passphrase (mindestens 8 Zeichen, zweimal) und eine getrennte `/boot`-Partition im Original |
+| **Ohne Verschlüsselung** | Die Platte wird unverschlüsselt aufgebaut, der alte `crypttab`-Eintrag wird deaktiviert. | nichts |
+
+![Verschlüsselung wählen](images/09-verschluesselung.png)
+
+Bei „neu verschlüsseln“ erscheinen die Felder für die neue Passphrase:
+
+![Neue Passphrase eingeben](images/10-neue-passphrase.png)
+
+Gibt es im Zielsystem noch kein `cryptsetup-initramfs` (Original war unverschlüsselt), installiert der Assistent
+es im neuen System nach; dafür braucht der Rechner Netzwerk. Dateisystem- und LVM-Kennungen bleiben in allen Fällen
+dieselben; nur der LUKS-Container bekommt bei „neu“ eine neue UUID.
 
 ## 5. Plan prüfen und bestätigen
 
@@ -86,6 +102,7 @@ pbsgui rescue snapshots --server pbs.example.org --datastore main --auth-id user
 PBSGUI_TOKEN_SECRET=… PBSGUI_LUKS_PASSPHRASE=… \
   pbsgui rescue run --server pbs.example.org --datastore main --auth-id user@pbs!tok --backup-id mein-pc \
   --keyfile /media/pbsgui/sdb1/key.json --disk /dev/sda --dry-run      # erst ansehen, dann ohne --dry-run
+# Verschlüsselung wählen: --encryption keep (Standard) | new (PBSGUI_NEW_LUKS_PASSPHRASE setzen) | none
 ```
 
 ## Wenn etwas nicht klappt
@@ -94,7 +111,8 @@ PBSGUI_TOKEN_SECRET=… PBSGUI_LUKS_PASSPHRASE=… \
 |---|---|
 | „Kein Vollbackup mit Wiederherstellungsdaten gefunden“ | Backup-ID/Namespace prüfen. Nur Vollbackups ab pbsgui 0.2 (`--mode full`) enthalten die Layout-Daten. |
 | „missing key“ | Das Backup ist verschlüsselt: im ersten Schritt die exportierte Schlüsseldatei angeben. |
-| „LUKS-Header … fehlt im Backup“ | Das Backup war unverschlüsselt; der Header wird nur in verschlüsselte Backups gelegt. |
+| „LUKS-Header … fehlt im Backup“ | Das Backup war unverschlüsselt; der Header wird nur in verschlüsselte Backups gelegt. Ausweg: „neu verschlüsseln“ oder „ohne Verschlüsselung“ wählen. |
+| „Neue Verschlüsselung braucht eine getrennte /boot-Partition“ | GRUB kann ein verschlüsseltes Root-Dateisystem ohne eigenes `/boot` nicht lesen: „wie im Original“ oder „ohne“ wählen. |
 | „Ziel-Platte zu klein“ | Die neue Platte muss mindestens so groß sein wie die alte. |
 | Keine Ziel-Platte angeboten | Die Platte ist eingehängt oder ist der Rettungsstick. `lsblk` und `umount` prüfen. |
 | System bootet nicht (neue Hardware) | Rettungsstick erneut starten, `pbsgui rescue` nicht erneut ausführen, sondern manuell: Ziel einhängen, `chroot`, `update-initramfs -u -k all`, `grub-install`, `update-grub`. |
@@ -107,6 +125,11 @@ simulierten Tastendrücken, daher stammen die Bilder aus diesem Lauf) auf eine l
 wiederhergestellten Platte über den Fallback-Bootloader, Entsperren per LUKS-Passphrase. Geprüft wurden Prüfsummen,
 Rechte, Besitzer, Links und dass **alle UUIDs und PARTUUIDs identisch** sind. Die Bilder zeigen Testdaten
 (Test-Server, Test-Token).
+
+Die drei Verschlüsselungs-Varianten sind einzeln getestet: **wie im Original** (komplett über den Assistenten),
+**ohne Verschlüsselung** (System bootet ohne Passphrase-Abfrage, `crypttab` deaktiviert) und **neu verschlüsseln**
+(System bootet mit der neuen Passphrase, `crypttab` zeigt auf die neue UUID); die beiden letzten per Kommandozeile in
+der ISO. Zusätzlich prüft ein Test mit echten Loop-Geräten alle drei Varianten.
 
 Nicht getestet: echte Hardware, BIOS-Boot der ISO, Secure Boot, WLAN, andere Dateisysteme als ext4/vfat/swap im
 VM-Test (der Plan-Code kennt xfs und btrfs und ist per Unit-Test abgedeckt).

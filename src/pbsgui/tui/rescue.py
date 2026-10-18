@@ -15,7 +15,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Input, Label, RichLog, Static
+from textual.widgets import Button, DataTable, Footer, Input, Label, RadioButton, RadioSet, RichLog, Static
 
 from ..core import rescue
 from ..core.pbs_api import ApiError, fetch_fingerprint
@@ -199,7 +199,15 @@ class DiskScreen(Screen):
             yield Static("Die gewählte Platte wird KOMPLETT überschrieben. Eingehängte Platten und das "
                          "Rettungsmedium werden nicht angeboten.", classes="warn", markup=False)
             yield DataTable(id="disks", cursor_type="row")
+            yield Label("Verschlüsselung der neuen Platte", classes="title", markup=False)
+            orig = "verschlüsselt (LUKS)" if rescue.original_encrypted(self.app.rec) else "unverschlüsselt"
+            with RadioSet(id="enc"):
+                yield RadioButton(f"Wie im Original ({orig})", value=True)
+                yield RadioButton("Neu mit LUKS verschlüsseln (neue Passphrase)")
+                yield RadioButton("Ohne Verschlüsselung")
             yield Input(placeholder="LUKS-Passphrase des Originalsystems", password=True, id="pass")
+            yield Input(placeholder="Neue Passphrase (mindestens 8 Zeichen)", password=True, id="newpass")
+            yield Input(placeholder="Neue Passphrase wiederholen", password=True, id="newpass2")
             yield Say(id="status")
             yield Button("Weiter", variant="primary", id="next")
             yield Button("Zurück", id="back")
@@ -216,11 +224,22 @@ class DiskScreen(Screen):
         for d in self.disks:
             t.add_row(d["path"], fmt_size(d["size"]), d["model"] or "-",
                       (d["tran"] or "-") + (" (Wechseldatenträger)" if d["removable"] else ""))
-        need = rescue.needs_passphrase(self.app.rec)
-        self.query_one("#pass").display = need
+        self._sync_enc()
         if not self.disks:
             self.query_one("#status", Say).update("Keine zulässige Ziel-Platte gefunden.")
         t.focus()
+
+    def _mode(self) -> str:
+        return ("keep", "new", "none")[self.query_one("#enc", RadioSet).pressed_index or 0]
+
+    def _sync_enc(self) -> None:
+        mode = self._mode()
+        self.query_one("#pass").display = rescue.needs_passphrase(self.app.rec, mode)
+        self.query_one("#newpass").display = mode == "new"
+        self.query_one("#newpass2").display = mode == "new"
+
+    def on_radio_set_changed(self, _e) -> None:
+        self._sync_enc()
 
     def on_button_pressed(self, e: Button.Pressed) -> None:
         if e.button.id == "back":
@@ -231,10 +250,20 @@ class DiskScreen(Screen):
         d = self.disks[self.query_one("#disks", DataTable).cursor_row]
         c = self.app.cfg
         c.target_disk = d["path"]
+        c.encryption = self._mode()
         c.passphrase = self.query_one("#pass", Input).value
+        c.new_passphrase = self.query_one("#newpass", Input).value
+        if c.encryption == "new":
+            if c.new_passphrase != self.query_one("#newpass2", Input).value:
+                self.query_one("#status", Say).update("Die neuen Passphrasen stimmen nicht überein.")
+                return
+            if len(c.new_passphrase) < 8:
+                self.query_one("#status", Say).update("Die neue Passphrase ist zu kurz (mindestens 8 Zeichen).")
+                return
         try:
             self.app.plan = rescue.build_layout_plan(self.app.rec, d["path"], c.passphrase or None,
-                                                     target_size=d["size"])
+                                                     target_size=d["size"], encryption=c.encryption,
+                                                     new_passphrase=c.new_passphrase or None)
         except RescueError as ex:
             self.query_one("#status", Say).update(f"Fehler: {ex}")
             return

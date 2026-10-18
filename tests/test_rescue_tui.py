@@ -141,3 +141,85 @@ async def test_connect_screen_focuses_first_empty_field(lab):
     async with app.run_test(size=(140, 60)) as pilot:
         await pilot.pause()
         assert await wait_for(pilot, lambda: app.screen.focused is app.screen.query_one("#token", Input))
+
+
+from textual.widgets import RadioSet  # noqa: E402
+
+
+async def to_disks(pilot, app):
+    await pilot.pause()
+    s = app.screen
+    fill(s, server="pbs.example", datastore="store1", namespace="ns1", **{"backup-id": "pc", "auth-id": "u@pbs!t"},
+         token="geheim", fingerprint="AA:BB")
+    s.query_one("#next", Button).press()
+    assert await wait_for(pilot, lambda: app.screen.__class__.__name__ == "SnapshotScreen")
+    assert await wait_for(pilot, lambda: app.screen.query_one("#snaps", DataTable).row_count == 2)
+    app.screen.query_one("#next", Button).press()
+    assert await wait_for(pilot, lambda: app.screen.__class__.__name__ == "DiskScreen")
+    assert await wait_for(pilot, lambda: app.screen.query_one("#disks", DataTable).row_count == 2)
+
+
+async def test_encryption_choice_shows_matching_fields(lab):
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 70)) as pilot:
+        await to_disks(pilot, app)
+        s = app.screen
+        radios = list(s.query_one("#enc", RadioSet).query("RadioButton"))
+        assert "Wie im Original (verschlüsselt (LUKS))" in str(radios[0].label)
+        assert s.query_one("#pass").display and not s.query_one("#newpass").display          # Standard: wie Original
+        radios[2].value = True                                                               # ohne Verschlüsselung
+        await pilot.pause()
+        assert not s.query_one("#pass").display and not s.query_one("#newpass").display
+        radios[1].value = True                                                               # neu verschlüsseln
+        await pilot.pause()
+        assert not s.query_one("#pass").display and s.query_one("#newpass").display and s.query_one("#newpass2").display
+
+
+async def test_new_encryption_validates_and_builds_plan(lab):
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 70)) as pilot:
+        await to_disks(pilot, app)
+        s = app.screen
+        list(s.query_one("#enc", RadioSet).query("RadioButton"))[1].value = True
+        await pilot.pause()
+        fill(s, newpass="abcdefgh1", newpass2="anders-anders")
+        s.query_one("#next", Button).press()
+        await pilot.pause()
+        assert "stimmen nicht überein" in str(s.query_one("#status").render()) and app.screen is s
+        fill(s, newpass="kurz", newpass2="kurz")
+        s.query_one("#next", Button).press()
+        await pilot.pause()
+        assert "zu kurz" in str(s.query_one("#status").render()) and app.screen is s
+        fill(s, newpass="lange-neue-passphrase", newpass2="lange-neue-passphrase")
+        s.query_one("#next", Button).press()
+        assert await wait_for(pilot, lambda: app.screen.__class__.__name__ == "PlanScreen")
+        assert app.cfg.encryption == "new" and app.cfg.new_passphrase == "lange-neue-passphrase"
+        assert any("luksFormat" in st.argv for st in app.plan.steps)
+        assert not any("luksHeaderRestore" in st.argv for st in app.plan.steps)
+        assert any("NEU" in l for l in app.plan.summary)
+
+
+async def test_none_encryption_needs_no_passphrase(lab):
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 70)) as pilot:
+        await to_disks(pilot, app)
+        s = app.screen
+        list(s.query_one("#enc", RadioSet).query("RadioButton"))[2].value = True
+        await pilot.pause()
+        s.query_one("#next", Button).press()                                                   # keine Passphrase eingetippt
+        assert await wait_for(pilot, lambda: app.screen.__class__.__name__ == "PlanScreen")
+        assert app.cfg.encryption == "none" and not any("cryptsetup" in st.argv for st in app.plan.steps)
+        assert any("KEINE" in l for l in app.plan.summary)
+
+
+async def test_disk_screen_fits_the_linux_console(lab):
+    """Auf der Konsole (160x50 bei 1280x800) müssen auch im höchsten Modus alle Knöpfe ohne Scrollen sichtbar sein."""
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(160, 50)) as pilot:
+        await to_disks(pilot, app)
+        s = app.screen
+        list(s.query_one("#enc", RadioSet).query("RadioButton"))[1].value = True      # "neu": die meisten Felder
+        await pilot.pause()
+        nxt = s.query_one("#next", Button).region
+        assert nxt.y + nxt.height <= 50, f"Weiter-Knopf unterhalb des Bildschirms: {nxt}"
+        assert s.query_one("#panel").max_scroll_y == 0

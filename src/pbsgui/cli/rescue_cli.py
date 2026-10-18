@@ -41,6 +41,9 @@ def add_arguments(sub) -> None:
             r.add_argument("--snapshot", help="Snapshot-Pfad; Standard: neuester")
             r.add_argument("--dry-run", action="store_true", help="nur anzeigen, was getan würde")
             r.add_argument("--confirm-disk", help="Ziel-Platte zur Bestätigung noch einmal angeben (ohne Rückfrage)")
+            r.add_argument("--encryption", choices=["keep", "new", "none"], default="keep",
+                           help="LUKS: keep = wie im Original (Standard), new = neu verschlüsseln mit neuer Passphrase "
+                                "(PBSGUI_NEW_LUKS_PASSPHRASE), none = ohne Verschlüsselung aufbauen")
 
 
 def _secret(env: str, prompt: str) -> str:
@@ -50,6 +53,19 @@ def _secret(env: str, prompt: str) -> str:
     if not sys.stdin.isatty():
         raise RescueCliError(f"{prompt} fehlt: Umgebungsvariable {env} setzen oder interaktiv ausführen")
     return getpass.getpass(f"{prompt}: ")
+
+
+def _new_passphrase() -> str:
+    v = os.environ.get("PBSGUI_NEW_LUKS_PASSPHRASE")
+    if not v:
+        if not sys.stdin.isatty():
+            raise RescueCliError("Neue Passphrase fehlt: Umgebungsvariable PBSGUI_NEW_LUKS_PASSPHRASE setzen")
+        v = getpass.getpass("Neue LUKS-Passphrase: ")
+        if getpass.getpass("Neue LUKS-Passphrase wiederholen: ") != v:
+            raise RescueCliError("Die Passphrasen stimmen nicht überein")
+    if len(v) < 8:
+        raise RescueCliError("Die neue Passphrase ist zu kurz (mindestens 8 Zeichen)")
+    return v
 
 
 def build_config(a) -> RescueConfig:
@@ -129,8 +145,13 @@ def _run(a) -> int:
     print(f"Snapshot: {snap.path}")
     rec = fetch_recovery(cfg, snap, Path(tempfile.mkdtemp(prefix="pbsgui-recovery-")))
     size = validate_target(a.disk, rec)
-    cfg.passphrase = _secret("PBSGUI_LUKS_PASSPHRASE", "LUKS-Passphrase des Originalsystems") if needs_passphrase(rec) else ""
-    plan = build_layout_plan(rec, a.disk, cfg.passphrase or None, target_size=size)
+    cfg.encryption = a.encryption
+    cfg.passphrase = (_secret("PBSGUI_LUKS_PASSPHRASE", "LUKS-Passphrase des Originalsystems")
+                      if needs_passphrase(rec, a.encryption) else "")
+    if a.encryption == "new":
+        cfg.new_passphrase = _new_passphrase()
+    plan = build_layout_plan(rec, a.disk, cfg.passphrase or None, target_size=size, encryption=a.encryption,
+                             new_passphrase=cfg.new_passphrase or None)
     print("\nGeplante Wiederherstellung:")
     for line in plan.summary:
         print("  " + line)

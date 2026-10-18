@@ -387,3 +387,138 @@ def test_dry_run_message_does_not_claim_restore(rec_dir, rescue_cfg):
     execute(rescue_cfg, type("S", (), {"path": "host/pc/x"})(), rec, build_layout_plan(rec, "/dev/vda", "pw"),
             lines.append, dry_run=True, popen=FakePopen())
     assert lines[-1] == "Trockenlauf beendet: es wurde nichts verändert."
+
+
+# -- Verschlüsselung wählen: wie im Original / neu / ohne -----------------------------------
+from pbsgui.core.rescue import edit_crypttab, original_encrypted, needs_passphrase  # noqa: E402
+
+
+def cmds(plan):
+    return [" ".join(s.argv) for s in plan.steps]
+
+
+def test_keep_is_default_and_needs_old_passphrase(rec_dir):
+    rec = RecoveryData.from_dir(rec_dir)
+    assert original_encrypted(rec) and needs_passphrase(rec) and needs_passphrase(rec, "keep")
+    assert not needs_passphrase(rec, "none") and not needs_passphrase(rec, "new")
+    plan = build_layout_plan(rec, "/dev/vda", "alt")
+    assert any("luksHeaderRestore" in c for c in cmds(plan)) and plan.crypttab == {}
+    assert "Verschlüsselung: wie im Original" in plan.summary[1]
+
+
+def test_none_builds_plain_lvm_on_the_partition(rec_dir):
+    rec = RecoveryData.from_dir(rec_dir)
+    plan = build_layout_plan(rec, "/dev/vda", None, encryption="none")
+    c = cmds(plan)
+    assert not any("cryptsetup" in x for x in c)                              # kein LUKS, keine Passphrase nötig
+    pv = next(x for x in c if x.startswith("pvcreate"))
+    assert pv.endswith("/dev/vda3") and "PV-UUID-1234" in pv                  # PV direkt auf der Partition, alte UUID
+    assert plan.crypttab == {"nvme0n1p3_crypt": None}                         # alter crypttab-Eintrag entfällt
+    assert not any(s.argv[:1] == ["cryptsetup"] for s in plan.cleanup)
+    assert "KEINE" in plan.summary[1]
+
+
+def test_new_replaces_luks_header_with_fresh_container(rec_dir):
+    rec = RecoveryData.from_dir(rec_dir)
+    plan = build_layout_plan(rec, "/dev/vda", None, encryption="new", new_passphrase="neue-passphrase")
+    c = cmds(plan)
+    assert not any("luksHeaderRestore" in x for x in c)                       # alter Header wird nicht benutzt
+    fmt = next(s for s in plan.steps if "luksFormat" in s.argv)
+    assert fmt.stdin == "neue-passphrase" and fmt.argv[-1] == "/dev/vda3" and "--uuid" in fmt.argv
+    new_uuid = fmt.argv[fmt.argv.index("--uuid") + 1]
+    assert plan.crypttab == {"nvme0n1p3_crypt": new_uuid}                     # crypttab zeigt auf die neue UUID
+    assert not plan.needs_cryptsetup                                          # Original war schon verschlüsselt
+    assert not any("neue-passphrase" in x for x in c)                         # nie in Argumenten
+    assert idx(plan, "Neuen LUKS-Container") < idx(plan, "LVM-Volume")
+
+
+def test_new_requires_passphrase_and_valid_mode(rec_dir):
+    rec = RecoveryData.from_dir(rec_dir)
+    with pytest.raises(RescueError, match="neue Passphrase"):
+        build_layout_plan(rec, "/dev/vda", None, encryption="new")
+    with pytest.raises(RescueError, match="Unbekannte"):
+        build_layout_plan(rec, "/dev/vda", "x", encryption="egal")
+
+
+def plain_rec(with_boot=True):
+    """Ursprünglich UNverschlüsseltes System: ESP, (/boot), Root direkt auf einer Partition."""
+    parts = [{"name": "sda1", "kname": "sda1", "path": "/dev/sda1", "type": "part", "fstype": "vfat", "uuid": "AAAA-BBBB",
+              "mountpoints": ["/boot/efi"]}]
+    if with_boot:
+        parts.append({"name": "sda2", "kname": "sda2", "path": "/dev/sda2", "type": "part", "fstype": "ext4",
+                      "uuid": "bbbbbbbb-0000-0000-0000-000000000002", "mountpoints": ["/boot"]})
+    parts.append({"name": "sda3", "kname": "sda3", "path": "/dev/sda3", "type": "part", "fstype": "ext4",
+                  "uuid": "cccccccc-0000-0000-0000-000000000003", "mountpoints": ["/"]})
+    disk = Node.from_json({"name": "sda", "kname": "sda", "path": "/dev/sda", "size": 10 * GIB, "type": "disk",
+                           "children": parts})
+    dump = "label: gpt\ndevice: /dev/sda\n\n" + "\n".join(
+        f"/dev/sda{n} : start={2048 * n}, size=1000, type=83" for n in range(1, len(parts) + 1)) + "\n"
+    return RecoveryData([disk], {}, {"sda": dump}, {}, {}, {})
+
+
+def test_new_encrypts_originally_plain_system_but_not_esp_or_boot():
+    plan = build_layout_plan(plain_rec(), "/dev/vdb", None, encryption="new", new_passphrase="neue-passphrase")
+    formats = [s.argv[-1] for s in plan.steps if "luksFormat" in s.argv]
+    assert formats == ["/dev/vdb3"]                                            # nur die Root-Partition
+    assert any(s.argv[0] == "mkfs.ext4" and s.argv[-1] == "/dev/mapper/sda3_crypt" for s in plan.steps)
+    assert any(s.argv[0] == "mkfs.ext4" and s.argv[-1] == "/dev/vdb2" for s in plan.steps)   # /boot bleibt offen
+    assert any(s.argv[0] == "mkfs.vfat" and s.argv[-1] == "/dev/vdb1" for s in plan.steps)    # ESP bleibt offen
+    assert plan.needs_cryptsetup and list(plan.crypttab) == ["sda3_crypt"]
+
+
+def test_new_needs_separate_boot_partition():
+    with pytest.raises(RescueError, match="getrennte /boot-Partition"):
+        build_layout_plan(plain_rec(with_boot=False), "/dev/vdb", None, encryption="new", new_passphrase="neue-passphrase")
+
+
+def test_none_and_keep_on_plain_system_change_nothing():
+    for mode in ("keep", "none"):
+        plan = build_layout_plan(plain_rec(), "/dev/vdb", None, encryption=mode)
+        assert not any("cryptsetup" in c for c in cmds(plan)) and plan.crypttab == {}
+
+
+def test_edit_crypttab_remove_replace_add(tmp_path):
+    etc = tmp_path / "etc"
+    etc.mkdir()
+    (etc / "crypttab").write_text("# kommentar\nvmcrypt UUID=alt none luks,discard\nandere UUID=x none luks\n")
+    lines = []
+    edit_crypttab(str(tmp_path), {"vmcrypt": None, "neu": "NEUE-UUID"}, lines.append)
+    out = (etc / "crypttab").read_text().splitlines()
+    assert out[0] == "# kommentar" and out[1].startswith("# pbsgui: ohne Verschlüsselung") and "vmcrypt UUID=alt" in out[1]
+    assert out[2] == "andere UUID=x none luks"                                 # fremde Einträge bleiben
+    assert out[3] == "neu UUID=NEUE-UUID none luks,discard"
+    edit_crypttab(str(tmp_path), {"neu": "ZWEITE-UUID", "andere": "U2"}, lambda _l: None)
+    out = (etc / "crypttab").read_text()
+    assert "neu UUID=ZWEITE-UUID none luks,discard" in out and "andere UUID=U2 none luks" in out
+
+
+def test_edit_crypttab_creates_missing_file(tmp_path):
+    edit_crypttab(str(tmp_path), {"x_crypt": "U"}, lambda _l: None)
+    assert (tmp_path / "etc/crypttab").read_text() == "x_crypt UUID=U none luks,discard\n"
+
+
+def test_finish_steps_apply_crypttab_and_cryptsetup_before_initramfs(rec_dir, tmp_path):
+    rec = RecoveryData.from_dir(rec_dir)
+    plan = build_layout_plan(plain_rec(), "/dev/vdb", None, encryption="new", new_passphrase="neue-passphrase")
+    steps = finish_steps(rec, str(tmp_path), "/dev/vdb", True, plan)
+    titles_ = [s.title for s in steps]
+    assert titles_.index("crypttab im Zielsystem anpassen") < titles_.index("Initramfs neu erzeugen")
+    assert any("cryptsetup-initramfs" in t for t in titles_)
+    ct = next(s for s in steps if s.title == "crypttab im Zielsystem anpassen")
+    assert ct.argv == [] and callable(ct.call)
+    ct.call(lambda _l: None)                                                  # läuft wirklich und schreibt die Datei
+    assert "sda3_crypt UUID=" in (tmp_path / "etc/crypttab").read_text()
+    plain = finish_steps(rec, str(tmp_path), "/dev/vdb", True, build_layout_plan(rec, "/dev/vda", "x"))
+    assert not any("crypttab" in s.title or "cryptsetup" in s.title for s in plain)
+
+
+def test_run_steps_executes_internal_functions_and_reports_errors():
+    seen = []
+    ok = Step("intern", [], call=lambda on_line: (on_line("hallo"), seen.append(1)))
+    bad = Step("kaputt", [], call=lambda on_line: (_ for _ in ()).throw(OSError("voll")))
+    lines = []
+    assert run_steps([ok], lines.append, popen=FakePopen()) is None and seen == [1] and "    hallo" in lines
+    failed = run_steps([bad, Step("nie", ["x"])], lines.append, popen=FakePopen())
+    assert failed.title == "kaputt" and any("FEHLER: voll" in l for l in lines)
+    dry = []
+    assert run_steps([ok], dry.append, dry_run=True, popen=FakePopen()) is None and "(interne Funktion)" in dry[-1] and seen == [1]

@@ -27,6 +27,7 @@ HOST = os.environ.get("PBS_HOST", "10.0.0.2")
 FP = os.environ.get("PBS_FP", "1B:11:3C:22:BC:36:EC:C6:9A:04:A9:E7:E3:49:4F:CE:83:7C:4B:F4:BF:F0:6E:11:F6:99:C5:79:56:0B:05:6A")
 DS, NS, USERHOST = "hddraid", "pbsgui-test/vm", "vmtest"
 PASS = "vmtest-passphrase"
+NEWPASS = "ganz-neue-passphrase-9"
 WORK = Path(os.environ.get("VM_WORK", ROOT / "build/vm"))
 IMAGES = ROOT / "docs/images"
 STATE = WORK / "state.json"
@@ -53,13 +54,13 @@ def save(**kw) -> None:
     os.chmod(STATE, 0o600)
 
 
-def boot_and_login(vm: VM, luks: bool, timeout=300) -> None:
+def boot_and_login(vm: VM, luks: bool, timeout=300, passphrase: str = PASS) -> None:
     vm.start()
     if luks:
         vm.expect(r"Please unlock disk|Enter passphrase", timeout)
         for attempt in range(3):           # die Abfrage verwirft Eingaben, die zu früh kommen: notfalls wiederholen
             time.sleep(2)
-            vm.send(PASS + "\n")
+            vm.send(passphrase + "\n")
             try:
                 vm.expect(r"root@[\w-]+:[~/]\S*# ", 40)
                 break
@@ -235,33 +236,108 @@ def restore(a) -> None:
         vm.kill()
 
 
+def restore_cli(a) -> None:
+    """Wiederherstellung per Kommandozeile in der ISO mit gewählter Verschlüsselung (a.encryption: keep|none|new)."""
+    s = state()
+    target = WORK / "restored.img"
+    target.write_bytes(b"")
+    os.truncate(target, int(os.environ.get("TARGET_SIZE", 6 * 2**30)) + 100 * 2**20)
+    vm = VM("rescue-cli", WORK, [target], iso=Path(a.iso), mem=1280)
+    shots = IMAGES if a.screens else WORK / "shots"
+    shots.mkdir(parents=True, exist_ok=True)
+    try:
+        vm.start()
+        vm.expect(r"root@[\w-]+:[~/]\S*# ", 300)
+        vm.send("\n")
+        vm.run("true", 30)
+        wait_network(vm)
+        vm.run("mkdir -p /media/usb /etc/pbsgui", 10)
+        vm.run(f"echo {s['key_b64']} | base64 -d > /media/usb/key.json", 10)
+        cfg = {"server": HOST, "datastore": DS, "namespace": NS, "auth_id": s["auth_id"], "fingerprint": FP,
+               "backup_id": "quell-pc"}
+        vm.run(f"echo '{json.dumps(cfg)}' > /etc/pbsgui/rescue.json", 10)
+        if a.screens:                      # Assistent bis zur Platten-Auswahl führen und die Verschlüsselungs-Optionen zeigen
+            vm.run("pkill -f '[p]bsgui rescue' || true", 10)
+            time.sleep(2)
+            vm.keys("clear\npbsgui rescue\n")
+            time.sleep(6)
+            vm.keys(s["secret"])
+            for _ in range(3):
+                vm.key("tab")
+            vm.keys("/media/usb/key.json")
+            vm.key("tab"); vm.key("tab"); vm.key("ret")
+            time.sleep(8)
+            vm.key("tab"); vm.key("ret")
+            time.sleep(8)
+            vm.key("tab")                  # Fokus von der Platten-Tabelle zu den Optionen
+            vm.key("down")                 # "Neu mit LUKS verschlüsseln" markieren
+            time.sleep(1)
+            vm.screenshot(shots / "09-verschluesselung.png")
+            vm.key("ret")
+            time.sleep(1)
+            vm.screenshot(shots / "10-neue-passphrase.png")
+            vm.run("pkill -f '[p]bsgui rescue' || true", 10)
+        env = f"PBSGUI_TOKEN_SECRET='{s['secret']}' PBSGUI_LUKS_PASSPHRASE='{PASS}' PBSGUI_NEW_LUKS_PASSPHRASE='{NEWPASS}'"
+        log(f"Wiederherstellung per CLI, Verschlüsselung: {a.encryption}")
+        out, rc = vm.run(f"{env} pbsgui rescue run --disk /dev/vda --keyfile /media/usb/key.json "
+                         f"--encryption {a.encryption} --confirm-disk /dev/vda", 1800)
+        print(out[-2500:])
+        assert rc == 0, "Wiederherstellung fehlgeschlagen"
+        vm.run("sync", 60)
+        vm.send("poweroff\n")
+        try:
+            vm.proc.wait(timeout=240)
+        except Exception:
+            log("WARNUNG: Rettungs-VM fuhr nicht innerhalb von 240 s herunter")
+    finally:
+        vm.kill()
+
+
 def verify(a) -> None:
+    mode = getattr(a, "encryption", "keep")
     img = WORK / "restored.img"
     vm = VM("verify", WORK, [img], mem=1024)
     try:
-        boot_and_login(vm, luks=True)
-        log("Wiederhergestelltes System ist gebootet")
+        # keep: alte Passphrase; new: neue Passphrase; none: keine LUKS-Abfrage
+        boot_and_login(vm, luks=mode != "none", passphrase=NEWPASS if mode == "new" else PASS)
+        log(f"Wiederhergestelltes System ist gebootet (Verschlüsselung: {mode})")
         out, rc = vm.run("hostname; cat /root/marker.txt; cd / && sha256sum -c /root/checksums.txt; "
-                         "readlink /home/vmuser/link.txt; stat -c '%a %u %g' /home/vmuser/data.bin; "
+                         "readlink /home/vmuser/link.txt; stat -c '%a %u %g' /home/vmuser/data.bin; echo CRYPTTAB; "
+                         "cat /etc/crypttab; echo LSBLK; "
                          "lsblk -J -b -o NAME,KNAME,PATH,SIZE,TYPE,FSTYPE,UUID,PARTUUID,LABEL,MOUNTPOINTS /dev/vda", 120)
-        print(out[-3000:])
+        print(out[-3500:])
         ok = all(x in out for x in ("quell-pc", "root/marker.txt: OK", "home/vmuser/data.bin: OK", "notiz.txt", "640 1000 1000"))
-        # Kennungen vergleichen
         orig = json.loads(Path(a.source_image).with_suffix(".lsblk.json").read_text())
         flat = lambda nodes: [x for n in nodes for x in [n, *flat(n.get("children", []))]]
-        ids = lambda nodes: sorted((n.get("fstype") or "", n.get("uuid") or "", n.get("partuuid") or "")
-                                   for n in flat(nodes) if n.get("uuid") or n.get("partuuid"))
-        start = out.index('{"blockdevices"') if '{"blockdevices"' in out else out.index("{")
-        new = json.loads(out[start:out.rindex("}") + 1])
-        same = ids(orig["blockdevices"]) == ids(new["blockdevices"])
-        print("Kennungen (UUID/PARTUUID) identisch:", same)
-        assert ok and same, "Verifikation fehlgeschlagen"
-        log("VERIFIKATION ERFOLGREICH: System bootet, Dateien und Kennungen identisch")
+        # Dateisystem-/PV-/LV-UUIDs (ohne LUKS-Container) und alle Partitions-GUIDs getrennt vergleichen: bei "none"
+        # wandert die PARTUUID der LUKS-Partition auf den LVM-Knoten, die Menge der GUIDs bleibt gleich
+        ids = lambda nodes, skip_luks: (
+            sorted((n.get("fstype") or "", n.get("uuid") or "") for n in flat(nodes)
+                   if n.get("uuid") and not (skip_luks and n.get("fstype") == "crypto_LUKS")),
+            sorted(n["partuuid"] for n in flat(nodes) if n.get("partuuid")))
+        text = out.rsplit("LSBLK", 1)[1]   # letzte Fundstelle: die erste steht im Echo des Befehls
+        new = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        luks_new = [n for n in flat(new["blockdevices"]) if n.get("fstype") == "crypto_LUKS"]
+        luks_old = [n for n in flat(orig["blockdevices"]) if n.get("fstype") == "crypto_LUKS"]
+        crypttab = out.rsplit("CRYPTTAB", 1)[1].split("LSBLK", 1)[0]
+        if mode == "keep":
+            same = ids(orig["blockdevices"], False) == ids(new["blockdevices"], False)
+            enc_ok = len(luks_new) == 1 and luks_new[0]["uuid"] == luks_old[0]["uuid"]
+        elif mode == "none":
+            same = ids(orig["blockdevices"], True) == ids(new["blockdevices"], True)
+            enc_ok = not luks_new and "ohne Verschl" in crypttab and "wiederhergestellt" in crypttab
+        else:
+            same = ids(orig["blockdevices"], True) == ids(new["blockdevices"], True)
+            enc_ok = (len(luks_new) == 1 and luks_new[0]["uuid"] != luks_old[0]["uuid"]
+                      and f"UUID={luks_new[0]['uuid']}" in crypttab)
+        print(f"Kennungen identisch (ohne LUKS-Container bei none/new): {same} | Verschlüsselung wie gewählt: {enc_ok}")
+        assert ok and same and enc_ok, "Verifikation fehlgeschlagen"
+        log(f"VERIFIKATION ERFOLGREICH ({mode}): System bootet, Dateien und Kennungen stimmen, Verschlüsselung wie gewählt")
         vm.send("poweroff\n")
         try:
             vm.proc.wait(timeout=60)
         except Exception:
-            pass  # Daten sind synchronisiert; der Rest wird im finally beendet
+            pass
     finally:
         vm.kill()
 
@@ -283,10 +359,11 @@ def cleanup(_a) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("phase", choices=["provision", "backup", "restore", "verify", "cleanup", "all"])
+    ap.add_argument("phase", choices=["provision", "backup", "restore", "restore_cli", "verify", "cleanup", "all"])
     ap.add_argument("--source-image", default=str(WORK / "source.img"))
     ap.add_argument("--iso", default=str(next(iter(sorted((ROOT / "dist").glob("pbsgui-rescue-*.iso"))), "")))
     ap.add_argument("--screens", action="store_true", help="Screenshots nach docs/images/ schreiben")
+    ap.add_argument("--encryption", choices=["keep", "none", "new"], default="keep")
     a = ap.parse_args()
     phases = ["provision", "backup", "restore", "verify"] if a.phase == "all" else [a.phase]
     try:

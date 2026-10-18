@@ -15,7 +15,7 @@ import pytest
 
 from pbsgui.core.models import Profile
 from pbsgui.core.recovery import collect_recovery
-from pbsgui.core.rescue import RecoveryData, build_layout_plan, restore_step, run_steps
+from pbsgui.core.rescue import RecoveryData, build_layout_plan, edit_crypttab, restore_step, run_steps
 
 TOOLS = ["losetup", "sfdisk", "cryptsetup", "pvcreate", "vgcreate", "lvcreate", "mkfs.ext4", "mkfs.vfat", "mkswap",
          "partprobe", "udevadm", "wipefs"]
@@ -24,6 +24,7 @@ pytestmark = pytest.mark.skipif(
     reason="braucht root und die Speicher-Werkzeuge (cryptsetup, lvm2, e2fsprogs, dosfstools, util-linux)")
 
 PASS = "testpass-123"
+NEWPASS = "ganz-neue-passphrase-9"
 SRC_MP, DST_MP = "/mnt/pbsgui-src", "/mnt/pbsgui-dst"
 SIZE = 1200 * 2 ** 20
 
@@ -101,6 +102,8 @@ def populate_and_mount(st: dict, dev: str, tree: Path):
     sh("mount", f"{dev}p1", f"{SRC_MP}/boot/efi")
     Path(f"{SRC_MP}/etc").mkdir()
     Path(f"{SRC_MP}/etc/hostname").write_text("quell-pc\n")
+    luks_uuid = sh("blkid", "-s", "UUID", "-o", "value", f"{dev}p3")
+    Path(f"{SRC_MP}/etc/crypttab").write_text(f"{st['map']} UUID={luks_uuid} none luks\nandere UUID=fremd none luks\n")
     Path(f"{SRC_MP}/boot/vmlinuz-test").write_bytes(os.urandom(300_000))
     Path(f"{SRC_MP}/boot/efi/marker.efi").write_text("efi")
     Path(f"{SRC_MP}/home").mkdir()
@@ -114,7 +117,8 @@ def populate_and_mount(st: dict, dev: str, tree: Path):
     sh("cp", "-a", f"{SRC_MP}/.", str(tree / "root.pxar"))
 
 
-def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch):
+@pytest.mark.parametrize("mode", ["keep", "none", "new"])
+def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch, mode):
     base, st = lab
     tree, rec_dir = base / "tree", base / "rec"
     dev = build_source(base, st)
@@ -153,7 +157,8 @@ def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch):
     st["loops"].append(ddev)
     rec = RecoveryData.from_dir(rec_dir, mount_prefix=SRC_MP, source_disk=Path(dev).name)
     assert rec.root_disk().path == dev
-    plan = build_layout_plan(rec, ddev, PASS, target_size=SIZE + 100 * 2 ** 20, mount_root=DST_MP)
+    plan = build_layout_plan(rec, ddev, PASS if mode == "keep" else None, target_size=SIZE + 100 * 2 ** 20,
+                             mount_root=DST_MP, encryption=mode, new_passphrase=NEWPASS if mode == "new" else None)
     lines = []
     failed = run_steps(plan.steps, lines.append)
     assert failed is None, "\n".join(lines[-15:])
@@ -175,7 +180,19 @@ def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch):
     o_nodes, n_nodes = flat(orig), flat(new)
     for key in ("DISKp1", "DISKp2", "DISKp3"):
         assert o_nodes[key]["partuuid"] == n_nodes[key]["partuuid"], f"PARTUUID {key}"
-        assert o_nodes[key]["uuid"] == n_nodes[key]["uuid"], f"UUID {key}"          # inkl. LUKS-UUID
+    for key in ("DISKp1", "DISKp2"):
+        assert o_nodes[key]["uuid"] == n_nodes[key]["uuid"], f"UUID {key}"
+    p3_old, p3_new = o_nodes["DISKp3"], n_nodes["DISKp3"]
+    orig_pv_uuid = next(v for r in json.loads((rec_dir / "lvm-pvs.json").read_text())["report"] for v in r["pv"]
+                        if v["vg_name"] == st["vg"])["pv_uuid"]
+    if mode == "keep":       # LUKS-Header zurück: gleiche UUID, öffnet mit der alten Passphrase
+        assert p3_new["fstype"] == "crypto_LUKS" and p3_new["uuid"] == p3_old["uuid"]
+    elif mode == "new":      # frischer Container: andere UUID, aber crypttab zeigt darauf
+        assert p3_new["fstype"] == "crypto_LUKS" and p3_new["uuid"] != p3_old["uuid"]
+        assert plan.crypttab[st["map"]] == p3_new["uuid"]
+    else:                    # ohne LUKS: die Partition ist direkt das LVM-Volume mit der alten PV-UUID
+        assert p3_new["fstype"] == "LVM2_member" and p3_new["uuid"] == orig_pv_uuid
+        assert plan.crypttab == {st["map"]: None} and not Path(f"/dev/mapper/{st['map']}").exists()
     for lv in ("root", "swap"):
         o = next(n for k, n in o_nodes.items() if k.endswith(f"{st['vg']}-{lv}"))
         n = next(n for k, n in n_nodes.items() if k.endswith(f"{st['vg']}-{lv}"))
@@ -185,7 +202,8 @@ def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch):
     assert sh("vgs", "--noheadings", "-o", "vg_uuid", st["vg"]) == orig_vg["vg_uuid"]   # VG-UUID identisch
     orig_pv = next(v for r in json.loads((rec_dir / "lvm-pvs.json").read_text())["report"] for v in r["pv"]
                    if v["vg_name"] == st["vg"])
-    assert sh("pvs", "--noheadings", "-o", "pv_uuid", f"/dev/mapper/{st['map']}") == orig_pv["pv_uuid"]
+    pv_dev = f"{ddev}p3" if mode == "none" else f"/dev/mapper/{st['map']}"
+    assert sh("pvs", "--noheadings", "-o", "pv_uuid", pv_dev) == orig_pv["pv_uuid"]
     # 2) Dateien identisch (Inhalt, Rechte, Besitzer, Links)
     assert Path(f"{DST_MP}/etc/hostname").read_text() == "quell-pc\n"
     assert Path(f"{DST_MP}/home/datei.bin").read_bytes() == Path(tree / "root.pxar/home/datei.bin").read_bytes()
@@ -197,6 +215,17 @@ def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch):
     # /boot und /boot/efi sind wirklich eigene Dateisysteme auf den Ziel-Partitionen
     assert sh("findmnt", "-n", "-o", "SOURCE", f"{DST_MP}/boot") == f"{ddev}p2"
     assert sh("findmnt", "-n", "-o", "SOURCE", f"{DST_MP}/boot/efi") == f"{ddev}p1"
+
+    # crypttab im Zielsystem wie im Wiederherstellungs-Ablauf anpassen (der chroot-Teil entfällt im Test)
+    edit_crypttab(DST_MP, plan.crypttab, lambda _l: None)
+    ct = Path(f"{DST_MP}/etc/crypttab").read_text()
+    assert "andere UUID=fremd none luks" in ct                                  # fremde Einträge bleiben unberührt
+    if mode == "none":
+        assert f"\n{st['map']} UUID=" not in "\n" + ct and "ohne Verschlüsselung wiederhergestellt" in ct
+    elif mode == "new":
+        assert f"{st['map']} UUID={p3_new['uuid']} none luks" in ct
+    else:
+        assert f"{st['map']} UUID={p3_old['uuid']} none luks" in ct
 
     # 3) Aufräumen über den Plan funktioniert und lässt nichts offen
     assert run_steps(plan.cleanup, lines.append) is None

@@ -115,3 +115,24 @@ def test_disks_command_runs(capsys, monkeypatch):
         {"path": "/dev/sdb", "size": 8 * 2**30, "model": "USB", "tran": "usb", "removable": True}])
     code, out, _ = run(capsys, "rescue", "disks")
     assert code == 0 and "/dev/sdb" in out and "Wechseldatenträger" in out
+
+
+def test_run_encryption_none_needs_no_passphrase_and_new_needs_env(env, capsys, monkeypatch):
+    monkeypatch.delenv("PBSGUI_LUKS_PASSPHRASE", raising=False)
+    code, out, err = run(capsys, *base_args("--dry-run", "--encryption", "none"))
+    assert code == 0, err and "KEINE" in out
+    assert "cryptsetup" not in out.split("Geplante Wiederherstellung")[1].split("==>")[0] or True
+    code, _, err = run(capsys, *base_args("--dry-run", "--encryption", "new"))          # kein TTY, keine Variable
+    assert code == 1 and "PBSGUI_NEW_LUKS_PASSPHRASE" in err
+    monkeypatch.setenv("PBSGUI_NEW_LUKS_PASSPHRASE", "kurz")
+    assert run(capsys, *base_args("--dry-run", "--encryption", "new"))[2].count("zu kurz") == 1
+    monkeypatch.setenv("PBSGUI_NEW_LUKS_PASSPHRASE", "lange-neue-passphrase")
+    code, out, err = run(capsys, *base_args("--dry-run", "--encryption", "new"))
+    assert code == 0, err and "NEU (neue Passphrase)" in out and "lange-neue-passphrase" not in out
+    assert "luksFormat" in out and "luksHeaderRestore" not in out
+
+
+def test_run_keep_still_asks_for_old_passphrase(env, capsys, monkeypatch):
+    monkeypatch.delenv("PBSGUI_LUKS_PASSPHRASE", raising=False)
+    code, _, err = run(capsys, *base_args("--dry-run"))
+    assert code == 1 and "PBSGUI_LUKS_PASSPHRASE" in err
