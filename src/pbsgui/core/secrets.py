@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-CRED_NAMES = ("token", "keypass")  # feste Namen, auf die LoadCredential* in den Units zeigen
+CRED_NAMES = ("token", "keypass", "key")  # feste Namen, auf die LoadCredential* in den Units zeigen
 
 
 class SecretError(RuntimeError):

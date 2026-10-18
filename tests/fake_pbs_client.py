@@ -15,8 +15,13 @@ state.mkdir(parents=True, exist_ok=True)
 args = sys.argv[1:]
 env = {k: os.environ.get(k) for k in ("PBS_REPOSITORY", "PBS_PASSWORD", "PBS_FINGERPRINT",
                                        "PBS_ENCRYPTION_PASSWORD")}
+kf = {}
+if "--keyfile" in args:  # Zustand der Schlüsseldatei zum Aufrufzeitpunkt festhalten
+    kp = Path(args[args.index("--keyfile") + 1])
+    kf = {"path": str(kp), "exists": kp.exists(), "content": kp.read_text() if kp.exists() else None,
+          "mode": oct(kp.stat().st_mode & 0o777) if kp.exists() else None}
 with open(state / "calls.jsonl", "a") as f:
-    f.write(json.dumps({"argv": args, "env": env}) + "\n")
+    f.write(json.dumps({"argv": args, "env": env, "keyfile": kf}) + "\n")
 
 expect = os.environ.get("FAKE_PBS_EXPECT_PASSWORD")
 if args[:1] != ["version"] and expect is not None and env["PBS_PASSWORD"] != expect:
@@ -42,6 +47,9 @@ elif args[:1] == ["backup"]:
                   "size": 1024 * (len(snaps) + 1), "files": [{"filename": s.split(":", 1)[0]} for s in specs]})
     snaps_file.write_text(json.dumps(snaps))
     print("End Time: done")
+elif args[:2] == ["key", "create"]:
+    Path(args[2]).write_text(json.dumps({"kdf": None, "data": "ZmFrZQ==", "fingerprint": "aa:bb:cc:dd"}))
+    os.chmod(args[2], 0o600)
 elif args[:2] == ["catalog", "dump"]:
     print("d ./etc\nf ./etc/hosts\nd ./home")
 elif args[:1] == ["restore"]:

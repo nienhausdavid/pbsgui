@@ -87,3 +87,56 @@ def test_run_profile_failure(fake_env, profile, paths, monkeypatch):
 
 def test_run_profile_no_secret(fake_env, profile, paths):
     assert run_profile(profile, paths, FileStore(paths.creds), lambda _l: None) == 2
+
+
+def test_generate_key_and_encrypted_backup(fake_env, profile, paths):
+    from pbsgui.core.keys import generate_key
+    content, fp = generate_key()
+    assert fp == "aa:bb:cc:dd" and "fingerprint" in content
+    profile.encrypt = True
+    c = PbsClient(profile, "x", key_content=content)
+    assert c.backup() == 0
+    call = calls(fake_env)[-1]
+    assert call["keyfile"]["exists"] and call["keyfile"]["content"] == content
+    assert call["keyfile"]["mode"] == "0o600"
+    assert "--crypt-mode" in call["argv"]
+    import os
+    assert not os.path.exists(call["keyfile"]["path"])  # temporäre Datei wurde gelöscht
+
+
+def test_restore_passes_keyfile(fake_env, profile, tmp_path):
+    profile.encrypt = True
+    c = PbsClient(profile, "x", key_content='{"fingerprint":"aa"}')
+    c.backup()
+    snap = c.list_snapshots()[0]
+    c.restore(snap, "etc.pxar", str(tmp_path / "o"))
+    assert calls(fake_env)[-1]["keyfile"]["exists"]
+
+
+def test_run_profile_encrypted_uses_stored_key(fake_env, profile, paths):
+    store = FileStore(paths.creds)
+    store.put(profile.slug, "token", "t")
+    store.put(profile.slug, "key", '{"fingerprint":"aa"}')
+    profile.encrypt = True
+    assert run_profile(profile, paths, store, lambda _l: None) == 0
+    assert calls(fake_env)[-1]["keyfile"]["content"] == '{"fingerprint":"aa"}'
+
+
+def test_run_profile_encrypted_without_key_fails(fake_env, profile, paths):
+    store = FileStore(paths.creds)
+    store.put(profile.slug, "token", "t")
+    profile.encrypt = True
+    assert run_profile(profile, paths, store, lambda _l: None) == 3
+
+
+def test_manager_enable_encryption_never_overwrites(fake_env, profile, paths):
+    from pbsgui.core.manager import ProfileManager
+    m = ProfileManager(paths, FileStore(paths.creds))
+    assert m.enable_encryption(profile) is True
+    first = m.secrets.get(profile.slug, "key")
+    assert profile.key_fingerprint == "aa:bb:cc:dd" and profile.encrypt
+    assert m.enable_encryption(profile) is False  # vorhandener Key bleibt erhalten
+    assert m.secrets.get(profile.slug, "key") == first
+    dest = paths.config / "export.json"
+    m.export_key(profile, str(dest))
+    assert dest.read_text() == first and oct(dest.stat().st_mode & 0o777) == "0o600"

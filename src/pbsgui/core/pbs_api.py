@@ -187,6 +187,16 @@ class PbsApi:
                                                   "auth-id": who, "propagate": 1})
         return ProvisionResult(auth_id=auth_id, secret=secret, userid=userid)
 
+    def list_datastores(self) -> list[str]:
+        """Datastores, die der angemeldete Benutzer/Token sehen darf."""
+        data = self._request("GET", "/admin/datastore")
+        return sorted(d["store"] for d in (data or []) if isinstance(d, dict) and d.get("store"))  # type: ignore[union-attr]
+
+    def list_namespaces(self, datastore: str) -> list[str]:
+        """Vorhandene Namespaces (ohne Wurzel), auch verschachtelte wie `a/b`."""
+        data = self._request("GET", f"/admin/datastore/{urllib.parse.quote(datastore, safe='')}/namespace")
+        return sorted(n["ns"] for n in (data or []) if isinstance(n, dict) and n.get("ns"))  # type: ignore[union-attr]
+
     def deprovision(self, userid: str, datastore: str = "", namespace: str = "", token_name: str = "backup",
                     role: str = "DatastoreBackup") -> None:
         """Entfernt ACLs, dann den Benutzer (samt Tokens).

@@ -93,7 +93,8 @@ class MainWindow(QMainWindow):
         self.f_id.setText(p.backup_id); self.f_ns.setText(p.namespace)
         self.sources.clear(); self.sources.addItems(p.sources)
         self.excludes.setPlainText("\n".join(p.excludes))
-        self.f_enc.setChecked(p.encrypt); self.f_key.setText(p.keyfile)
+        self.f_enc.setChecked(p.encrypt); self.f_key.setText(p.keyfile); self.f_master.setText(p.master_pubkey)
+        self.refresh_key_info()
         self.f_sched.setText(p.schedule); self.f_ac.setChecked(p.require_ac)
         self.f_scope.setCurrentIndex(1 if p.scope == "system" else 0)
         self.snap_table.setRowCount(0)
@@ -104,10 +105,15 @@ class MainWindow(QMainWindow):
         w = QWidget(); lay = QVBoxLayout(w)
         form = QFormLayout()
         self.f_id = QLineEdit(); self.f_ns = QLineEdit()
-        self.f_enc = QCheckBox("Clientseitig verschlüsseln"); self.f_key = QLineEdit()
-        self.f_key.setPlaceholderText("Pfad zur Schlüsseldatei (proxmox-backup-client key create …)")
+        self.f_enc = QCheckBox("Clientseitig verschlüsseln (empfohlen)"); self.f_key = QLineEdit()
+        self.f_key.setPlaceholderText("optional – leer = automatisch erzeugter Schlüssel")
+        self.f_master = QLineEdit(); self.f_master.setPlaceholderText("optional – RSA-Master-Public-Key (.pem)")
+        self.key_info = QLabel(""); self.key_info.setWordWrap(True)
+        self.key_btn = QPushButton("Schlüssel exportieren …"); self.key_btn.clicked.connect(self.export_key_dialog)
         form.addRow("Backup-ID", self.f_id); form.addRow("Namespace", self.f_ns)
-        form.addRow(self.f_enc); form.addRow("Schlüsseldatei", self.f_key)
+        form.addRow(self.f_enc); form.addRow("Eigene Schlüsseldatei", self.f_key)
+        form.addRow("Master-Public-Key", self.f_master)
+        form.addRow(self.key_info); form.addRow("", self.key_btn)
         lay.addLayout(form)
         lay.addWidget(QLabel("Quellordner"))
         self.sources = QListWidget()
@@ -147,6 +153,7 @@ class MainWindow(QMainWindow):
         p.sources = [self.sources.item(i).text() for i in range(self.sources.count())]
         p.excludes = [l.strip() for l in self.excludes.toPlainText().splitlines() if l.strip()]
         p.encrypt, p.keyfile = self.f_enc.isChecked(), self.f_key.text().strip()
+        p.master_pubkey = self.f_master.text().strip()
         p.schedule, p.require_ac = self.f_sched.text().strip(), self.f_ac.isChecked()
         return p
 
@@ -154,16 +161,56 @@ class MainWindow(QMainWindow):
         p = self._collect()
         if not p:
             return False
-        if p.encrypt and not p.keyfile:
-            QMessageBox.warning(self, "Verschlüsselung", "Bitte eine Schlüsseldatei angeben.")
-            return False
         try:
+            if p.encrypt and not self.mgr.has_key(p):
+                if self.mgr.enable_encryption(p):  # erzeugt und speichert den Key automatisch
+                    self._offer_key_export(p)
+                    self.refresh_key_info()
             self.mgr.save(p, schedule=schedule if isinstance(schedule, str) else "keep")
         except Exception as e:
             QMessageBox.warning(self, "Speichern fehlgeschlagen", str(e))
             return False
         self.statusBar().showMessage("Gespeichert")
         return True
+
+    # -- Schlüssel ----------------------------------------------------------
+    def refresh_key_info(self) -> None:
+        p = self.current
+        if not p:
+            return
+        if p.keyfile:
+            text, can_export = f"Eigene Schlüsseldatei: {p.keyfile}", False
+        elif self.mgr.secrets.get(p.slug, "key"):
+            text, can_export = f"Automatisch erzeugter Schlüssel, Fingerprint: {p.key_fingerprint}", True
+        elif p.encrypt:
+            text, can_export = "Der Schlüssel wird beim Speichern automatisch erzeugt.", False
+        else:
+            text, can_export = "Verschlüsselung ist aus: Backups liegen unverschlüsselt auf dem Server.", False
+        self.key_info.setText(text)
+        self.key_btn.setEnabled(can_export)
+
+    def _offer_key_export(self, p: Profile) -> None:
+        """Ohne Schlüssel sind verschlüsselte Backups unwiederbringlich verloren: Kopie anbieten."""
+        QMessageBox.information(
+            self, "Schlüssel sichern",
+            f"Für '{p.name}' wurde ein Verschlüsselungs-Schlüssel erzeugt (Fingerprint {p.key_fingerprint}).\n\n"
+            "Geht er verloren (z. B. Festplattendefekt), sind alle Backups UNWIDERRUFLICH unlesbar. "
+            "Bitte jetzt eine Kopie an einem sicheren Ort ablegen (Passwortmanager, USB-Stick).")
+        self.export_key_dialog()
+
+    def export_key_dialog(self) -> None:
+        p = self.current
+        if not p:
+            return
+        dest, _ = QFileDialog.getSaveFileName(self, "Schlüssel exportieren", str(Path.home() / f"{p.slug}-key.json"))
+        if not dest:
+            self.statusBar().showMessage("Schlüssel NICHT exportiert – bitte später nachholen")
+            return
+        try:
+            self.mgr.export_key(p, dest)
+            self.statusBar().showMessage(f"Schlüssel exportiert nach {dest}")
+        except Exception as e:
+            QMessageBox.warning(self, "Export fehlgeschlagen", str(e))
 
     def backup_now(self) -> None:
         p = self._collect()
@@ -332,10 +379,14 @@ class MainWindow(QMainWindow):
             p.sources = [str(Path.home())]
             try:
                 self.mgr.save(p, token=dlg.token)
+                created = self.mgr.enable_encryption(p)  # Verschlüsselung ist Standard: Key automatisch erzeugen
             except Exception as e:
                 QMessageBox.warning(self, "Speichern fehlgeschlagen", str(e))
                 return
             self.reload(select=p.name)
+            if created:
+                self._offer_key_export(p)
+                self.refresh_key_info()
 
     def remove_profile(self) -> None:
         p = self.current

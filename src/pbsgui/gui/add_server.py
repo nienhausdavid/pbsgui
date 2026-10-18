@@ -1,10 +1,14 @@
-"""Dialog „Server hinzufügen“: Weg A (einmalig als root) oder Weg B (vorhandener API-Token)."""
+"""Dialog „Server hinzufügen“: Weg A (einmalig als root) oder Weg B (vorhandener API-Token).
+
+Ablauf: Fingerprint prüfen -> Zugangsdaten -> „Verbindung prüfen“ (lädt Datastores) -> Datastore und
+Namespace wählen (Namespaces werden live geprüft) -> Einrichten.
+"""
 from __future__ import annotations
 
 import socket
 
-from PySide6.QtWidgets import (QCheckBox, QMessageBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel,
-                               QLineEdit, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
+                               QMessageBox, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from ..core.client import PbsClient
 from ..core.models import Profile
@@ -16,46 +20,50 @@ class AddServerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Server hinzufügen")
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(520)
         self.profile: Profile | None = None
         self.token = ""
         self._worker: Worker | None = None
+        self._ns_worker: Worker | None = None
+        self._api: PbsApi | None = None          # angemeldete Sitzung (nur im Speicher)
+        self._namespaces: list[str] | None = None  # None = unbekannt
         self._replace_token = False
 
         self.mode = QComboBox()
         self.mode.addItems(["A: Einmalig als root anmelden (Zugang automatisch anlegen)",
                             "B: Vorhandenen API-Token verwenden"])
         self.name = QLineEdit(socket.gethostname())
-        self.server = QLineEdit()
-        self.server.setPlaceholderText("pbs.example.org")
+        self.server = QLineEdit(); self.server.setPlaceholderText("pbs.example.org")
         self.port = QSpinBox(); self.port.setRange(1, 65535); self.port.setValue(8007)
-        self.datastore = QLineEdit()
-        self.namespace = QLineEdit()
-        self.namespace.setPlaceholderText("optional")
         self.fp = QLineEdit(); self.fp.setReadOnly(True)
         self.fp_btn = QPushButton("Fingerprint abrufen")
         self.fp_ok = QCheckBox("Ich habe den Fingerprint geprüft und vertraue ihm")
 
         form = QFormLayout()
         for label, w in [("Modus", self.mode), ("Profilname", self.name), ("Server", self.server),
-                         ("Port", self.port), ("Datastore", self.datastore), ("Namespace", self.namespace),
-                         ("Fingerprint", self.fp), ("", self.fp_btn), ("", self.fp_ok)]:
+                         ("Port", self.port), ("Fingerprint", self.fp), ("", self.fp_btn), ("", self.fp_ok)]:
             form.addRow(label, w)
 
         self.root_user = QLineEdit("root@pam")
         self.root_pw = QLineEdit(); self.root_pw.setEchoMode(QLineEdit.EchoMode.Password)
         self.tfa = QLineEdit(); self.tfa.setPlaceholderText("nur bei aktiver Zwei-Faktor-Anmeldung")
         a = QWidget(); fa = QFormLayout(a)
-        fa.addRow("Root-Benutzer", self.root_user)
-        fa.addRow("Root-Passwort", self.root_pw)
-        fa.addRow("2FA-Code", self.tfa)
-        fa.addRow(QLabel("Das Passwort wird nur für diese Einrichtung verwendet und nicht gespeichert."))
+        fa.addRow("Root-Benutzer", self.root_user); fa.addRow("Root-Passwort", self.root_pw); fa.addRow("2FA-Code", self.tfa)
+        fa.addRow(QLabel("Das Passwort wird nur für die Anmeldung verwendet und nicht gespeichert."))
         self.auth_id = QLineEdit(); self.auth_id.setPlaceholderText("benutzer@pbs!tokenname")
         self.secret = QLineEdit(); self.secret.setEchoMode(QLineEdit.EchoMode.Password)
         b = QWidget(); fb = QFormLayout(b)
-        fb.addRow("Token-ID", self.auth_id)
-        fb.addRow("Token-Secret", self.secret)
+        fb.addRow("Token-ID", self.auth_id); fb.addRow("Token-Secret", self.secret)
         self.stack = QStackedWidget(); self.stack.addWidget(a); self.stack.addWidget(b)
+
+        self.check_btn = QPushButton("Verbindung prüfen && Datastores laden")
+        self.datastore = QComboBox(); self.datastore.setEditable(True)
+        self.namespace = QComboBox(); self.namespace.setEditable(True)
+        self.namespace.lineEdit().setPlaceholderText("leer = Wurzel des Datastores")
+        self.ns_info = QLabel(""); self.ns_info.setWordWrap(True)
+        sel = QFormLayout()
+        sel.addRow("", self.check_btn); sel.addRow("Datastore", self.datastore)
+        sel.addRow("Namespace", self.namespace); sel.addRow("", self.ns_info)
 
         self.status = QLabel(""); self.status.setWordWrap(True)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -64,15 +72,34 @@ class AddServerDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
 
         lay = QVBoxLayout(self)
-        lay.addLayout(form); lay.addWidget(self.stack); lay.addWidget(self.status); lay.addWidget(self.buttons)
-        self.mode.currentIndexChanged.connect(self.stack.setCurrentIndex)
-        self.fp_btn.clicked.connect(self._fetch_fp)
+        lay.addLayout(form); lay.addWidget(self.stack); lay.addLayout(sel)
+        lay.addWidget(self.status); lay.addWidget(self.buttons)
 
+        self.mode.currentIndexChanged.connect(self._mode_changed)
+        self.fp_btn.clicked.connect(self._fetch_fp)
+        self.check_btn.clicked.connect(self._check)
+        for w in (self.server, self.auth_id, self.root_user):
+            w.textChanged.connect(self._invalidate)
+        self.port.valueChanged.connect(self._invalidate)
+        self.datastore.currentTextChanged.connect(self._datastore_changed)
+        self.namespace.currentTextChanged.connect(self._update_ns_info)
+
+    # -- Zustand ------------------------------------------------------------
     def _busy(self, text: str, busy: bool = True) -> None:
         self.status.setText(text)
-        self.buttons.setEnabled(not busy)
-        self.fp_btn.setEnabled(not busy)
+        for w in (self.buttons, self.fp_btn, self.check_btn):
+            w.setEnabled(not busy)
 
+    def _invalidate(self, *_a) -> None:
+        """Server oder Zugang geändert: gespeicherte Sitzung und Listen verwerfen."""
+        self._api, self._namespaces = None, None
+
+    def _mode_changed(self, i: int) -> None:
+        self.stack.setCurrentIndex(i)
+        self._invalidate()
+        self._update_ns_info()
+
+    # -- Fingerprint --------------------------------------------------------
     def _fetch_fp(self) -> None:
         host, port = self.server.text().strip(), self.port.value()
         if not host:
@@ -80,33 +107,127 @@ class AddServerDialog(QDialog):
             return
         self._busy("Hole Fingerprint …")
         self._worker = Worker(lambda _l: fetch_fingerprint(host, port), self)
-        self._worker.done.connect(lambda fp: (self.fp.setText(fp), self.fp_ok.setChecked(False),
-                                              self._busy("Fingerprint abgerufen. Mit dem in PBS angezeigten "
-                                                         "Wert vergleichen und bestätigen.", False)))
+        self._worker.done.connect(lambda fp: (self.fp.setText(fp), self.fp_ok.setChecked(False), self._invalidate(),
+                                              self._busy("Fingerprint mit dem in PBS angezeigten Wert vergleichen "
+                                                         "und bestätigen.", False)))
         self._worker.failed.connect(lambda m: self._busy(f"Fehler: {m}", False))
         self._worker.start()
 
-    def _start(self) -> None:
-        if not all([self.name.text().strip(), self.server.text().strip(), self.datastore.text().strip()]):
-            self.status.setText("Name, Server und Datastore sind Pflicht.")
-            return
+    def _fp_confirmed(self) -> bool:
         if not self.fp.text() or not self.fp_ok.isChecked():
             self.status.setText("Fingerprint abrufen und bestätigen (Schutz vor gefälschtem Server).")
-            return
-        host, port, ds = self.server.text().strip(), self.port.value(), self.datastore.text().strip()
-        ns, fp, name = self.namespace.text().strip(), self.fp.text(), self.name.text().strip()
-        hostname = socket.gethostname()
+            return False
+        return True
 
+    # -- Verbindung prüfen, Datastores und Namespaces ------------------------
+    def _check(self) -> None:
+        if not self.server.text().strip() or not self._fp_confirmed():
+            return
+        host, port, fp = self.server.text().strip(), self.port.value(), self.fp.text()
         if self.mode.currentIndex() == 0:
             user, pw, tfa = self.root_user.text().strip(), self.root_pw.text(), self.tfa.text().strip()
-            self.root_pw.clear()  # Passwort sofort aus dem Widget entfernen
             if not user or not pw:
                 self.status.setText("Root-Benutzer und Passwort eingeben.")
                 return
+            self.root_pw.clear()  # Passwort sofort aus dem Widget entfernen; die Sitzung bleibt im Speicher
 
             def work(_l):
                 api = PbsApi(host, port, fp)
                 api.login(user, pw, tfa)
+                return api, api.list_datastores()
+        else:
+            auth_id, secret = self.auth_id.text().strip(), self.secret.text()
+            if not auth_id or not secret:
+                self.status.setText("Token-ID und Secret eingeben.")
+                return
+
+            def work(_l):
+                api = PbsApi(host, port, fp)
+                api.use_token(auth_id, secret)
+                return api, api.list_datastores()
+
+        def done(res):
+            self._api, stores = res
+            self.datastore.blockSignals(True)
+            self.datastore.clear(); self.datastore.addItems(stores)
+            self.datastore.blockSignals(False)
+            msg = (f"Verbunden. {len(stores)} Datastore(s) gefunden." if stores else
+                   "Verbunden, aber keine Datastores sichtbar (fehlende Audit-Rechte?). Namen von Hand eingeben.")
+            self._busy(msg, False)
+            self._datastore_changed(self.datastore.currentText())
+
+        self._busy("Prüfe Verbindung …")
+        self._worker = Worker(work, self)
+        self._worker.done.connect(done)
+        self._worker.failed.connect(lambda m: self._busy(f"Fehler: {m}", False))
+        self._worker.start()
+
+    def _datastore_changed(self, ds: str) -> None:
+        self._namespaces = None
+        self._set_ns_items([])
+        if not self._api or not ds.strip():
+            self._update_ns_info()
+            return
+        api = self._api
+        self._ns_worker = Worker(lambda _l: api.list_namespaces(ds.strip()), self)
+        self._ns_worker.done.connect(lambda ns: self._ns_loaded(ds, ns))
+        self._ns_worker.failed.connect(lambda m: self.ns_info.setText(f"Namespaces nicht lesbar: {m}"))
+        self._ns_worker.start()
+
+    def _ns_loaded(self, ds: str, namespaces: list[str]) -> None:
+        if ds.strip() != self.datastore.currentText().strip():
+            return  # veraltete Antwort
+        self._namespaces = namespaces
+        self._set_ns_items(namespaces)
+        self._update_ns_info()
+
+    def _set_ns_items(self, items: list[str]) -> None:
+        current = self.namespace.currentText()
+        self.namespace.blockSignals(True)
+        self.namespace.clear(); self.namespace.addItems(items)
+        self.namespace.setEditText(current)
+        self.namespace.blockSignals(False)
+
+    def namespace_state(self) -> str:
+        """'root' | 'exists' | 'new' | 'unknown' für den eingegebenen Namespace."""
+        ns = self.namespace.currentText().strip().strip("/")
+        if not ns:
+            return "root"
+        if self._namespaces is None:
+            return "unknown"
+        return "exists" if ns in self._namespaces else "new"
+
+    def _update_ns_info(self, *_a) -> None:
+        state, weg_a = self.namespace_state(), self.mode.currentIndex() == 0
+        self.ns_info.setText({
+            "root": "Wurzel des Datastores (kein eigener Namespace).",
+            "exists": "✔ Namespace existiert.",
+            "unknown": "Namespace noch nicht geprüft (erst Verbindung prüfen und Datastore wählen).",
+            "new": ("ℹ Namespace existiert nicht und wird beim Einrichten neu angelegt." if weg_a else
+                    "⚠ Namespace existiert nicht. Mit Weg B nicht anlegbar: bitte zuerst in PBS anlegen "
+                    "oder Weg A verwenden."),
+        }[state])
+
+    # -- Einrichten -----------------------------------------------------------
+    def _start(self) -> None:
+        ds, ns = self.datastore.currentText().strip(), self.namespace.currentText().strip().strip("/")
+        if not (self.name.text().strip() and self.server.text().strip() and ds):
+            self.status.setText("Name, Server und Datastore sind Pflicht.")
+            return
+        if not self._fp_confirmed():
+            return
+        if not self._api:
+            self.status.setText("Bitte zuerst „Verbindung prüfen“ ausführen.")
+            return
+        weg_a = self.mode.currentIndex() == 0
+        if not weg_a and self.namespace_state() == "new":
+            self.status.setText("Dieser Namespace existiert nicht und lässt sich mit Weg B nicht anlegen.")
+            return
+        host, port, fp, name = self.server.text().strip(), self.port.value(), self.fp.text(), self.name.text().strip()
+        hostname, api = socket.gethostname(), self._api
+
+        if weg_a:
+            def work(_l):
                 try:
                     res = api.provision(ds, hostname, ns, replace_token=self._replace_token)
                 except TokenExistsError as e:
@@ -127,16 +248,13 @@ class AddServerDialog(QDialog):
                         "und neu erzeugen? Andere Programme, die diesen Token nutzen, verlieren den Zugang."
                     ) == QMessageBox.StandardButton.Yes
                     self._replace_token = yes
-                    self._busy("Bitte das Root-Passwort erneut eingeben und 'Einrichten' klicken (es wird nicht "
-                               "gespeichert)." if yes else "Abgebrochen: Token wurde nicht ersetzt.", False)
+                    self._busy("Bitte erneut auf „Einrichten“ klicken." if yes else
+                               "Abgebrochen: Token wurde nicht ersetzt.", False)
                     return
                 self._finish(Profile(name=name, server=host, port=port, datastore=ds, namespace=ns,
                                      auth_id=res.auth_id, fingerprint=fp, backup_id=hostname), res.secret)
         else:
             auth_id, secret = self.auth_id.text().strip(), self.secret.text()
-            if not auth_id or not secret:
-                self.status.setText("Token-ID und Secret eingeben.")
-                return
             prof = Profile(name=name, server=host, port=port, datastore=ds, namespace=ns,
                            auth_id=auth_id, fingerprint=fp, backup_id=hostname)
 
@@ -156,4 +274,5 @@ class AddServerDialog(QDialog):
     def _finish(self, profile: Profile, token: str) -> None:
         self.profile, self.token = profile, token
         self.root_pw.clear(); self.secret.clear()
+        self._api = None
         self.accept()

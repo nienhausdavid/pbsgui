@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from typing import Callable
+from contextlib import contextmanager
+from typing import Callable, Iterator
 
 from .models import Profile, Snapshot
 
@@ -18,11 +19,26 @@ def client_binary() -> str:
 
 
 class PbsClient:
-    def __init__(self, profile: Profile, secret: str, key_password: str = "", binary: str | None = None):
+    def __init__(self, profile: Profile, secret: str, key_password: str = "", binary: str | None = None,
+                 key_content: str = "", key_path: str = ""):
         self.profile = profile
         self.secret = secret
         self.key_password = key_password
         self.binary = binary or client_binary()
+        self.key_content = key_content  # Key-JSON (aus dem Geheimnis-Speicher)
+        self.key_path = key_path        # oder Pfad zu einer vorhandenen Datei (systemd-Credential)
+
+    @contextmanager
+    def _keyfile(self) -> Iterator[str]:
+        """Liefert den Pfad zur Schlüsseldatei (leer = kein Key); temporäre Dateien werden danach gelöscht."""
+        from .keys import materialized_key
+        if self.key_path:
+            yield self.key_path
+        elif self.key_content:
+            with materialized_key(self.key_content) as p:
+                yield p
+        else:
+            yield self.profile.keyfile
 
     # -- intern -------------------------------------------------------------
     def _env(self) -> dict[str, str]:
@@ -65,37 +81,45 @@ class PbsClient:
     def test_connection(self) -> None:
         self.list_snapshots()
 
-    def backup_args(self) -> list[str]:
+    def backup_args(self, keyfile: str = "") -> list[str]:
         p = self.profile
+        keyfile = keyfile or p.keyfile
         if not p.sources:
             raise ClientError("Keine Quellpfade im Profil")
         args = ["backup", *p.archive_specs(), "--backup-id", p.backup_id, *self._ns()]
         for pattern in p.excludes:
             args += ["--exclude", pattern]
         if p.encrypt:
-            if not p.keyfile:
-                raise ClientError("Verschlüsselung aktiv, aber keine Schlüsseldatei gesetzt")
-            args += ["--keyfile", p.keyfile, "--crypt-mode", "encrypt"]
+            if not keyfile:
+                raise ClientError("Verschlüsselung aktiv, aber kein Schlüssel vorhanden")
+            args += ["--keyfile", keyfile, "--crypt-mode", "encrypt"]
+        if p.master_pubkey:
+            args += ["--master-pubkey-file", p.master_pubkey]
         return args
 
     def backup(self, on_line: Callable[[str], None] = lambda _l: None) -> int:
         """Startet das Backup und liefert Zeilen live; gibt den Exitcode zurück."""
-        try:
-            proc = subprocess.Popen([self.binary, *self.backup_args()], env=self._env(),
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    stdin=subprocess.DEVNULL, text=True, bufsize=1)
-        except FileNotFoundError:
-            raise ClientError(f"Client nicht gefunden: {self.binary}") from None
-        assert proc.stdout
-        for line in proc.stdout:
-            on_line(line.rstrip("\n"))
-        return proc.wait()
+        with self._keyfile() as keyfile:
+            try:
+                proc = subprocess.Popen([self.binary, *self.backup_args(keyfile)], env=self._env(),
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        stdin=subprocess.DEVNULL, text=True, bufsize=1)
+            except FileNotFoundError:
+                raise ClientError(f"Client nicht gefunden: {self.binary}") from None
+            assert proc.stdout
+            for line in proc.stdout:
+                on_line(line.rstrip("\n"))
+            return proc.wait()
 
     def catalog(self, snapshot: Snapshot, archive: str) -> str:
-        return self._run(["catalog", "dump", snapshot.path, "--archive", archive, *self._ns()])
+        with self._keyfile() as kf:
+            return self._run(["catalog", "dump", snapshot.path, "--archive", archive, *self._ns(),
+                              *(["--keyfile", kf] if kf else [])])
 
     def restore(self, snapshot: Snapshot, archive: str, target: str) -> None:
         """Stellt in einen (neuen) Zielordner wieder her; überschreibt nie das Original."""
         if not target or target == "/":
             raise ClientError("Ungültiges Wiederherstellungsziel")
-        self._run(["restore", snapshot.path, archive, target, *self._ns()], timeout=None)
+        with self._keyfile() as kf:
+            self._run(["restore", snapshot.path, archive, target, *self._ns(),
+                       *(["--keyfile", kf] if kf else [])], timeout=None)

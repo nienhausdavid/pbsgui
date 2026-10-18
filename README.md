@@ -6,6 +6,8 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md). Status: **Prototyp**.
 ## Was funktioniert (getestet gegen einen Fake-Client)
 - Profile mit Quellordnern, Ausschlüssen, Namespace, Verschlüsselungs-Flag
 - Server einrichten: Weg A (einmalig als root, legt Benutzer/Token/ACLs an) oder Weg B (vorhandener Token), mit Fingerprint-Pinning
+- Clientseitige Verschlüsselung standardmäßig an: Key wird automatisch erzeugt (ohne Passphrase, da der Client sie nur per TTY akzeptiert), verschlüsselt im Geheimnis-Speicher abgelegt und nur kurz als 0600-Datei im tmpfs bereitgestellt; Export-Dialog zur Sicherung
+- Beim Einrichten: Datastores laden, Namespaces live prüfen (vorhanden / wird angelegt / mit Weg B nicht anlegbar)
 - Backup starten mit Live-Log, Snapshots listen, Restore in einen frei gewählten Zielordner
 - Zeitpläne als systemd-Timer, wählbar pro Profil: Benutzer- oder System-Units
 - Geheimnisse verschlüsselt über `systemd-creds` (Fallback: Datei 0600)
@@ -19,7 +21,7 @@ bleibt dessen eigene ACL bestehen (die App entfernt sie vorher).
 ## Noch nicht / nicht verifiziert
 - Root-Login per Passwort und 2FA-Ablauf ungeprüft (getestet wurde mit API-Token)
 - System-Scope (pkexec-Helfer, System-Units) ist nur per Unit-Test mit Fake-Runner geprüft
-- Schlüssel erzeugen, Master-Key, Prune, Katalog-Browser fehlen
+- Master-Key-Erzeugung (RSA), Prune, Katalog-Browser fehlen; Key-Rotation ebenso (ein Key wird nie überschrieben)
 - Keine Lizenz festgelegt
 
 ## Entwickeln

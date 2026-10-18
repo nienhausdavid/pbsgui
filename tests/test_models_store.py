@@ -33,3 +33,9 @@ def test_store_skips_broken(tmp_path):
 def test_snapshot_path():
     s = Snapshot.from_json({"backup-type": "host", "backup-id": "l", "backup-time": 0, "files": [{"filename": "a.pxar"}]})
     assert s.path == "host/l/1970-01-01T00:00:00Z" and s.files == ["a.pxar"]
+
+
+def test_encryption_on_by_default():
+    p = Profile(name="x", server="s", datastore="d", auth_id="a")
+    assert p.encrypt is True
+    assert Profile.from_dict({"name": "x", "server": "s", "datastore": "d", "auth_id": "a"}).encrypt is True

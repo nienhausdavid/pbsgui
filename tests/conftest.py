@@ -29,4 +29,4 @@ def paths(tmp_path):
 def profile():
     return Profile(name="Laptop", server="pbs.example", datastore="store1",
                    auth_id="pbsgui-laptop@pbs!backup", fingerprint="AA:BB",
-                   backup_id="laptop", sources=["/home/david", "/etc"], excludes=["*.tmp"])
+                   backup_id="laptop", sources=["/home/david", "/etc"], excludes=["*.tmp"], encrypt=False)

@@ -30,7 +30,7 @@ def render_service(profile: Profile, store: SecretStore, scope: str, python: str
     if profile.require_ac:
         lines.append("ConditionACPower=true")
     lines += ["", "[Service]", "Type=oneshot"]
-    for kind in ("token", "keypass"):
+    for kind in ("token", "keypass", "key"):
         d = store.unit_directive(profile.slug, kind)
         if d:
             lines.append(d)

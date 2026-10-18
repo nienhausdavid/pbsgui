@@ -28,8 +28,10 @@ class Profile:
     backup_id: str = field(default_factory=socket.gethostname)
     sources: list[str] = field(default_factory=list)
     excludes: list[str] = field(default_factory=list)
-    encrypt: bool = False
-    keyfile: str = ""
+    encrypt: bool = True  # clientseitige Verschlüsselung standardmäßig an
+    keyfile: str = ""  # optional: eigene, extern verwaltete Schlüsseldatei
+    key_fingerprint: str = ""  # Fingerprint des automatisch erzeugten Keys (öffentlich)
+    master_pubkey: str = ""  # optional: RSA-Master-Public-Key (--master-pubkey-file)
     schedule: str = ""  # systemd OnCalendar, leer = kein Zeitplan
     scope: str = "user"  # "user" | "system"
     require_ac: bool = False

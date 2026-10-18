@@ -20,6 +20,11 @@ def _credential(name: str) -> str | None:
     return None
 
 
+def _credential_path(name: str) -> str:
+    d = os.environ.get("CREDENTIALS_DIRECTORY")
+    return str(Path(d) / name) if d and (Path(d) / name).exists() else ""
+
+
 def write_status(paths: Paths, profile: Profile, ok: bool, code: int, message: str) -> None:
     paths.state.mkdir(parents=True, exist_ok=True)
     (paths.state / f"{profile.slug}.json").write_text(json.dumps(
@@ -43,7 +48,9 @@ def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None
         write_status(paths, profile, False, 2, "Kein Token-Secret")
         return 2
     keypass = _credential("keypass") or (store.get(profile.slug, "keypass") if store else None) or ""
-    client = PbsClient(profile, secret, keypass, binary)
+    key_path = _credential_path("key")  # System-Scope: systemd stellt den Key als Datei bereit
+    key_content = "" if key_path else ((store.get(profile.slug, "key") if store else None) or "")
+    client = PbsClient(profile, secret, keypass, binary, key_content=key_content, key_path=key_path)
     try:
         on_line(f"Starte Backup '{profile.name}' -> {profile.repository}")
         code = client.backup(on_line)

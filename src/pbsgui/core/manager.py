@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from .client import PbsClient
+from .keys import export_key, generate_key
 from .models import Profile, Snapshot
 from .paths import Paths
 from .scheduler import SchedulerError, SystemdScheduler
@@ -48,24 +49,50 @@ class ProfileManager:
         token = self.secrets.get(profile.slug, "token")
         if not token:
             raise SchedulerError("Kein Token-Secret gespeichert")
-        return PbsClient(profile, token, self.secrets.get(profile.slug, "keypass") or "")
+        return PbsClient(profile, token, self.secrets.get(profile.slug, "keypass") or "",
+                         key_content=self.secrets.get(profile.slug, "key") or "")
+
+    def has_key(self, profile: Profile) -> bool:
+        return bool(profile.keyfile or self.secrets.get(profile.slug, "key"))
+
+    def enable_encryption(self, profile: Profile) -> bool:
+        """Erzeugt automatisch einen Key, falls noch keiner existiert. True = neu erzeugt.
+
+        Ein vorhandener Key wird nie überschrieben: damit wären alte Backups nicht mehr lesbar.
+        """
+        profile.encrypt = True
+        if self.has_key(profile):
+            return False
+        content, fp = generate_key()
+        profile.key_fingerprint = fp
+        self.save(profile, key=content)
+        return True
+
+    def export_key(self, profile: Profile, dest: str) -> None:
+        content = self.secrets.get(profile.slug, "key")
+        if not content:
+            raise SchedulerError("Kein automatisch erzeugter Schlüssel vorhanden")
+        export_key(content, dest)
 
     def snapshots(self, profile: Profile) -> list[Snapshot]:
         return self.client(profile).list_snapshots()
 
     # -- Schreiben ----------------------------------------------------------
     def save(self, profile: Profile, token: str | None = None, keypass: str | None = None,
-             schedule: str = "keep") -> None:
+             schedule: str = "keep", key: str | None = None) -> None:
         """schedule: "install" | "remove" | "keep"."""
         self.profiles_store.save(profile)
         if token:
             self.secrets.put(profile.slug, "token", token)
         if keypass:
             self.secrets.put(profile.slug, "keypass", keypass)
+        if key:
+            self.secrets.put(profile.slug, "key", key)
         if profile.scope == "system":
             self._admin({"profile": profile.to_dict(), "schedule": schedule,
                          "secrets": {"token": token or self.secrets.get(profile.slug, "token"),
-                                     "keypass": keypass or self.secrets.get(profile.slug, "keypass")}})
+                                     "keypass": keypass or self.secrets.get(profile.slug, "keypass"),
+                                     "key": key or self.secrets.get(profile.slug, "key")}})
         elif schedule != "keep":
             sched = SystemdScheduler(self.paths, self.secrets)
             sched.install(profile) if schedule == "install" else sched.remove(profile)
