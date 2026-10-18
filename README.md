@@ -30,8 +30,10 @@ Alle drei nutzen denselben Core (`pbsgui/core`), beliebig kombinierbar.
 | Aufruf | Was |
 |---|---|
 | `pbsgui` | Qt-GUI (braucht `pip install 'pbsgui[gui]'`) |
-| `pbsgui tui` | Terminal-Oberfläche (Textual), läuft auch über SSH ohne Display |
+| `pbstui` (oder `pbsgui tui`) | Terminal-Oberfläche (Textual), läuft auch über SSH ohne Display |
 | `pbsgui list / show / add / probe / backup / snapshots / restore / schedule / status / key / remove` | Kommandozeile, skriptbar (`--json` bei `list`, `snapshots`) |
+
+`scripts/install-links.sh` legt `pbsgui` und `pbstui` als Links nach `~/.local/bin` (ab dem nächsten Login im PATH).
 
 Beispiele:
 ```bash

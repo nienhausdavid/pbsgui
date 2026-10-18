@@ -15,6 +15,7 @@ dev = ["pytest", "pytest-asyncio", "PySide6"]
 
 [project.scripts]
 pbsgui = "pbsgui.cli.main:main"
+pbstui = "pbsgui.tui.app:run"
 pbsgui-run = "pbsgui.cli.run:main"
 
 [tool.setuptools.packages.find]
