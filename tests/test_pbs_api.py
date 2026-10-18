@@ -9,10 +9,11 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from pbsgui.core.pbs_api import ApiError, PbsApi, fetch_fingerprint
+from pbsgui.core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
 
 pytestmark = pytest.mark.skipif(not shutil.which("openssl"), reason="openssl fehlt")
 LOG = []
+EXISTS: set[str] = set()  # exakte API-Pfade (ohne /api2/json), für die POST „already exists“ liefert
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -30,6 +31,11 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         form = {k: v[0] for k, v in parse_qs(self.rfile.read(n).decode()).items()}
         LOG.append((method, self.path, form, dict(self.headers)))
+        api_path = self.path.removeprefix("/api2/json")
+        if method == "DELETE":
+            EXISTS.discard(api_path)  # gelöscht: danach lässt sich der Eintrag wieder anlegen
+        if method == "POST" and api_path in EXISTS:
+            return self._send(400, message="parameter verification failed - already exists")
         if self.path.endswith("/access/ticket"):
             if form.get("password") != "rootpw":
                 return self._send(401, message="authentication failure")
@@ -57,6 +63,7 @@ def server(tmp_path):
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     LOG.clear()
+    EXISTS.clear()
     yield srv.server_address[1]
     srv.shutdown()
 
@@ -95,3 +102,35 @@ def test_token_permission_check(server):
     api.use_token("pbsgui-host@pbs!backup", "SECRET")
     assert api.check_backup_permission("s") is True
     assert LOG[-1][3]["Authorization"] == "PBSAPIToken=pbsgui-host@pbs!backup:SECRET"
+
+
+def _login(server):
+    api = PbsApi("127.0.0.1", server, fetch_fingerprint("127.0.0.1", server))
+    api.login("root@pam", "rootpw")
+    return api
+
+
+def test_nested_namespace_created_level_by_level(server):
+    _login(server).provision("s", "host", namespace="srv/laptop")
+    ns = [f for m, p, f, h in LOG if m == "POST" and p.endswith("/namespace")]
+    assert ns == [{"name": "srv"}, {"name": "laptop", "parent": "srv"}]
+    acl = [f for m, p, f, h in LOG if m == "PUT"]
+    assert all(a["path"] == "/datastore/s/srv/laptop" for a in acl)
+
+
+def test_existing_user_and_namespace_are_reused(server):
+    EXISTS.update({"/access/users", "/admin/datastore/s/namespace"})
+    res = _login(server).provision("s", "host", namespace="srv")
+    assert res.secret == "SECRET"
+    assert any(m == "PUT" for m, *_ in LOG)  # ACLs wurden trotzdem gesetzt
+
+
+def test_existing_token_requires_confirmation_then_replaced(server):
+    token_path = "/access/users/pbsgui-host%40pbs/token/backup"
+    EXISTS.add(token_path)
+    api = _login(server)
+    with pytest.raises(TokenExistsError, match="existiert bereits"):
+        api.provision("s", "host")
+    assert not any(m == "DELETE" for m, *_ in LOG)  # ohne Zustimmung wird nichts gelöscht
+    assert api.provision("s", "host", replace_token=True).secret == "SECRET"
+    assert [p for m, p, *_ in LOG if m == "DELETE"] == ["/api2/json" + token_path]

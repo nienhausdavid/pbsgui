@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import socket
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel,
+from PySide6.QtWidgets import (QCheckBox, QMessageBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel,
                                QLineEdit, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from ..core.client import PbsClient
 from ..core.models import Profile
-from ..core.pbs_api import PbsApi, fetch_fingerprint
+from ..core.pbs_api import PbsApi, TokenExistsError, fetch_fingerprint
 from .workers import Worker
 
 
@@ -20,6 +20,7 @@ class AddServerDialog(QDialog):
         self.profile: Profile | None = None
         self.token = ""
         self._worker: Worker | None = None
+        self._replace_token = False
 
         self.mode = QComboBox()
         self.mode.addItems(["A: Einmalig als root anmelden (Zugang automatisch anlegen)",
@@ -106,9 +107,22 @@ class AddServerDialog(QDialog):
             def work(_l):
                 api = PbsApi(host, port, fp)
                 api.login(user, pw, tfa)
-                return api.provision(ds, hostname, ns)
+                try:
+                    return api.provision(ds, hostname, ns, replace_token=self._replace_token)
+                except TokenExistsError as e:
+                    return e  # Rückfrage im GUI-Thread
 
             def done(res):
+                if isinstance(res, TokenExistsError):
+                    yes = QMessageBox.question(
+                        self, "Token existiert bereits",
+                        f"{res}.\n\nDas Secret eines vorhandenen Tokens ist nicht mehr abrufbar. Token löschen "
+                        "und neu erzeugen? Andere Programme, die diesen Token nutzen, verlieren den Zugang."
+                    ) == QMessageBox.StandardButton.Yes
+                    self._replace_token = yes
+                    self._busy("Bitte das Root-Passwort erneut eingeben und 'Einrichten' klicken (es wird nicht "
+                               "gespeichert)." if yes else "Abgebrochen: Token wurde nicht ersetzt.", False)
+                    return
                 self._finish(Profile(name=name, server=host, port=port, datastore=ds, namespace=ns,
                                      auth_id=res.auth_id, fingerprint=fp, backup_id=hostname), res.secret)
         else:

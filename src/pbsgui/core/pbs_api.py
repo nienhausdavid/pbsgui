@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import re
 import socket
 import ssl
 import urllib.parse
@@ -15,7 +16,17 @@ from dataclasses import dataclass
 
 
 class ApiError(RuntimeError):
-    pass
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def already_exists(self) -> bool:
+        return self.status in (400, 409) and re.search(r"already exist|exists", str(self), re.I) is not None
+
+
+class TokenExistsError(ApiError):
+    """Der Token existiert schon; sein Secret ist nicht mehr abrufbar. Nur ersetzen, wenn der Benutzer zustimmt."""
 
 
 def _ctx() -> ssl.SSLContext:
@@ -95,7 +106,7 @@ class PbsApi:
                 msg = json.loads(raw).get("message") or raw
             except ValueError:
                 pass
-            raise ApiError(f"HTTP {resp.status}: {msg.strip()}")
+            raise ApiError(f"HTTP {resp.status}: {msg.strip()}", resp.status)
         try:
             return json.loads(raw).get("data")
         except ValueError:
@@ -120,22 +131,56 @@ class PbsApi:
         self._ticket = ""
 
     # -- Provisionierung ----------------------------------------------------
+    def _ensure(self, method: str, path: str, params: dict) -> bool:
+        """Legt etwas an; True = neu angelegt, False = gab es schon (kein Fehler)."""
+        try:
+            self._request(method, path, params)
+            return True
+        except ApiError as e:
+            if e.already_exists:
+                return False
+            raise
+
+    def ensure_namespace(self, datastore: str, namespace: str) -> None:
+        """Legt `a/b/c` Ebene für Ebene an (die API kennt `parent` + `name`); vorhandene Ebenen sind ok."""
+        parent = ""
+        for part in [x for x in namespace.split("/") if x]:
+            params = {"name": part, **({"parent": parent} if parent else {})}
+            self._ensure("POST", f"/admin/datastore/{datastore}/namespace", params)
+            parent = f"{parent}/{part}" if parent else part
+
     def provision(self, datastore: str, hostname: str, namespace: str = "",
-                  role: str = "DatastoreBackup", token_name: str = "backup") -> ProvisionResult:
+                  role: str = "DatastoreBackup", token_name: str = "backup",
+                  replace_token: bool = False) -> ProvisionResult:
+        """Wiederholbar: vorhandener Benutzer/Namespace wird weiterverwendet.
+
+        Existiert der Token schon, wird TokenExistsError geworfen, außer replace_token=True
+        (dann wird er gelöscht und neu erzeugt; alte Nutzer dieses Tokens verlieren den Zugang).
+        """
         userid = f"pbsgui-{hostname}@pbs"
-        self._request("POST", "/access/users", {"userid": userid, "comment": f"pbsgui {hostname}"})
-        tok = self._request("POST", f"/access/users/{urllib.parse.quote(userid, safe='')}/token/{token_name}",
-                            {"comment": "pbsgui"})
+        quser = urllib.parse.quote(userid, safe="")
+        self._ensure("POST", "/access/users", {"userid": userid, "comment": f"pbsgui {hostname}"})
+        tok_path = f"/access/users/{quser}/token/{token_name}"
+        try:
+            tok = self._request("POST", tok_path, {"comment": "pbsgui"})
+        except ApiError as e:
+            if not e.already_exists:
+                raise
+            if not replace_token:
+                raise TokenExistsError(f"Token '{userid}!{token_name}' existiert bereits", e.status) from None
+            self._request("DELETE", tok_path)
+            tok = self._request("POST", tok_path, {"comment": "pbsgui"})
         tok = tok or {}
         auth_id = tok.get("tokenid") or f"{userid}!{token_name}"  # type: ignore[union-attr]
         secret = tok.get("value", "")  # type: ignore[union-attr]
         if not secret:
             raise ApiError("Server lieferte kein Token-Secret")
         acl_path = f"/datastore/{datastore}"
-        if namespace:
-            self._request("POST", f"/admin/datastore/{datastore}/namespace", {"name": namespace})
+        if namespace.strip("/"):
+            namespace = namespace.strip("/")
+            self.ensure_namespace(datastore, namespace)
             acl_path += "/" + namespace
-        # Benutzer UND Token brauchen eine ACL (effektive Rechte = Schnitt)
+        # Benutzer UND Token brauchen eine ACL (effektive Rechte = Schnitt); PUT ist idempotent
         for who in (userid, auth_id):
             self._request("PUT", "/access/acl", {"path": acl_path, "role": role,
                                                   "auth-id": who, "propagate": 1})
