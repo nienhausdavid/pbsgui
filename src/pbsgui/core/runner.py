@@ -42,7 +42,8 @@ def read_status(paths: Paths, profile: Profile) -> dict | None:
 
 
 def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None,
-                on_line: Callable[[str], None] = print, binary: str | None = None) -> int:
+                on_line: Callable[[str], None] = print, binary: str | None = None,
+                progress: bool | None = None) -> int:
     """Gibt den Exitcode zurück (0 = Erfolg). Unter systemd kommen Geheimnisse aus $CREDENTIALS_DIRECTORY."""
     try:
         ensure_recoverable(profile)
@@ -69,7 +70,10 @@ def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None
     client = PbsClient(profile, secret, keypass, binary, key_content=key_content, key_path=key_path)
     try:
         on_line(f"Starte Backup '{profile.name}' -> {profile.repository}")
-        code = client.backup(on_line)
+        if progress is None:
+            progress = bool(os.environ.get("PBSGUI_PROGRESS"))    # nur für interaktive Aufrufer (nicht im Journal)
+        from .progress import encode
+        code = client.backup(on_line, (lambda p: on_line(encode(p))) if progress else None)
     except ClientError as e:
         on_line(f"Fehler: {e}")
         write_status(paths, profile, False, 3, str(e))

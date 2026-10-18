@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QProgressBar, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox,
                                QPlainTextEdit, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
                                QTabWidget, QVBoxLayout, QWidget)
@@ -151,7 +151,10 @@ class MainWindow(QMainWindow):
         self.backup_btn = QPushButton("Jetzt sichern"); self.backup_btn.clicked.connect(self.backup_now)
         row2.addWidget(save); row2.addWidget(self.backup_btn); row2.addStretch()
         lay.addLayout(row2)
+        self.bar = QProgressBar(); self.bar.setRange(0, 100); self.bar.setVisible(False)
+        self.bar_text = QLabel(""); self.bar_text.setVisible(False)
         self.log = QPlainTextEdit(); self.log.setReadOnly(True)
+        lay.addWidget(self.bar); lay.addWidget(self.bar_text)
         lay.addWidget(self.log, 1)
         return w
 
@@ -267,6 +270,9 @@ class MainWindow(QMainWindow):
             self.current = p
         self.log.clear()
         self.backup_btn.setEnabled(False)
+        self.bar.setVisible(True); self.bar_text.setVisible(True)
+        self.bar.setRange(0, 0)                       # unbestimmt, bis die erste Messung da ist
+        self.bar_text.setText("Starte …")
 
         def work(on_line):
             on_line(f"Starte Backup '{p.name}' …")
@@ -274,12 +280,28 @@ class MainWindow(QMainWindow):
 
         def done(code):
             self.backup_btn.setEnabled(True)
+            self.bar.setRange(0, 100); self.bar.setValue(100 if code == 0 else self.bar.value())
+            self.bar_text.setText("Fertig." if code == 0 else "Fehlgeschlagen.")
             self.log.appendPlainText("Backup erfolgreich" if code == 0 else f"Backup fehlgeschlagen (Exitcode {code})")
             self.statusBar().showMessage("Backup fertig" if code == 0 else "Backup fehlgeschlagen")
             self.refresh_snapshots()
 
-        w = self.run_async(work, done, self.log.appendPlainText)
-        w.failed.connect(lambda _m: self.backup_btn.setEnabled(True))
+        w = self.run_async(work, done, self.backup_line)
+        w.failed.connect(lambda _m: (self.backup_btn.setEnabled(True), self.bar.setVisible(False), self.bar_text.setVisible(False)))
+
+    def backup_line(self, line: str) -> None:
+        """Fortschrittszeilen aktualisieren den Balken, alles andere kommt ins Log."""
+        from ..core.progress import decode, describe
+        prog = decode(line)
+        if prog is None:
+            self.log.appendPlainText(line)
+            return
+        if prog.percent is None:
+            self.bar.setRange(0, 0)                   # Gesamtmenge unbekannt: laufender Balken
+        else:
+            self.bar.setRange(0, 100)
+            self.bar.setValue(int(prog.percent))
+        self.bar_text.setText(describe(prog))
 
     # -- Tab Snapshots ------------------------------------------------------
     def _build_snapshots_tab(self) -> QWidget:

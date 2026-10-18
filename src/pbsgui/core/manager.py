@@ -162,12 +162,12 @@ class ProfileManager:
             on_line(f"Fehler: {e}")
             return 4
         if profile.backup_mode != FULL:
-            return run_profile(profile, Paths.for_scope("user"), self.secrets, on_line=on_line)
+            return run_profile(profile, Paths.for_scope("user"), self.secrets, on_line=on_line, progress=True)
         if os.geteuid() == 0:
             paths = Paths.for_scope("system")
-            return run_profile(profile, paths, best_store("system", paths.creds), on_line=on_line)
+            return run_profile(profile, paths, best_store("system", paths.creds), on_line=on_line, progress=True)
         root = str(Path(__file__).resolve().parents[2])  # .../src
-        cmd = ["pkexec", "env", f"PYTHONPATH={root}", sys.executable, "-m", "pbsgui.cli.run", profile.slug,
+        cmd = ["pkexec", "env", f"PYTHONPATH={root}", "PBSGUI_PROGRESS=1", sys.executable, "-m", "pbsgui.cli.run", profile.slug,
                "--scope", "system"]
         on_line("Vollbackup braucht Administrator-Rechte: Passwortabfrage …")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,

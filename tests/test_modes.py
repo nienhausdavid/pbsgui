@@ -165,7 +165,7 @@ def test_run_backup_full_as_root_runs_with_system_paths(profile, paths, monkeypa
     profile.backup_mode, profile.scope = FULL, "system"
     got = {}
     monkeypatch.setattr(manager_mod.os, "geteuid", lambda: 0)
-    monkeypatch.setattr(manager_mod, "run_profile", lambda p, paths, store, on_line: got.update(scope=paths.scope) or 0)
+    monkeypatch.setattr(manager_mod, "run_profile", lambda p, paths, store, on_line, progress=None: got.update(scope=paths.scope) or 0)
     monkeypatch.setattr(manager_mod, "best_store", lambda scope, d: FileStore(d))
     assert m.run_backup(profile) == 0 and got["scope"] == "system"
 

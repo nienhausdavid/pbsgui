@@ -118,8 +118,13 @@ class PbsClient:
             args += ["--master-pubkey-file", p.master_pubkey]
         return args
 
-    def backup(self, on_line: Callable[[str], None] = lambda _l: None) -> int:
-        """Startet das Backup und liefert Zeilen live; gibt den Exitcode zurück."""
+    def backup(self, on_line: Callable[[str], None] = lambda _l: None,
+               on_progress: Callable | None = None) -> int:
+        """Startet das Backup und liefert Zeilen live; gibt den Exitcode zurück.
+
+        on_progress: wird etwa einmal pro Sekunde mit einem progress.Progress aufgerufen (der Client selbst gibt
+        beim Backup keinen Fortschritt aus).
+        """
         with self._keyfile() as keyfile:
             try:
                 proc = subprocess.Popen([self.binary, *self.backup_args(keyfile)], env=self._env(),
@@ -128,9 +133,23 @@ class PbsClient:
             except FileNotFoundError:
                 raise ClientError(f"Client nicht gefunden: {self.binary}") from None
             assert proc.stdout
-            for line in proc.stdout:
-                on_line(line.rstrip("\n"))
-            return proc.wait()
+            sampler = None
+            if on_progress is not None:
+                from . import progress as prog
+                try:
+                    total, basis = prog.estimate_total(self.profile, self.list_snapshots(), plan_mounts(self.profile.full_mounts)[0]
+                                                       if self.profile.backup_mode == FULL else None)
+                except ClientError:
+                    total, basis = None, ""
+                sampler = prog.Sampler(proc.pid, total, basis, on_progress)
+                sampler.start()
+            try:
+                for line in proc.stdout:
+                    on_line(line.rstrip("\n"))
+                return proc.wait()
+            finally:
+                if sampler:
+                    sampler.stop()
 
     def catalog(self, snapshot: Snapshot) -> str:
         """Dateiliste aller Archive des Snapshots (`catalog dump`; bei verschlüsselten Backups mit Schlüssel)."""

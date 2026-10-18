@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError):
         print(f"Profil nicht gefunden: {args.profile}", file=sys.stderr)
         return 1
-    return run_profile(profile, paths, best_store(args.scope, paths.creds))
+    return run_profile(profile, paths, best_store(args.scope, paths.creds), on_line=lambda l: print(l, flush=True))
 
 
 if __name__ == "__main__":

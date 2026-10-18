@@ -254,8 +254,31 @@ def cmd_mounts(a, mgr) -> int:
 
 
 def cmd_backup(a, mgr) -> int:
+    from ..core.progress import decode, describe
     p = find_profile(mgr, a.name)
-    return mgr.run_backup(p, on_line=lambda l: print(l, flush=True))
+    tty = sys.stdout.isatty()
+    state = {"line": False, "last_pct": -10}
+
+    def on_line(line: str) -> None:
+        prog = decode(line)
+        if prog is None:
+            if state["line"] and tty:          # laufende Fortschrittszeile vor normalem Text abschließen
+                print()
+                state["line"] = False
+            print(line, flush=True)
+            return
+        text = describe(prog)
+        if tty:                                # eine sich aktualisierende Zeile
+            print("\r\033[K" + text, end="", flush=True)
+            state["line"] = True
+        elif prog.percent is not None and prog.percent - state["last_pct"] >= 10:   # Pipe/Log: alle 10 %
+            state["last_pct"] = prog.percent
+            print(text, flush=True)
+
+    code = mgr.run_backup(p, on_line=on_line)
+    if state["line"] and tty:
+        print()
+    return code
 
 
 def cmd_snapshots(a, mgr) -> int:

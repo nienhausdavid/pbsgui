@@ -9,7 +9,7 @@ from rich.markup import escape
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import DataTable, Footer, Header, OptionList, RichLog, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Footer, Header, OptionList, ProgressBar, RichLog, Static, TabbedContent, TabPane
 from textual.widgets.option_list import Option
 
 from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text
@@ -66,6 +66,8 @@ class PbsTui(App):
                 with TabPane("Snapshots", id="tab-snaps"):
                     yield DataTable(id="snaps", cursor_type="row")
                 with TabPane("Log", id="tab-log"):
+                    yield ProgressBar(total=100, show_eta=False, id="bar")
+                    yield Static("", id="bar-text", markup=False)
                     yield RichLog(id="log", wrap=True, markup=False)
         yield Footer()
 
@@ -165,15 +167,34 @@ class PbsTui(App):
         self._q("#log", RichLog).clear()
         self._q(TabbedContent).active = "tab-log"
         self.write_log(f"Starte Backup '{p.name}' …")
+        self._q("#bar", ProgressBar).update(total=None)           # unbestimmt bis zur ersten Messung
+        self._q("#bar-text", Static).update("Starte …")
 
         def work():
-            code = self.mgr.run_backup(p, on_line=lambda l: self.call_from_thread(self.write_log, l))
+            code = self.mgr.run_backup(p, on_line=lambda l: self.call_from_thread(self.backup_line, l))
             self.call_from_thread(self._backup_done, code)
 
         self.run_worker(work, thread=True)
 
+    def backup_line(self, line: str) -> None:
+        """Fortschrittszeilen aktualisieren den Balken, alles andere kommt ins Log."""
+        from ..core.progress import decode, describe
+        prog = decode(line)
+        if prog is None:
+            self.write_log(line)
+            return
+        bar = self._q("#bar", ProgressBar)
+        if prog.percent is None:
+            bar.update(total=None)
+        else:
+            bar.update(total=100, progress=prog.percent)
+        self._q("#bar-text", Static).update(describe(prog))
+
     def _backup_done(self, code: int) -> None:
         self._busy = False
+        bar = self._q("#bar", ProgressBar)
+        bar.update(total=100, progress=100 if code == 0 else bar.progress or 0)
+        self._q("#bar-text", Static).update("Fertig." if code == 0 else "Fehlgeschlagen.")
         self._notify("Backup erfolgreich" if code == 0 else f"Backup fehlgeschlagen (Exitcode {code})",
                     severity="information" if code == 0 else "error")
         self.show_overview()
