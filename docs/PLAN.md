@@ -79,12 +79,19 @@ schwächere Stufe.
 
 ## Zeitpläne (systemd)
 
-Automatische Moduswahl:
+Der Modus ist **pro Profil wählbar**. Die App schlägt einen Standard vor, der Benutzer
+entscheidet:
 
-- **Mit sudo/Admin-Rechten:** System-Units unter `/etc/systemd/system/`, Installation
-  einmalig per `pkexec`. Sichert das ganze System (auch fremde Dateien).
-- **Ohne sudo:** User-Units unter `~/.config/systemd/user/`. Sichert nur Daten des
+- **System** (`/etc/systemd/system/`): Installation einmalig per `pkexec`. Sichert das
+  ganze System (auch fremde Dateien). Nur auswählbar, wenn Admin-Rechte vorhanden sind;
+  sonst ist die Option deaktiviert und erklärt warum.
+- **Benutzer** (`~/.config/systemd/user/`): braucht kein sudo, sichert nur Daten des
   Benutzers (Home). Damit Timer ohne Login laufen: `loginctl enable-linger`.
+  Auch mit sudo wählbar, z. B. wenn nur Home gesichert werden soll.
+
+Standardvorschlag: System, wenn Admin-Rechte erkannt werden, sonst Benutzer.
+Ein Profil kann später per „Modus wechseln“ umgezogen werden (Units und Credentials
+werden im neuen Scope neu angelegt, die alten entfernt).
 
 Pro Profil `.service` + `.timer`:
 
@@ -106,7 +113,9 @@ Pro Profil `.service` + `.timer`:
 
 ## Offene Punkte
 
-- Test-PBS-Instanz verfügbar? Sonst nur Fake-Client.
+- Tests laufen gegen einen Fake-Client (Skript, das `proxmox-backup-client` und die
+  PBS-API simuliert). Kein Test-PBS nötig; ein Test gegen einen echten Server kann später
+  als optionaler Integrationstest folgen.
 - Exakte Rollen/Rechte für Prune und Restore gegen die PBS-Doku verifizieren.
 - Lizenz festlegen.
 - Hinweis: BackupPilot (AGPL) wurde nur zur Orientierung gelesen, Code wird nicht übernommen.
