@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from .client import PbsClient
+from .dbdump import Database, check_credentials, create_dump_user, dump_credentials, parse_credentials
 from .files import Catalog, CopyResult, load_catalog, restore_to_folder, restore_to_original
 from .keys import export_key, generate_key
 from .models import Profile, Snapshot
@@ -119,7 +120,7 @@ class ProfileManager:
 
     # -- Schreiben ----------------------------------------------------------
     def save(self, profile: Profile, token: str | None = None, keypass: str | None = None,
-             schedule: str = "keep", key: str | None = None) -> None:
+             schedule: str = "keep", key: str | None = None, dbdump: str | None = None) -> None:
         """schedule: "install" | "remove" | "keep"."""
         if profile.backup_mode == FULL and profile.scope != "system":
             raise SchedulerError("Ein Vollbackup braucht den System-Modus (Zugriff auf alle Dateien).")
@@ -132,14 +133,66 @@ class ProfileManager:
             self.secrets.put(profile.slug, "keypass", keypass)
         if key:
             self.secrets.put(profile.slug, "key", key)
+        if dbdump:
+            self.secrets.put(profile.slug, "dbdump", dbdump)
         if profile.scope == "system":
             self._admin({"profile": profile.to_dict(), "schedule": schedule,
                          "secrets": {"token": token or self.secrets.get(profile.slug, "token"),
                                      "keypass": keypass or self.secrets.get(profile.slug, "keypass"),
-                                     "key": key or self.secrets.get(profile.slug, "key")}})
+                                     "key": key or self.secrets.get(profile.slug, "key"),
+                                     "dbdump": dbdump or self.secrets.get(profile.slug, "dbdump")}})
         elif schedule != "keep":
             sched = SystemdScheduler(self.paths, self.secrets)
             sched.install(profile) if schedule == "install" else sched.remove(profile)
+
+    # -- Zeitplan, der auf den Schlüssel-Export wartet ------------------------------------------------
+    def schedule_pending(self, profile: Profile) -> bool:
+        """Im Profil ist ein Zeitplan vermerkt, aber noch keine Timer-Unit eingerichtet."""
+        return bool(profile.schedule) and not self.schedule_status(profile)["installed"]
+
+    def activate_pending_schedule(self, profile: Profile) -> bool:
+        """Richtet einen vermerkten Zeitplan ein. False = nichts zu tun oder noch gesperrt (Schlüssel-Export fehlt)."""
+        if not self.schedule_pending(profile):
+            return False
+        try:
+            ensure_recoverable(profile)
+        except RecoveryError:
+            return False
+        self.save(profile, schedule="install")
+        return True
+
+    # -- Datenbank-Dumps ----------------------------------------------------------------------------------
+    def db_credentials(self, profile: Profile) -> dict[str, dict]:
+        return parse_credentials(self.secrets.get(profile.slug, "dbdump"))
+
+    def set_db_credential(self, profile: Profile, db: Database, user: str, password: str, verify: bool = True) -> None:
+        """Hinterlegt den Zugang eines MariaDB/MySQL-Containers verschlüsselt (nach Prüfung, wenn verify)."""
+        if verify:
+            check_credentials(db, user, password)
+        creds = self.db_credentials(profile)
+        creds[db.key] = {"user": user, "password": password}
+        self._store_db_credentials(profile, creds)
+
+    def create_db_credential(self, profile: Profile, db: Database, admin_user: str, admin_password: str) -> None:
+        """Legt im Container einen Dump-Benutzer mit Leserechten an und hinterlegt ihn. Der Admin-Zugang wird nicht gespeichert."""
+        cred = create_dump_user(db, admin_user, admin_password)
+        check_credentials(db, cred["user"], cred["password"])
+        creds = self.db_credentials(profile)
+        creds[db.key] = cred
+        self._store_db_credentials(profile, creds)
+
+    def remove_db_credential(self, profile: Profile, key: str) -> bool:
+        creds = self.db_credentials(profile)
+        if key not in creds:
+            return False
+        del creds[key]
+        self._store_db_credentials(profile, creds)
+        return True
+
+    def _store_db_credentials(self, profile: Profile, creds: dict[str, dict]) -> None:
+        # Bei Zeitplan: Unit neu schreiben, damit sie das Geheimnis per LoadCredential lädt
+        again = "install" if profile.schedule and self.schedule_status(profile)["installed"] else "keep"
+        self.save(profile, schedule=again, dbdump=dump_credentials(creds) if creds else "{}")
 
     def delete(self, profile: Profile) -> None:
         if profile.scope == "system":

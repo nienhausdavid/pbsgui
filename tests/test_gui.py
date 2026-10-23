@@ -12,6 +12,8 @@ from pbsgui.core.manager import ProfileManager  # noqa: E402
 from pbsgui.core.secrets import FileStore  # noqa: E402
 from pbsgui.gui import window as window_mod  # noqa: E402
 from pbsgui.gui.add_server import AddServerDialog  # noqa: E402
+from pbsgui.gui.db_dialog import DbCredDialog, DbDumpDialog  # noqa: E402
+from fake_docker_env import dock  # noqa: E402,F401
 
 
 @pytest.fixture(scope="module")
@@ -235,3 +237,141 @@ def test_files_dialog_search(app, fake_env, tmp_path, monkeypatch):
     d.search.setText("")
     d._do_search()
     assert d.tree.topLevelItemCount() == 2
+
+
+# -- Zeitplan, Datenbank-Dumps und „Backup direkt starten“ beim Anlegen ------------------------------------------------
+needs_analyze = pytest.mark.skipif(not __import__("shutil").which("systemd-analyze"), reason="systemd-analyze fehlt")
+
+
+def test_dialog_offers_schedule_presets_and_defaults_to_none(app):
+    d = AddServerDialog(admin_ok=True)
+    values = [d.schedule.itemData(i) for i in range(d.schedule.count())]
+    assert values[0] == "" and "00/8:00" in values and values[-1] == "__custom__"
+    assert d.schedule_expr() == "" and d.db_dump.isChecked() is False and d.start_now.isChecked() is False
+    assert d.schedule_custom.isHidden()
+
+
+@needs_analyze
+def test_dialog_preset_custom_and_invalid_schedule(app):
+    d = AddServerDialog(admin_ok=True)
+    d.schedule.setCurrentIndex(d.schedule.findData("00/8:00"))
+    assert d.schedule_expr() == "00/8:00" and "Nächster Lauf" in d.schedule_info.text()
+    d.schedule.setCurrentIndex(d.schedule.findData("__custom__"))
+    assert not d.schedule_custom.isHidden()
+    assert d.schedule_expr() is None and "Eigenen Zeitplan" in d.status.text()      # leer
+    d.schedule_custom.setText("quatsch")
+    assert d.schedule_expr() is None and "ungültig" in d.status.text()
+    d.schedule_custom.setText("Mon..Fri *-*-* 03:00:00")
+    assert d.schedule_expr() == "Mon..Fri *-*-* 03:00:00"
+
+
+@needs_analyze
+def test_invalid_schedule_blocks_setup_before_anything_is_created(app):
+    d = make_dialog(app, 1)
+    d.server.setText("s"); d.name.setText("n"); d.fp.setText("AA"); d.fp_ok.setChecked(True)
+    d._api = StubApi(); d._namespaces = ["a"]
+    d.namespace.setEditText("a")
+    d.schedule.setCurrentIndex(d.schedule.findData("__custom__"))
+    d.schedule_custom.setText("quatsch")
+    d._start()
+    assert "ungültig" in d.status.text() and d.profile is None and d._worker is None
+
+
+def test_scoped_profile_carries_schedule_and_db_dump(app):
+    from pbsgui.core.models import Profile
+    d = AddServerDialog(admin_ok=True)
+    d._schedule = "00/8:00"
+    d.db_dump.setChecked(True)
+    p = d._scoped(Profile(name="x", server="s", datastore="d", auth_id="a"))
+    assert p.schedule == "00/8:00" and p.db_dump is True
+
+
+def test_window_backup_tab_roundtrips_db_dump_flag(app, fake_env, profile, paths):
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    mgr.save(profile, token="t")
+    w = window_mod.MainWindow(mgr)
+    assert w.f_dbdump.isChecked() is False
+    w.f_dbdump.setChecked(True)
+    assert w.save_profile() is True
+    assert mgr.profiles_store.load("Laptop").db_dump is True
+    assert window_mod.MainWindow(mgr).f_dbdump.isChecked() is True
+
+
+def test_db_dialog_lists_databases_and_creates_dump_user(app, fake_env, profile, paths, dock):
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    mgr.save(profile, token="t")
+    d = DbDumpDialog(mgr, mgr.profiles()[0])
+    assert pump(app, lambda: len(d.dbs) == 3)
+    labels = [d.list.item(i).text() for i in range(3)]
+    assert any("kein Zugang nötig" in l for l in labels) and any("Zugang FEHLT" in l for l in labels)
+    maria = next(i for i, l in enumerate(labels) if "firefly_db" in l)
+    pg = next(i for i, l in enumerate(labels) if "kein Zugang nötig" in l)
+    d.list.setCurrentRow(pg)
+    assert not d.cred_btn.isEnabled()                                    # Postgres braucht keinen Zugang
+    d.list.setCurrentRow(maria)
+    assert d.cred_btn.isEnabled() and not d.del_btn.isEnabled()
+    c = DbCredDialog(mgr, d.profile, d.dbs[maria])
+    c.create.setChecked(True)
+    assert not c.user.isEnabled() and c.admin_pw.isEnabled()
+    c.admin_pw.setText("adminpw")
+    c.save()
+    assert c.admin_pw.text() == "" and pump(app, lambda: c.result() == 1)   # QDialog.Accepted
+    assert mgr.db_credentials(d.profile)[d.dbs[maria].key]["user"] == "pbsgui_dump"
+    d._show(d.dbs)
+    assert "Zugang: pbsgui_dump" in d.list.item(maria).text() and d.del_btn.isEnabled()
+    d.remove_credential()
+    assert mgr.db_credentials(d.profile) == {} and "FEHLT" in d.list.item(maria).text()
+
+
+def test_db_credential_dialog_rejects_wrong_password_and_stays_open(app, fake_env, profile, paths, dock):
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    mgr.save(profile, token="t")
+    d = DbDumpDialog(mgr, mgr.profiles()[0])
+    assert pump(app, lambda: len(d.dbs) == 3)
+    db = next(x for x in d.dbs if x.container == "firefly_db")
+    c = DbCredDialog(mgr, d.profile, db)
+    c.user.setText("nobody"); c.pw.setText("falsch")
+    c.save()
+    assert pump(app, lambda: "Fehler" in c.status.text())
+    assert c.result() == 0 and c.buttons.isEnabled() and mgr.db_credentials(d.profile) == {}
+
+
+def test_db_dialog_save_stores_flag(app, fake_env, profile, paths, dock):
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    mgr.save(profile, token="t")
+    d = DbDumpDialog(mgr, mgr.profiles()[0])
+    d.enabled.setChecked(True)
+    d.save()
+    assert mgr.profiles_store.load("Laptop").db_dump is True and d.result() == 1
+
+
+@needs_analyze
+def test_after_create_activates_schedule_opens_db_dialog_then_starts_backup(app, fake_env, profile, paths, monkeypatch):
+    import subprocess
+    from pbsgui.core import scheduler as scheduler_mod
+    calls, order = [], []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.run(cmd, **kw) if cmd[0] == "systemd-analyze" else subprocess.CompletedProcess(cmd, 0, "ActiveState=active\n", "")
+    monkeypatch.setattr(scheduler_mod, "_default_run", fake_run)
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    profile.schedule, profile.db_dump = "00/8:00", True
+    mgr.save(profile, token="t")
+    w = window_mod.MainWindow(mgr)
+    monkeypatch.setattr(window_mod.MainWindow, "db_dialog", lambda self: order.append("db"))
+    monkeypatch.setattr(window_mod.MainWindow, "backup_now", lambda self: order.append("backup"))
+    w._after_create(w.current, True)
+    assert ["systemctl", "--user", "enable", "--now", "pbsgui-laptop.timer"] in calls
+    assert order == ["db", "backup"]                                     # erst die Zugänge, dann das erste Backup
+
+
+def test_after_create_without_options_does_nothing(app, fake_env, profile, paths, monkeypatch):
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    mgr.save(profile, token="t")
+    w = window_mod.MainWindow(mgr)
+    seen = []
+    monkeypatch.setattr(window_mod.MainWindow, "db_dialog", lambda self: seen.append("db"))
+    monkeypatch.setattr(window_mod.MainWindow, "backup_now", lambda self: seen.append("backup"))
+    w._after_create(w.current, False)
+    assert seen == []

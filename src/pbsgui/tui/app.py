@@ -19,7 +19,7 @@ from ..core.modes import FULL, describe, plan_mounts
 from ..core.recovery import needs_key_export, render_sheet
 from ..core.scheduler import SchedulerError, validate_calendar
 from .files import FilesScreen
-from .screens import AddServerScreen, ConfirmScreen, MountsScreen, PromptScreen
+from .screens import AddServerScreen, ConfirmScreen, DbDumpScreen, MountsScreen, PromptScreen
 
 
 class PbsTui(App):
@@ -34,7 +34,7 @@ class PbsTui(App):
     """
     BINDINGS = [("a", "add", "Hinzufügen"), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
                 ("t", "restore", "Restore"), ("f", "files", "Dateien"), ("s", "schedule", "Zeitplan"), ("m", "scope", "Modus"),
-                ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("n", "sheet", "Notfallblatt"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"),
+                ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("n", "sheet", "Notfallblatt"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"), ("p", "dbdump", "DB-Dumps"),
                 ("d", "delete", "Entfernen"), ("q", "quit", "Beenden")]
 
     def __init__(self, manager: ProfileManager | None = None):
@@ -122,8 +122,27 @@ class PbsTui(App):
             *([("Schlüssel-Export: " + (f"am {p.key_exported_at}" if p.key_exported_at else
                 "NOCH NICHT" + (" – Vollbackup gesperrt! Mit [k] sichern" if needs_key_export(p) else "")))]
               if p.encrypt and not p.keyfile else []),
-            f"Zeitplan:      {p.schedule or '-'}  [{p.scope}, {schedule_text(self.mgr, p)}]",
+            f"Datenbank-Dumps: {'an' if p.db_dump else 'aus'}  (mit [p] einrichten)",
+            f"Zeitplan:      {p.schedule or '-'}  [{p.scope}, {schedule_text(self.mgr, p)}]"
+            + (" – wartet auf den Schlüssel-Export ([k])" if self._schedule_waits(p) else ""),
             f"Letzter Lauf:  {last_run_text(p)}"]))
+
+    def _schedule_waits(self, p: Profile) -> bool:
+        try:
+            return self.mgr.schedule_pending(p) and needs_key_export(p)
+        except Exception:
+            return False
+
+    def _activate_schedule(self, p: Profile) -> None:
+        """Vermerkten Zeitplan einrichten (nach dem Anlegen bzw. nach dem Schlüssel-Export)."""
+        try:
+            if self.mgr.activate_pending_schedule(p):
+                self._notify(f"Zeitplan aktiv: {p.schedule}")
+            elif self.mgr.schedule_pending(p):
+                self._notify("Zeitplan ist vermerkt und startet, sobald der Schlüssel exportiert ist ([k]).",
+                             severity="warning", timeout=10)
+        except Exception as e:
+            self._notify(f"Zeitplan nicht eingerichtet: {e}", severity="error", timeout=10)
 
     def write_log(self, text: str) -> None:  # App.log ist Textuals Debug-Logger, deshalb anderer Name
         self._q("#log", RichLog).write(text)
@@ -145,7 +164,7 @@ class PbsTui(App):
         def done(res):
             if not res:
                 return
-            p, token = res
+            p, token, start_now = res
             if not p.sources:
                 p.sources = [str(Path.home())]
             try:
@@ -158,6 +177,14 @@ class PbsTui(App):
             if created:
                 self._notify(f"Schlüssel erzeugt ({p.key_fingerprint}). Jetzt mit [k] sichern: ohne Kopie sind "
                             "Backups bei Verlust unlesbar!", severity="warning", timeout=15)
+            if p.schedule:
+                self._activate_schedule(p)
+                self.show_overview()
+            after = (lambda: self._start_first_backup(p)) if start_now else None
+            if p.db_dump:  # erst die Datenbanken und Zugänge zeigen, das Backup startet danach
+                self.action_dbdump(after=after)
+            elif after:
+                after()
         self.push_screen(AddServerScreen(), done)
 
     def action_backup(self) -> None:
@@ -373,6 +400,8 @@ class PbsTui(App):
                 self._notify(str(e), severity="error")
                 return
             self._notify(f"Schlüssel exportiert nach {d} (0600). Sicher aufbewahren!", severity="warning", timeout=10)
+            self._activate_schedule(p)
+            self.show_overview()
         self.push_screen(PromptScreen("Schlüssel exportieren nach:", str(Path.home() / f"{p.slug}-key.json"),
                                       "Ohne Kopie sind verschlüsselte Backups bei Verlust nicht wiederherstellbar."), got)
 
@@ -428,6 +457,25 @@ class PbsTui(App):
                 return
             self.show_overview()
         self.push_screen(MountsScreen(p.full_mounts), got)
+
+    def _start_first_backup(self, p: Profile) -> None:
+        if needs_key_export(p):  # Vollbackup ist bis zum Schlüssel-Export gesperrt: erklären statt scheitern
+            self._notify("Das erste Backup startet noch nicht: erst den Schlüssel mit [k] sichern, dann [b].",
+                         severity="warning", timeout=15)
+            return
+        self.action_backup()
+
+    def action_dbdump(self, after=None) -> None:
+        p = self._need()
+        if not p:
+            return
+
+        def closed(saved):
+            if saved:
+                self.show_overview()
+            if after:
+                after()
+        self.push_screen(DbDumpScreen(self.mgr, p), closed)
 
     def action_delete(self) -> None:
         p = self._need()

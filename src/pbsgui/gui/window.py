@@ -18,6 +18,7 @@ from ..core.paths import Paths
 from ..core.runner import read_status
 from ..core.scheduler import enable_linger, linger_enabled
 from .add_server import AddServerDialog
+from .db_dialog import DbDumpDialog
 from .files_dialog import FilesDialog
 from .mounts_widget import MountList
 from .workers import Worker
@@ -109,6 +110,7 @@ class MainWindow(QMainWindow):
             self.mount_list.load(p.full_mounts)
         self.excludes.setPlainText("\n".join(p.excludes))
         self.f_enc.setChecked(p.encrypt); self.f_key.setText(p.keyfile); self.f_master.setText(p.master_pubkey)
+        self.f_dbdump.setChecked(p.db_dump)
         self.refresh_key_info()
         self.f_sched.setText(p.schedule); self.f_ac.setChecked(p.require_ac)
         self.f_scope.setCurrentIndex(1 if p.scope == "system" else 0)
@@ -126,7 +128,10 @@ class MainWindow(QMainWindow):
         self.key_info = QLabel(""); self.key_info.setWordWrap(True)
         self.key_btn = QPushButton("Schlüssel exportieren …"); self.key_btn.clicked.connect(self.export_key_dialog)
         self.sheet_btn = QPushButton("Notfallblatt speichern …"); self.sheet_btn.clicked.connect(self.save_sheet)
+        self.f_dbdump = QCheckBox("Datenbank-Dumps vor dem Backup anlegen (Postgres, MariaDB/MySQL in Containern)")
+        self.db_btn = QPushButton("Datenbanken und Zugänge …"); self.db_btn.clicked.connect(self.db_dialog)
         form.addRow("Backup-ID", self.f_id); form.addRow("Namespace", self.f_ns)
+        form.addRow(self.f_dbdump); form.addRow("", self.db_btn)
         form.addRow(self.f_enc); form.addRow("Eigene Schlüsseldatei", self.f_key)
         form.addRow("Master-Public-Key", self.f_master)
         form.addRow(self.key_info); form.addRow("", self.key_btn); form.addRow("", self.sheet_btn)
@@ -180,6 +185,7 @@ class MainWindow(QMainWindow):
         p.excludes = [l.strip() for l in self.excludes.toPlainText().splitlines() if l.strip()]
         p.encrypt, p.keyfile = self.f_enc.isChecked(), self.f_key.text().strip()
         p.master_pubkey = self.f_master.text().strip()
+        p.db_dump = self.f_dbdump.isChecked()
         p.schedule, p.require_ac = self.f_sched.text().strip(), self.f_ac.isChecked()
         return p
 
@@ -198,6 +204,12 @@ class MainWindow(QMainWindow):
             return False
         self.statusBar().showMessage("Gespeichert")
         return True
+
+    def db_dialog(self) -> None:
+        p = self._collect()
+        if p and DbDumpDialog(self.mgr, p, self).exec():
+            self.f_dbdump.setChecked(p.db_dump)
+            self.statusBar().showMessage("Datenbank-Dumps gespeichert")
 
     # -- Schlüssel ----------------------------------------------------------
     def refresh_key_info(self) -> None:
@@ -464,6 +476,26 @@ class MainWindow(QMainWindow):
             if created:
                 self._offer_key_export(p)
                 self.refresh_key_info()
+            self._after_create(self.current or p, dlg.start_now.isChecked())
+
+    def _after_create(self, p: Profile, start_now: bool) -> None:
+        """Zeitplan einrichten, Datenbank-Zugänge zeigen und auf Wunsch das erste Backup starten."""
+        if p.schedule:
+            try:
+                if self.mgr.activate_pending_schedule(p):
+                    self.statusBar().showMessage(f"Zeitplan aktiv: {p.schedule}")
+                elif self.mgr.schedule_pending(p):
+                    QMessageBox.information(
+                        self, "Zeitplan wartet",
+                        f"Der Zeitplan '{p.schedule}' ist vermerkt und startet, sobald der Verschlüsselungs-Schlüssel "
+                        "exportiert wurde (Backup-Tab: „Schlüssel exportieren …“).")
+            except Exception as e:
+                QMessageBox.warning(self, "Zeitplan nicht eingerichtet", str(e))
+            self.refresh_status()
+        if p.db_dump:   # erst Datenbanken und Zugänge, das erste Backup startet danach
+            self.db_dialog()
+        if start_now:
+            self.backup_now()   # fragt bei gesperrtem Vollbackup den Schlüssel-Export ab
 
     def remove_profile(self) -> None:
         p = self.current

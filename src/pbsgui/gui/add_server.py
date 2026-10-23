@@ -1,7 +1,8 @@
 """Dialog „Server hinzufügen“: Weg A (einmalig als root) oder Weg B (vorhandener API-Token).
 
 Ablauf: Fingerprint prüfen -> Zugangsdaten -> „Verbindung prüfen“ (lädt Datastores) -> Datastore und
-Namespace wählen (Namespaces werden live geprüft) -> Einrichten.
+Namespace wählen (Namespaces werden live geprüft) -> Zeitplan, Datenbank-Dumps und „Backup direkt starten“ wählen
+-> Einrichten.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from ..core.models import Profile
 from ..core.modes import FULL, HOME
 from ..core.onboarding import namespace_message, namespace_state
 from ..core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
+from ..core.scheduler import CUSTOM_SCHEDULE, SCHEDULE_PRESETS, SchedulerError, next_elapse, validate_calendar
 from .mounts_widget import MountList
 from .workers import Worker
 
@@ -36,6 +38,7 @@ class AddServerDialog(QDialog):
         self._api: PbsApi | None = None          # angemeldete Sitzung (nur im Speicher)
         self._namespaces: list[str] | None = None  # None = unbekannt
         self._replace_token = False
+        self._schedule = ""
 
         self.mode = QComboBox()
         self.mode.addItems(["A: Einmalig als root anmelden (Zugang automatisch anlegen)",
@@ -91,6 +94,25 @@ class AddServerDialog(QDialog):
         self.scope_full.toggled.connect(self._scope_toggled)
         self._scope_toggled(False)
 
+        self.schedule = QComboBox()
+        for text, expr in SCHEDULE_PRESETS:
+            self.schedule.addItem(text, expr)
+        self.schedule.addItem("Eigener Ausdruck …", CUSTOM_SCHEDULE)
+        self.schedule_custom = QLineEdit()
+        self.schedule_custom.setPlaceholderText("systemd-OnCalendar, z. B. Mon..Fri *-*-* 03:00:00")
+        self.schedule_custom.setVisible(False)
+        self.schedule_info = QLabel("Kein Zeitplan: das Backup startest du von Hand."); self.schedule_info.setWordWrap(True)
+        self.db_dump = QCheckBox("Datenbanken laufender Container vor dem Backup dumpen (Postgres, MariaDB/MySQL)")
+        self.db_note = QLabel("Optional. Ein Dump ist ein sauberer, prüfbarer Stand; ohne ihn werden die Datenbankdateien "
+                              "im laufenden Betrieb gelesen. MariaDB/MySQL-Zugänge richtest du danach ein.")
+        self.db_note.setWordWrap(True)
+        self.start_now = QCheckBox("Direkt nach dem Anlegen das erste Backup starten")
+        run_box = QGroupBox("Ablauf"); rl = QFormLayout(run_box)
+        rl.addRow("Zeitplan", self.schedule); rl.addRow("", self.schedule_custom); rl.addRow("", self.schedule_info)
+        rl.addRow(self.db_dump); rl.addRow(self.db_note); rl.addRow(self.start_now)
+        self.schedule.currentIndexChanged.connect(self._schedule_changed)
+        self.schedule_custom.editingFinished.connect(self._update_schedule_info)
+
         self.status = QLabel(""); self.status.setWordWrap(True)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Einrichten")
@@ -99,6 +121,7 @@ class AddServerDialog(QDialog):
 
         lay = QVBoxLayout(self)
         lay.addLayout(form); lay.addWidget(self.stack); lay.addLayout(sel); lay.addWidget(box)
+        lay.addWidget(run_box)
         lay.addWidget(self.status); lay.addWidget(self.buttons)
 
         self.mode.currentIndexChanged.connect(self._mode_changed)
@@ -229,12 +252,43 @@ class AddServerDialog(QDialog):
     def _scoped(self, profile: Profile) -> Profile:
         """Setzt Umfang, Modus (System/Benutzer) und Quellen gemäß der Auswahl."""
         profile.backup_mode = self.backup_mode()
+        profile.schedule, profile.db_dump = self._schedule, self.db_dump.isChecked()
         if profile.backup_mode == FULL:
             profile.scope, profile.sources = "system", ["/"]
             profile.full_mounts = self.mount_list.selected()
         else:
             profile.scope, profile.sources, profile.full_mounts = "user", [str(Path.home())], None
         return profile
+
+    # -- Zeitplan -------------------------------------------------------------
+    def _schedule_changed(self, *_a) -> None:
+        self.schedule_custom.setVisible(self.schedule.currentData() == CUSTOM_SCHEDULE)
+        self._update_schedule_info()
+
+    def _update_schedule_info(self) -> None:
+        custom = self.schedule.currentData() == CUSTOM_SCHEDULE
+        expr = self.schedule_custom.text().strip() if custom else (self.schedule.currentData() or "")
+        if not expr:
+            self.schedule_info.setText("Kein Zeitplan: das Backup startest du von Hand.")
+            return
+        nxt = next_elapse(expr)
+        self.schedule_info.setText(f"Nächster Lauf: {nxt}" if nxt else "Zeitplan nicht erkannt (systemd-analyze).")
+
+    def schedule_expr(self) -> str | None:
+        """Gewählter Zeitplan ('' = keiner). None bei ungültigem Ausdruck (Meldung steht dann im Status)."""
+        val = self.schedule.currentData() or ""
+        if val != CUSTOM_SCHEDULE:
+            return val
+        expr = self.schedule_custom.text().strip()
+        if not expr:
+            self.status.setText("Eigenen Zeitplan eintragen oder eine Vorgabe wählen.")
+            return None
+        try:
+            validate_calendar(expr)
+        except SchedulerError as e:
+            self.status.setText(f"Zeitplan ungültig: {e}")
+            return None
+        return expr
 
     def _update_ns_info(self, *_a) -> None:
         self.ns_info.setText(namespace_message(self.namespace_state(), self.mode.currentIndex() == 0))
@@ -254,6 +308,10 @@ class AddServerDialog(QDialog):
         if not weg_a and self.namespace_state() == "new":
             self.status.setText("Dieser Namespace existiert nicht und lässt sich mit Weg B nicht anlegen.")
             return
+        schedule = self.schedule_expr()   # vor dem Anlegen des Zugangs: ein Tippfehler soll nichts halb einrichten
+        if schedule is None:
+            return
+        self._schedule = schedule
         host, port, fp, name = self.server.text().strip(), self.port.value(), self.fp.text(), self.name.text().strip()
         hostname, api = socket.gethostname(), self._api
 

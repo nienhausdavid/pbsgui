@@ -38,6 +38,7 @@ class Profile:
     schedule: str = ""  # systemd OnCalendar, leer = kein Zeitplan
     scope: str = "user"  # "user" | "system"
     require_ac: bool = False
+    db_dump: bool = False  # laufende Datenbank-Container (Postgres, MariaDB/MySQL) vor dem Backup dumpen
 
     @property
     def slug(self) -> str:

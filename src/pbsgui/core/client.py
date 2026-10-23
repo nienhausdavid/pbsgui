@@ -31,6 +31,7 @@ class PbsClient:
         self.binary = binary or client_binary()
         self.key_content = key_content  # Key-JSON (aus dem Geheimnis-Speicher)
         self.key_path = key_path        # oder Pfad zu einer vorhandenen Datei (systemd-Credential)
+        self.dump_dir: Path | None = None  # gesetzt vom Runner, wenn das Profil Datenbank-Dumps anlegt
 
     @contextmanager
     def _keyfile(self) -> Iterator[str]:
@@ -99,6 +100,8 @@ class PbsClient:
             rd = Path(recovery_dir) if recovery_dir else Paths.for_scope("system").state / "recovery" / p.slug
             if rd.is_dir():
                 specs.append(f"recovery.pxar:{rd}")
+        if p.db_dump and self.dump_dir and self.dump_dir.is_dir() and any(self.dump_dir.iterdir()):
+            specs.append(f"dbdumps.pxar:{self.dump_dir}")  # Dumps als eigenes Archiv, auch außerhalb der Quellen
         args = ["backup", *specs, "--backup-id", p.backup_id, *self._ns()]
         excludes = list(p.excludes)
         if p.backup_mode == FULL:

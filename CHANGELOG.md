@@ -7,6 +7,27 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **TUI, Server hinzufügen:** Dropdowns für **Datastore** und **Namespace** (gefüllt nach „Verbindung prüfen“; Namespace
+  zusätzlich „Wurzel“ und mit Weg A „Neuen Namespace anlegen …“). Die Eingabefelder bleiben als Rückfall und bleiben mit
+  der Auswahl synchron. (Die GUI hatte editierbare Auswahllisten bereits.)
+- **Zeitplan beim Anlegen** (GUI, TUI und `pbsgui add --schedule`): Auswahl von stündlich bis wöchentlich oder eigener
+  OnCalendar-Ausdruck mit Vorschau des nächsten Laufs. Ein ungültiger Ausdruck wird geprüft, bevor ein Zugang angelegt
+  wird. Bei einem Vollbackup mit automatischem Schlüssel wird der Zeitplan erst nach dem Schlüssel-Export eingerichtet
+  (TUI `k`, GUI „Schlüssel exportieren“, `pbsgui key export|confirm`).
+- **Erstes Backup direkt starten** (GUI, TUI und `pbsgui add --backup-now`). Bei gesperrtem Vollbackup (Schlüssel noch
+  nicht exportiert) wird erklärt, was fehlt, statt zu scheitern; mit Datenbank-Dumps kommt zuerst die Zugangs-Einrichtung.
+- **Datenbank-Dumps (optional)** in GUI, TUI und Kommandozeile: Postgres- und MariaDB/MySQL-Container werden vor dem
+  Backup gedumpt und als eigenes Archiv `dbdumps.pxar` mitgesichert. Erkennung über alle Docker-kompatiblen Sockets
+  (System-Daemon und rootless-Daemons aller Benutzer) anhand der eingehängten Datenverzeichnisse, nicht nach Namen;
+  gestoppte Container werden nicht gedumpt. Postgres braucht keinen Zugang. Für MariaDB/MySQL wird ein Zugang
+  ausdrücklich hinterlegt (verschlüsselt, nie aus `.env` oder der Container-Umgebung gelesen) oder ein Dump-Benutzer mit
+  reinen Leserechten angelegt; Passwörter gehen nur über stdin. Ein fehlgeschlagener Dump verhindert das Backup nie, der
+  letzte gute Dump bleibt erhalten. Dumps werden pro Container überschrieben; Dateien von Containern, die länger als
+  14 Tage nicht mehr erkannt werden, räumt pbsgui auf (erkannte Container nie).
+  Bedienung: Checkbox beim Anlegen, TUI `p`, GUI „Datenbanken und Zugänge …“, `pbsgui add --db-dump`,
+  `pbsgui dbdump NAME [--on|--off|--set|--create-user|--remove|--run]`.
+
 ## [0.4.0] - 2026-10-23
 
 ### Hinzugefügt

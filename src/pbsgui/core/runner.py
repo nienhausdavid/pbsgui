@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from .client import ClientError, PbsClient
+from .dbdump import parse_credentials, run_dumps
 from .models import Profile
 from .paths import Paths
 from .recovery import RecoveryError, collect_recovery, ensure_recoverable
@@ -59,6 +60,14 @@ def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None
                 on_line(f"  Warnung: {w}")
         except Exception as e:  # nie das Backup selbst verhindern
             on_line(f"Warnung: Wiederherstellungsdaten nicht gesammelt: {e}")
+    dump_dir = paths.state / "dumps" / profile.slug if profile.db_dump else None
+    if dump_dir:
+        try:  # Dumps sind ein Zusatz: Fehler werden gemeldet, verhindern aber nie das Backup
+            on_line("Datenbank-Dumps …")
+            creds = parse_credentials(_credential("dbdump") or (store.get(profile.slug, "dbdump") if store else None))
+            run_dumps(dump_dir, creds, on_line)
+        except Exception as e:
+            on_line(f"Warnung: Datenbank-Dumps nicht ausgeführt: {e}")
     secret = _credential("token") or (store.get(profile.slug, "token") if store else None)
     if not secret:
         on_line("Fehler: Kein API-Token-Secret gefunden")
@@ -68,6 +77,7 @@ def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None
     key_path = _credential_path("key")  # System-Scope: systemd stellt den Key als Datei bereit
     key_content = "" if key_path else ((store.get(profile.slug, "key") if store else None) or "")
     client = PbsClient(profile, secret, keypass, binary, key_content=key_content, key_path=key_path)
+    client.dump_dir = dump_dir
     try:
         on_line(f"Starte Backup '{profile.name}' -> {profile.repository}")
         if progress is None:

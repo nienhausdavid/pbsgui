@@ -11,6 +11,7 @@ from pbsgui.core import scheduler as scheduler_mod
 from pbsgui.core.pbs_api import fetch_fingerprint
 from pbsgui.core.secrets import FileStore
 from test_scheduler_secrets import FakeRun
+from fake_docker_env import dock  # noqa: F401
 
 
 @pytest.fixture
@@ -248,3 +249,119 @@ def test_recovery_checklist_and_sheet(full_env, capsys, server, monkeypatch):
     out = run(capsys, "recovery", "Test")[1]
     assert "[x] Verschlüsselungs-Schlüssel extern gesichert" in out and "gesperrt" not in out
     assert "Extern gesichert: ja" in run(capsys, "key", "info", "Test")[1]
+
+
+# -- Zeitplan und Datenbank-Dumps beim Anlegen ------------------------------------------------------------------
+def test_add_with_schedule_installs_timer(env, capsys, server, monkeypatch):
+    fake = FakeRun()
+    monkeypatch.setattr(scheduler_mod, "_default_run", fake)
+    code, out, err = add_b(capsys, server, "--schedule", "00/8:00")
+    assert code == 0, err
+    assert "Zeitplan aktiv (user): 00/8:00" in out
+    assert ["systemctl", "--user", "enable", "--now", "pbsgui-test.timer"] in fake.calls
+    assert "OnCalendar=00/8:00" in (env / "xdg-c/systemd/user/pbsgui-test.timer").read_text()
+    assert json.loads(run(capsys, "list", "--json")[1])[0]["schedule"] == "00/8:00"
+
+
+def test_add_with_invalid_schedule_creates_nothing(env, capsys, server, monkeypatch):
+    monkeypatch.setattr(scheduler_mod, "_default_run", FakeRun(fail_calendar=True))
+    code, _, err = add_b(capsys, server, "--schedule", "quatsch")
+    assert code == 1 and "Zeitplan ungültig" in err
+    assert "Keine Profile" in run(capsys, "list")[1]
+    assert not any(m == "POST" and "/access" in path for m, path, _f, _h in LOG)   # kein Zugang angelegt
+
+
+def test_full_backup_schedule_waits_for_key_export_then_activates(full_env, capsys, server, monkeypatch):
+    pushed = []
+    monkeypatch.setattr(manager_mod.ProfileManager, "_admin", lambda self, req: pushed.append(req))
+    code, out, err = add_b(capsys, server, "--mode", "full", "--schedule", "daily", source=False)
+    assert code == 0, err
+    assert "ist vermerkt und startet, sobald der Schlüssel exportiert ist" in out
+    assert not any(r.get("schedule") == "install" for r in pushed)               # noch nichts installiert
+    assert json.loads(run(capsys, "list", "--json")[1])[0]["schedule"] == "daily"
+    code, out, _ = run(capsys, "key", "export", "Test", str(full_env / "k.json"))
+    assert code == 0 and "Zeitplan aktiv (system): daily" in out
+    assert pushed[-1]["schedule"] == "install" and pushed[-1]["profile"]["schedule"] == "daily"
+
+
+def test_full_backup_with_export_key_flag_activates_schedule_immediately(full_env, capsys, server, monkeypatch):
+    pushed = []
+    monkeypatch.setattr(manager_mod.ProfileManager, "_admin", lambda self, req: pushed.append(req))
+    code, out, err = add_b(capsys, server, "--mode", "full", "--schedule", "daily", "--export-key",
+                           str(full_env / "k.json"), source=False)
+    assert code == 0, err
+    assert "Zeitplan aktiv (system): daily" in out and pushed[-1]["schedule"] == "install"
+
+
+def test_add_with_db_dump_flag(env, capsys, server):
+    code, out, err = add_b(capsys, server, "--db-dump")
+    assert code == 0, err
+    assert "Datenbank-Dumps sind an" in out
+    assert json.loads(run(capsys, "list", "--json")[1])[0]["db_dump"] is True
+
+
+def test_dbdump_lists_databases_and_missing_access(env, capsys, server, dock):
+    add_b(capsys, server)
+    code, out, _ = run(capsys, "dbdump", "Test")
+    assert code == 0
+    assert "pg_main" in out and "kein Zugang nötig" in out
+    assert "firefly_db" in out and "Zugang FEHLT" in out
+    assert "web" not in out and "valkey" not in out                              # keine Datenbanken
+    assert "Dumps vor jedem Backup: aus" in out
+
+
+def test_dbdump_on_off(env, capsys, server, dock):
+    add_b(capsys, server)
+    assert "an" in run(capsys, "dbdump", "Test", "--on")[1]
+    assert json.loads(run(capsys, "list", "--json")[1])[0]["db_dump"] is True
+    run(capsys, "dbdump", "Test", "--off")
+    assert json.loads(run(capsys, "list", "--json")[1])[0]["db_dump"] is False
+
+
+def test_dbdump_set_access_verifies_and_stores_encrypted_store(env, capsys, server, dock, monkeypatch):
+    add_b(capsys, server)
+    dock.update(mysql_users={"root": "adminpw", "leser": "pw1"})
+    monkeypatch.setenv("PBSGUI_DB_PASSWORD", "falsch")
+    code, _, err = run(capsys, "dbdump", "Test", "--set", "firefly_db", "--user", "leser")
+    assert code == 1 and "Access denied" in err
+    monkeypatch.setenv("PBSGUI_DB_PASSWORD", "pw1")
+    code, out, err = run(capsys, "dbdump", "Test", "--set", "firefly_db", "--user", "leser")
+    assert code == 0, err
+    assert "Zugang: leser" in run(capsys, "dbdump", "Test")[1]
+    assert run(capsys, "dbdump", "Test", "--set", "firefly_db")[0] == 1          # --user fehlt
+    assert run(capsys, "dbdump", "Test", "--set", "pg_main", "--user", "x")[0] == 1  # Postgres braucht keinen Zugang
+    assert run(capsys, "dbdump", "Test", "--set", "gibtsnicht", "--user", "x")[0] == 1
+    assert "entfernt" in run(capsys, "dbdump", "Test", "--remove", "firefly_db")[1]
+    assert "Zugang FEHLT" in run(capsys, "dbdump", "Test")[1]
+
+
+def test_dbdump_create_user_uses_admin_password_once(env, capsys, server, dock, monkeypatch):
+    add_b(capsys, server)
+    monkeypatch.setenv("PBSGUI_DB_ADMIN_PASSWORD", "adminpw")
+    code, out, err = run(capsys, "dbdump", "Test", "--create-user", "firefly_db")
+    assert code == 0, err
+    assert "Dump-Benutzer" in out and "Zugang: pbsgui_dump" in run(capsys, "dbdump", "Test")[1]
+    stored = (env / "xdg-c/pbsgui/creds").glob("test.dbdump*")
+    assert "adminpw" not in "".join(p.read_text() for p in stored)
+    assert "ALL PRIVILEGES" not in "".join(dock.data()["sql"])
+
+
+def test_dbdump_run_writes_dumps_and_reports_failures(env, capsys, server, dock, tmp_path):
+    add_b(capsys, server)
+    dest = tmp_path / "dumps"
+    code, out, _ = run(capsys, "dbdump", "Test", "--run", "--dest", str(dest))
+    assert code == 0 and "2 gesichert, 1 übersprungen, 0 fehlgeschlagen" in out     # MariaDB ohne Zugang übersprungen
+    assert len(list(dest.glob("*.postgres.sql.gz"))) == 2
+    dock.update(fail=["pg_main"])
+    code, out, _ = run(capsys, "dbdump", "Test", "--run", "--dest", str(dest))
+    assert code == 1 and "1 fehlgeschlagen" in out
+
+
+def test_dbdump_ambiguous_container_name(env, capsys, server, dock):
+    add_b(capsys, server)
+    state = dock.data()
+    state["sockets"][dock.sockets[0]].append({"Id": "id-x", "Name": "/firefly_db", "Config": {"Image": "x"},
+                                              "Mounts": [{"Destination": "/var/lib/mysql"}]})
+    dock.path.write_text(json.dumps(state))
+    code, _, err = run(capsys, "dbdump", "Test", "--remove", "firefly_db")
+    assert code == 1 and "nicht eindeutig" in err

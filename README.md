@@ -10,7 +10,9 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md). Status: **Prototyp**.
 - Clientseitige Verschlüsselung standardmäßig an: Key wird automatisch erzeugt (ohne Passphrase, da der Client sie nur per TTY akzeptiert), verschlüsselt im Geheimnis-Speicher abgelegt und nur kurz als 0600-Datei im tmpfs bereitgestellt; Export-Dialog zur Sicherung
 - Beim Einrichten: Datastores laden, Namespaces live prüfen (vorhanden / wird angelegt / mit Weg B nicht anlegbar)
 - Backup starten mit Live-Log, Snapshots listen, Restore in einen frei gewählten Zielordner
-- Zeitpläne als systemd-Timer, wählbar pro Profil: Benutzer- oder System-Units
+- Zeitpläne als systemd-Timer, wählbar pro Profil: Benutzer- oder System-Units; beim Anlegen direkt auswählbar
+- Optional **Datenbank-Dumps** laufender Container (Postgres, MariaDB/MySQL) vor dem Backup, als Archiv `dbdumps.pxar`
+  (Details und Zugangsdaten: CHANGELOG, `pbsgui dbdump --help`); beim Anlegen auch „erstes Backup direkt starten“
 - Geheimnisse verschlüsselt über `systemd-creds` (Fallback: Datei 0600)
 
 ## Gegen echten PBS 4.2 geprüft (Token-Anmeldung)
@@ -77,7 +79,7 @@ pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
 ```
 Geheimnisse werden nie als Argument akzeptiert: Prompt oder `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
-TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, u Laufwerke, n Notfallblatt, d Entfernen, q Beenden.
+TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, u Laufwerke, p DB-Dumps, n Notfallblatt, d Entfernen, q Beenden.
 
 ## Entwickeln
 ```bash

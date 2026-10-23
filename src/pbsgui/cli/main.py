@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from ..core.client import ClientError
+from ..core.dbdump import MARIADB, DumpError, find_databases, run_dumps
 from ..core.files import FilesError, map_to_original
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import Profile, slugify
@@ -24,7 +25,7 @@ from ..core.paths import Paths
 from ..core.recovery import collect_recovery, missing_recovery_tools, needs_key_export, render_sheet
 from ..core.pbs_api import ApiError, TokenExistsError, fetch_fingerprint
 from ..core.runner import read_latest_status
-from ..core.scheduler import SchedulerError, validate_calendar
+from ..core.scheduler import SchedulerError, next_elapse, validate_calendar
 
 
 class CliError(Exception):
@@ -155,6 +156,11 @@ def cmd_add(a, mgr: ProfileManager) -> int:
                        "Mit --mode home nur das Home-Verzeichnis sichern.")
     if any(p.slug == slugify(a.name) for p in mgr.profiles()):
         raise CliError(f"Profil '{a.name}' existiert bereits")
+    if a.schedule:
+        try:
+            validate_calendar(a.schedule)  # vor dem Anlegen des Zugangs: ein Tippfehler soll nichts halb einrichten
+        except SchedulerError as e:
+            raise CliError(f"Zeitplan ungültig: {e}") from None
     fp = _confirm_fingerprint(a)
     api, secret = _connect(a, fp)
     weg_a = not a.token_id
@@ -196,7 +202,7 @@ def cmd_add(a, mgr: ProfileManager) -> int:
     profile = Profile(name=a.name, server=a.server, port=a.port, datastore=a.datastore, namespace=ns,
                       auth_id=auth_id, fingerprint=fp, backup_id=hostname, sources=sources,
                       excludes=a.exclude or [], encrypt=not a.no_encrypt, scope=scope, backup_mode=a.mode,
-                      full_mounts=full_mounts)
+                      full_mounts=full_mounts, schedule=a.schedule or "", db_dump=a.db_dump)
     if not weg_a:
         verify_token_profile(profile, secret)
         print("Verbindung mit dem Client geprüft.")
@@ -210,12 +216,27 @@ def cmd_add(a, mgr: ProfileManager) -> int:
         else:
             print(f"Jetzt sichern: pbsgui key export {profile.name} <ZIELDATEI>")
     print(f"\nProfil '{profile.name}' angelegt: {describe(profile.backup_mode)} (Quellen: {', '.join(sources)}).")
+    if profile.schedule:
+        if mgr.activate_pending_schedule(profile):
+            print(f"Zeitplan aktiv ({profile.scope}): {profile.schedule}")
+        else:
+            print(f"Zeitplan '{profile.schedule}' ist vermerkt und startet, sobald der Schlüssel exportiert ist: "
+                  f"pbsgui key export {profile.name} <ZIELDATEI>")
+    if profile.db_dump:
+        print(f"Datenbank-Dumps sind an. Erkannte Datenbanken und Zugänge: pbsgui dbdump {profile.name}")
     if profile.backup_mode == FULL:
         print("Hinweis: Dateibasiertes Vollbackup, kein Systemabbild. Es läuft mit Administrator-Rechten (Modus system).")
         print(_mounts_summary(profile))
         for tool, pkg in missing_recovery_tools().items():
             print(f"WARNUNG: {tool} fehlt (Paket {pkg}): ohne Partitionstabelle ist keine Wiederherstellung auf einem "
                   f"neuen PC möglich. Installieren: apt install {pkg}")
+    if a.backup_now:
+        if needs_key_export(profile):
+            print(f"\nDas erste Backup startet noch nicht: erst den Schlüssel sichern (pbsgui key export {profile.name} "
+                  f"<ZIELDATEI>), dann pbsgui backup {profile.name}.")
+            return 0
+        print(f"\nStarte das erste Backup von '{profile.name}' …")
+        return cmd_backup(argparse.Namespace(name=profile.name), mgr)
     return 0
 
 
@@ -434,6 +455,66 @@ def cmd_schedule(a, mgr) -> int:
     return 0
 
 
+def _pick_database(dbs: list, wanted: str):
+    hits = [d for d in dbs if wanted in (d.key, d.container)]
+    if not hits:
+        raise CliError(f"Datenbank-Container nicht gefunden: {wanted}. Erkannt: {', '.join(d.key for d in dbs) or '-'}")
+    if len(hits) > 1:
+        raise CliError(f"'{wanted}' ist nicht eindeutig, bitte als Besitzer/Container angeben: "
+                       f"{', '.join(d.key for d in hits)}")
+    return hits[0]
+
+
+def cmd_dbdump(a, mgr) -> int:
+    """Datenbank-Dumps eines Profils: ein/aus, erkannte Container, Zugänge, Testlauf."""
+    p = find_profile(mgr, a.name)
+    if a.on or a.off:
+        p.db_dump = bool(a.on)
+        mgr.save(p)
+        print(f"Datenbank-Dumps für '{p.name}': {'an' if p.db_dump else 'aus'}")
+    try:
+        dbs = find_databases(on_line=print)
+    except DumpError as e:
+        raise CliError(str(e)) from None
+    creds = mgr.db_credentials(p)
+    if a.set or a.create_user or a.remove:
+        if a.remove:
+            db = _pick_database(dbs, a.remove)
+            print("Zugang entfernt." if mgr.remove_db_credential(p, db.key) else "Für diesen Container war kein Zugang hinterlegt.")
+        elif a.create_user:
+            db = _pick_database(dbs, a.create_user)
+            if db.engine != MARIADB:
+                raise CliError("Postgres braucht keinen Zugang")
+            pw = secret_from("PBSGUI_DB_ADMIN_PASSWORD", f"Admin-Passwort von {db.key} (wird nicht gespeichert)")
+            mgr.create_db_credential(p, db, a.admin_user, pw)
+            print(f"Dump-Benutzer für {db.key} angelegt (nur Leserechte) und verschlüsselt hinterlegt.")
+        else:
+            db = _pick_database(dbs, a.set)
+            if db.engine != MARIADB:
+                raise CliError("Postgres braucht keinen Zugang")
+            if not a.user:
+                raise CliError("--user angeben (Passwort per Prompt oder PBSGUI_DB_PASSWORD)")
+            mgr.set_db_credential(p, db, a.user, secret_from("PBSGUI_DB_PASSWORD", f"Passwort für {a.user}"))
+            print(f"Zugang für {db.key} geprüft und verschlüsselt hinterlegt.")
+        return 0
+    if a.run:
+        dest = Path(a.dest) if a.dest else Paths.for_scope(p.scope).state / "dumps" / p.slug
+        res = run_dumps(dest, creds, print)
+        print(f"Ziel: {dest}")
+        return 1 if res.failed else 0
+    if not dbs:
+        print("Keine laufenden Datenbank-Container gefunden (oder kein Zugriff auf deren Docker-Socket).")
+    for d in dbs:
+        if d.engine == MARIADB:
+            c = creds.get(d.key)
+            state = f"Zugang: {c['user']}" if c else "Zugang FEHLT (pbsgui dbdump NAME --set/--create-user …)"
+        else:
+            state = "kein Zugang nötig"
+        print(f"{d.key:40} {d.engine:9} {state}")
+    print(f"Dumps vor jedem Backup: {'an' if p.db_dump else 'aus (pbsgui dbdump NAME --on)'}")
+    return 0
+
+
 def cmd_status(a, mgr) -> int:
     p = find_profile(mgr, a.name)
     st = mgr.schedule_status(p)
@@ -461,6 +542,7 @@ def cmd_key(a, mgr) -> int:
             raise CliError("Schlüsseldatei angeben: pbsgui key confirm NAME DATEI")
         mgr.confirm_key_export(p, a.dest)
         print(f"Schlüsseldatei {a.dest} stimmt mit dem Profil überein; Export vermerkt ({p.key_exported_at}).")
+        _activate_pending(mgr, p)
         return 0
     if not a.dest:
         raise CliError("Zieldatei angeben: pbsgui key export NAME ZIELDATEI")
@@ -468,7 +550,13 @@ def cmd_key(a, mgr) -> int:
         raise CliError(f"{a.dest} existiert bereits")
     mgr.export_key(p, a.dest)
     print(f"Schlüssel exportiert nach {a.dest} (Rechte 0600). An einem sicheren Ort aufbewahren.")
+    _activate_pending(mgr, p)
     return 0
+
+
+def _activate_pending(mgr: ProfileManager, p: Profile) -> None:
+    if mgr.activate_pending_schedule(p):
+        print(f"Zeitplan aktiv ({p.scope}): {p.schedule}")
 
 
 def cmd_recovery(a, mgr) -> int:
@@ -566,6 +654,13 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument("--scope", choices=["user", "system"], default="user")
             sp.add_argument("--replace-token", action="store_true", help="vorhandenen Token löschen und neu erzeugen")
             sp.add_argument("--export-key", metavar="DATEI", help="erzeugten Schlüssel gleich exportieren")
+            sp.add_argument("--schedule", metavar="AUSDRUCK",
+                            help="gleich einen Zeitplan einrichten (systemd OnCalendar, z. B. daily oder 00/8:00). "
+                                 "Bei einem Vollbackup mit automatischem Schlüssel erst nach `key export`.")
+            sp.add_argument("--backup-now", action="store_true",
+                            help="gleich nach dem Anlegen das erste Backup starten")
+            sp.add_argument("--db-dump", action="store_true",
+                            help="Datenbanken laufender Container (Postgres, MariaDB/MySQL) vor dem Backup dumpen")
     sp = sub.add_parser("mounts", help="Erkannte Laufwerke anzeigen / Auswahl eines Vollbackup-Profils ändern")
     sp.set_defaults(fn=cmd_mounts)
     sp.add_argument("name", nargs="?")
@@ -592,6 +687,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--scope", choices=["user", "system"])
     sp.add_argument("--require-ac", action=argparse.BooleanOptionalAction, default=None)
     sp.add_argument("--remove", action="store_true")
+    sp = add("dbdump", cmd_dbdump, "Datenbank-Dumps: erkannte Container, Zugänge, ein/aus, Testlauf", "name")
+    g = sp.add_mutually_exclusive_group()
+    g.add_argument("--on", action="store_true", help="Dumps vor jedem Backup anlegen")
+    g.add_argument("--off", action="store_true", help="keine Dumps mehr anlegen")
+    sp.add_argument("--set", metavar="CONTAINER", help="Zugang eines MariaDB/MySQL-Containers hinterlegen (mit --user)")
+    sp.add_argument("--user", help="Benutzer für --set (Passwort per Prompt oder PBSGUI_DB_PASSWORD)")
+    sp.add_argument("--create-user", metavar="CONTAINER",
+                    help="Dump-Benutzer (nur Leserechte) anlegen und hinterlegen; Admin-Passwort per Prompt oder "
+                         "PBSGUI_DB_ADMIN_PASSWORD, wird nicht gespeichert")
+    sp.add_argument("--admin-user", default="root", help="Admin-Benutzer für --create-user (Standard: root)")
+    sp.add_argument("--remove", metavar="CONTAINER", help="hinterlegten Zugang entfernen")
+    sp.add_argument("--run", action="store_true", help="Dumps jetzt anlegen (Testlauf)")
+    sp.add_argument("--dest", metavar="ORDNER", help="Zielordner für --run (Standard: wie beim Backup)")
     add("status", cmd_status, "Zeitplan- und Laufstatus", "name")
     sp = add("key", cmd_key, "Schlüssel anzeigen / exportieren / bereits gesicherte Datei bestätigen (info|export|confirm)", "action")
     sp.add_argument("name"); sp.add_argument("dest", nargs="?")
@@ -624,7 +732,7 @@ def main(argv: list[str] | None = None) -> int:
     except CliError as e:
         print(f"Fehler: {e}", file=sys.stderr)
         return e.code
-    except (ApiError, ClientError, SchedulerError) as e:
+    except (ApiError, ClientError, SchedulerError, DumpError) as e:
         print(f"Fehler: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

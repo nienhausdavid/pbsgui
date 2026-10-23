@@ -30,7 +30,7 @@ def render_service(profile: Profile, store: SecretStore, scope: str, python: str
     if profile.require_ac:
         lines.append("ConditionACPower=true")
     lines += ["", "[Service]", "Type=oneshot"]
-    for kind in ("token", "keypass", "key"):
+    for kind in ("token", "keypass", "key", "dbdump"):
         d = store.unit_directive(profile.slug, kind)
         if d:
             lines.append(d)
@@ -45,6 +45,19 @@ def render_timer(profile: Profile) -> str:
                       "[Timer]", f"OnCalendar={profile.schedule}", "Persistent=true", "",
                       "[Install]", "WantedBy=timers.target", ""])
 
+
+# Auswahl beim Anlegen eines Jobs: (Anzeigetext, OnCalendar-Ausdruck). "" = kein Zeitplan.
+SCHEDULE_PRESETS: list[tuple[str, str]] = [
+    ("Kein Zeitplan (nur manuell starten)", ""),
+    ("Stündlich", "hourly"),
+    ("Alle 4 Stunden (00, 04, 08 … Uhr)", "00/4:00"),
+    ("Alle 6 Stunden (00, 06, 12, 18 Uhr)", "00/6:00"),
+    ("Alle 8 Stunden (00, 08, 16 Uhr)", "00/8:00"),
+    ("Alle 12 Stunden (00, 12 Uhr)", "00/12:00"),
+    ("Täglich um 02:00 Uhr", "*-*-* 02:00:00"),
+    ("Wöchentlich, sonntags 03:00 Uhr", "Sun *-*-* 03:00:00"),
+]
+CUSTOM_SCHEDULE = "__custom__"
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -61,6 +74,18 @@ def validate_calendar(expr: str, run: Runner | None = None) -> str:
     if r.returncode != 0:
         raise SchedulerError((r.stderr or r.stdout).strip() or "Ungültiger Zeitplan")
     return r.stdout
+
+
+def next_elapse(expr: str, run: Runner | None = None) -> str | None:
+    """Nächster Ausführungszeitpunkt eines (gültigen) OnCalendar-Ausdrucks, sonst None."""
+    try:
+        out = validate_calendar(expr, run)
+    except (SchedulerError, OSError):
+        return None
+    for line in out.splitlines():
+        if "Next elapse:" in line:
+            return line.split("Next elapse:", 1)[1].strip()
+    return None
 
 
 class SystemdScheduler:

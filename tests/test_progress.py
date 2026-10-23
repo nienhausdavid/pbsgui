@@ -153,6 +153,7 @@ def test_cli_shows_progress_every_ten_percent_in_logs_and_hides_raw_lines(fake_e
 
 
 def test_gui_progress_bar_and_log_separation(fake_env, profile, paths):
+    pytest.importorskip("PySide6")
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
