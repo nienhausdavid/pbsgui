@@ -15,6 +15,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
   erhalten, die LVM-Metadaten werden für das kleinere Physical Volume umgeschrieben, die Partitionstabelle neu
   geschrieben (GPT-Backup-Header am Plattenende). Der Plan zeigt alt -> neu. Funktioniert mit allen drei
   Verschlüsselungs-Modi. Nicht unterstützt: VGs über mehrere Platten, Thin-Pools/Snapshots/RAID, erweiterte MBR-Partitionen.
+  Geprüft in QEMU/UEFI mit einem echten Vollbackup (477-GB-Laptop, 33 GiB belegt) auf eine 64-GB-Platte: alle UUIDs
+  gleich, das System bootet bis zur Anmeldung.
 - Vollbackups legen den belegten Platz je Einhängepunkt als `fsusage.json` in den Wiederherstellungsdaten ab (Grundlage
   für „Größe anpassen“; bei älteren Backups wird er aus der Snapshot-Größe geschätzt).
 
