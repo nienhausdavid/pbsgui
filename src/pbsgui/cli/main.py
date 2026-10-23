@@ -17,7 +17,8 @@ from ..core.client import ClientError
 from ..core.dbdump import MARIADB, DumpError, find_databases, run_dumps
 from ..core.files import FilesError, map_to_original
 from ..core.manager import ProfileManager, can_use_admin
-from ..core.models import Profile, slugify
+from ..core.models import (CHANGE_MODES, DATA, DEFAULT_DATA_SCHEDULE, LEGACY, METADATA, Profile, logical_archive,
+                           slugify)
 from ..core.modes import FULL, HOME, describe, detect_mounts, mount_choices, plan_mounts
 from ..core.onboarding import (connect_root, connect_token, namespace_message, namespace_state,
                                provision_and_verify, verify_token_profile)
@@ -156,11 +157,13 @@ def cmd_add(a, mgr: ProfileManager) -> int:
                        "Mit --mode home nur das Home-Verzeichnis sichern.")
     if any(p.slug == slugify(a.name) for p in mgr.profiles()):
         raise CliError(f"Profil '{a.name}' existiert bereits")
-    if a.schedule:
-        try:
-            validate_calendar(a.schedule)  # vor dem Anlegen des Zugangs: ein Tippfehler soll nichts halb einrichten
-        except SchedulerError as e:
-            raise CliError(f"Zeitplan ungültig: {e}") from None
+    weekly = a.weekly_data and a.change_detection == METADATA
+    for what, expr in (("Zeitplan", a.schedule), ("Wöchentlicher Lauf", a.data_schedule if weekly and a.schedule else "")):
+        if expr:
+            try:
+                validate_calendar(expr)  # vor dem Anlegen des Zugangs: ein Tippfehler soll nichts halb einrichten
+            except SchedulerError as e:
+                raise CliError(f"{what}: Zeitplan ungültig: {e}") from None
     fp = _confirm_fingerprint(a)
     api, secret = _connect(a, fp)
     weg_a = not a.token_id
@@ -202,7 +205,8 @@ def cmd_add(a, mgr: ProfileManager) -> int:
     profile = Profile(name=a.name, server=a.server, port=a.port, datastore=a.datastore, namespace=ns,
                       auth_id=auth_id, fingerprint=fp, backup_id=hostname, sources=sources,
                       excludes=a.exclude or [], encrypt=not a.no_encrypt, scope=scope, backup_mode=a.mode,
-                      full_mounts=full_mounts, schedule=a.schedule or "", db_dump=a.db_dump)
+                      full_mounts=full_mounts, schedule=a.schedule or "", db_dump=a.db_dump,
+                      change_detection=a.change_detection, weekly_data=weekly, data_schedule=a.data_schedule)
     if not weg_a:
         verify_token_profile(profile, secret)
         print("Verbindung mit dem Client geprüft.")
@@ -219,9 +223,14 @@ def cmd_add(a, mgr: ProfileManager) -> int:
     if profile.schedule:
         if mgr.activate_pending_schedule(profile):
             print(f"Zeitplan aktiv ({profile.scope}): {profile.schedule}")
+            if profile.weekly_data_active:
+                print(f"Wöchentlicher Prüflauf (alles neu lesen, Modus data): {profile.data_schedule}")
         else:
             print(f"Zeitplan '{profile.schedule}' ist vermerkt und startet, sobald der Schlüssel exportiert ist: "
                   f"pbsgui key export {profile.name} <ZIELDATEI>")
+    elif profile.weekly_data:
+        print("Der wöchentliche Prüflauf (alles neu lesen) wird eingerichtet, sobald es einen Zeitplan gibt "
+              f"(pbsgui schedule {profile.name} --calendar …).")
     if profile.db_dump:
         print(f"Datenbank-Dumps sind an. Erkannte Datenbanken und Zugänge: pbsgui dbdump {profile.name}")
     if profile.backup_mode == FULL:
@@ -296,7 +305,7 @@ def cmd_backup(a, mgr) -> int:
             state["last_pct"] = prog.percent
             print(text, flush=True)
 
-    code = mgr.run_backup(p, on_line=on_line)
+    code = mgr.run_backup(p, on_line=on_line, mode=DATA if getattr(a, "data", False) else None)
     if state["line"] and tty:
         print()
     return code
@@ -331,7 +340,7 @@ def _pick_snapshot(mgr, p: Profile, spec: str):
 def _pick_archive(cats: dict, wanted: str | None) -> str:
     names = sorted(n for n in cats if n != "recovery.pxar")
     if wanted:
-        name = wanted.removesuffix(".didx")
+        name = logical_archive(wanted) or wanted.removesuffix(".didx")
         if name not in cats:
             raise CliError(f"Archiv nicht gefunden: {wanted}. Vorhanden: {', '.join(names)}")
         return name
@@ -422,7 +431,7 @@ def cmd_restore(a, mgr) -> int:
         snap = next((s for s in snaps if s.path == a.snapshot), None)
         if not snap:
             raise CliError(f"Snapshot nicht gefunden: {a.snapshot}")
-    archives = [f.removesuffix(".didx") for f in snap.files if f.endswith(".pxar.didx") or f.endswith(".pxar")]
+    archives = snap.archives
     archive = a.archive or (archives[0] if len(archives) == 1 else "")
     if not archive:
         raise CliError("Mehrere Archive, bitte --archive wählen: " + ", ".join(archives or snap.files))
@@ -515,6 +524,48 @@ def cmd_dbdump(a, mgr) -> int:
     return 0
 
 
+CHANGE_TEXT = {METADATA: "nur Geändertes lesen (Metadaten-Vergleich)", LEGACY: "alles jedes Mal lesen (klassisch)"}
+
+
+def _detection_summary(p: Profile) -> str:
+    text = f"Änderungserkennung für '{p.name}': {p.change_detection} – {CHANGE_TEXT.get(p.change_detection, '?')}"
+    if p.change_detection == METADATA:
+        if p.weekly_data and p.schedule:
+            text += f"\nWöchentlich alles neu lesen (Modus data): an, {p.data_schedule}"
+        elif p.weekly_data:
+            text += "\nWöchentlich alles neu lesen (Modus data): an, wird mit einem Zeitplan eingerichtet"
+        else:
+            text += "\nWöchentlich alles neu lesen (Modus data): aus"
+    return text
+
+
+def cmd_detection(a, mgr) -> int:
+    """Änderungserkennung und wöchentlichen Prüflauf anzeigen oder umstellen."""
+    p = find_profile(mgr, a.name)
+    if not (a.mode or a.weekly_data or a.data_schedule):
+        print(_detection_summary(p))
+        return 0
+    was = p.change_detection
+    if a.data_schedule:
+        try:
+            validate_calendar(a.data_schedule)
+        except SchedulerError as e:
+            raise CliError(f"Zeitplan ungültig: {e}") from None
+        p.data_schedule = a.data_schedule
+    if a.weekly_data:
+        p.weekly_data = a.weekly_data == "on"
+    if a.mode:
+        p.change_detection = a.mode
+    mgr.apply_detection(p)
+    print(_detection_summary(p))
+    if a.mode and a.mode != was and a.mode == METADATA:
+        print("Das nächste Backup liest einmal alles (es legt die Metadaten-Archive neu an). Ab dem übernächsten werden "
+              "nur noch geänderte Dateien gelesen. Der PBS-Server muss Version 3.3 oder neuer sein.")
+    elif a.mode and a.mode != was:
+        print("Ab dem nächsten Backup wird wieder jede Datei vollständig gelesen.")
+    return 0
+
+
 def cmd_status(a, mgr) -> int:
     p = find_profile(mgr, a.name)
     st = mgr.schedule_status(p)
@@ -522,6 +573,12 @@ def cmd_status(a, mgr) -> int:
           f" ({p.scope}, {p.schedule or 'kein Ausdruck'})")
     if st["next"] and st["next"] != "n/a":
         print(f"Nächster Lauf: {st['next']}")
+    d = st.get("data") or {}
+    if p.weekly_data_active or d.get("installed"):
+        print(f"Wöchentlich alles neu lesen (data): {'aktiv' if d.get('active') else ('installiert, inaktiv' if d.get('installed') else 'nicht eingerichtet')}"
+              f" ({p.data_schedule})")
+        if d.get("next") and d["next"] != "n/a":
+            print(f"Nächster data-Lauf: {d['next']}")
     print(f"Letzter Lauf: {last_run_text(p)}")
     return 0
 
@@ -657,6 +714,14 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument("--schedule", metavar="AUSDRUCK",
                             help="gleich einen Zeitplan einrichten (systemd OnCalendar, z. B. daily oder 00/8:00). "
                                  "Bei einem Vollbackup mit automatischem Schlüssel erst nach `key export`.")
+            sp.add_argument("--change-detection", choices=CHANGE_MODES, default=METADATA,
+                            help="metadata (Standard): nur Dateien lesen, deren Metadaten sich geändert haben; "
+                                 "legacy: jede Datei jedes Mal vollständig lesen")
+            sp.add_argument("--weekly-data", action=argparse.BooleanOptionalAction, default=True,
+                            help="Standard an (mit --change-detection metadata und Zeitplan): zusätzlich wöchentlich "
+                                 "alles neu lesen (Modus data), damit auch unbemerkte Änderungen und Lesefehler auffallen")
+            sp.add_argument("--data-schedule", default=DEFAULT_DATA_SCHEDULE, metavar="AUSDRUCK",
+                            help=f"Zeitpunkt des wöchentlichen Prüflaufs (Standard: {DEFAULT_DATA_SCHEDULE})")
             sp.add_argument("--backup-now", action="store_true",
                             help="gleich nach dem Anlegen das erste Backup starten")
             sp.add_argument("--db-dump", action="store_true",
@@ -667,7 +732,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--set", action="append", metavar="PFAD", help="genau diese Laufwerke sichern (mehrfach)")
     sp.add_argument("--auto", action="store_true", help="Standardauswahl (interne Laufwerke)")
     sp.add_argument("--none", action="store_true", help="keine weiteren Laufwerke, nur das Root-Dateisystem")
-    add("backup", cmd_backup, "Backup jetzt ausführen", "name")
+    sp = add("backup", cmd_backup, "Backup jetzt ausführen", "name")
+    sp.add_argument("--data", action="store_true",
+                    help="einmalig alles neu lesen (Modus data) statt nur Geändertes; prüft auch unveränderte Dateien")
     sp = add("snapshots", cmd_snapshots, "Snapshots auflisten", "name"); sp.add_argument("--json", action="store_true")
     sp = add("files", cmd_files, "Dateien eines Snapshots durchsuchen", "name")
     sp.add_argument("path", nargs="?", help="Ordner im Archiv (Standard: Wurzel)")
@@ -700,6 +767,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--remove", metavar="CONTAINER", help="hinterlegten Zugang entfernen")
     sp.add_argument("--run", action="store_true", help="Dumps jetzt anlegen (Testlauf)")
     sp.add_argument("--dest", metavar="ORDNER", help="Zielordner für --run (Standard: wie beim Backup)")
+    sp = add("detection", cmd_detection, "Änderungserkennung: nur Geändertes lesen (metadata) oder alles (legacy)", "name")
+    sp.add_argument("mode", nargs="?", choices=CHANGE_MODES, help="weglassen = aktuellen Wert anzeigen")
+    sp.add_argument("--weekly-data", choices=["on", "off"],
+                    help="wöchentlich zusätzlich alles neu lesen (Modus data); braucht metadata und einen Zeitplan")
+    sp.add_argument("--data-schedule", metavar="AUSDRUCK", help="Zeitpunkt dieses Laufs (OnCalendar)")
     add("status", cmd_status, "Zeitplan- und Laufstatus", "name")
     sp = add("key", cmd_key, "Schlüssel anzeigen / exportieren / bereits gesicherte Datei bestätigen (info|export|confirm)", "action")
     sp.add_argument("name"); sp.add_argument("dest", nargs="?")

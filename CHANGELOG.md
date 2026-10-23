@@ -7,6 +7,27 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **Änderungserkennung (`--change-detection-mode metadata`):** Der Client liest nur noch Dateien, deren Metadaten sich seit
+  dem letzten Backup geändert haben, statt jede Datei jedes Mal komplett zu lesen (gemessen: 0 MiB Lesemenge bei
+  unveränderten Daten). Beim Anlegen in GUI, TUI und `pbsgui add` standardmäßig an (`--change-detection legacy`
+  schaltet es ab); bestehende Profile bleiben klassisch und lassen sich umstellen: GUI (Backup-Tab), TUI (`c`),
+  `pbsgui detection NAME [metadata|legacy]`. Das erste Backup nach dem Umstellen liest einmal alles. Braucht einen
+  PBS-Server ab Version 3.3. Der Fortschrittsbalken zeigt dann „nur geänderte Dateien“ statt einer Prozentzahl.
+- **Wöchentlicher Prüflauf im Modus `data` (standardmäßig an):** Ein zweiter systemd-Timer (`pbsgui-NAME-data.timer`,
+  Standard sonntags 03:00 Uhr) liest einmal pro Woche wieder alles, prüft so auch Dateien mit unveränderten Metadaten
+  und fängt Lesefehler in selten benutzten Dateien ab. Er entsteht nur mit Änderungserkennung `metadata` und einem
+  Zeitplan. Einstellbar beim Anlegen (GUI, TUI, `pbsgui add --weekly-data/--no-weekly-data --data-schedule`) und danach
+  (GUI Backup-Tab, TUI `c`, `pbsgui detection NAME --weekly-data on|off --data-schedule …`); `pbsgui backup NAME --data`
+  liest einmalig alles; `pbsgui status` zeigt den Timer.
+- **Sperre pro Profil:** Es läuft nie mehr als ein Backup desselben Profils gleichzeitig (Zeitplan, wöchentlicher Lauf und
+  manueller Start). Ein zweiter Lauf wartet bis zu 4 Stunden auf den ersten, statt mit einem PBS-Fehler abzubrechen.
+
+### Geändert
+- Snapshots im neuen Modus enthalten geteilte Archive (`x.mpxar.didx` + `x.ppxar.didx` statt `x.pxar.didx`). pbsgui
+  behandelt beide als dasselbe Archiv `x.pxar` (Dateibrowser, Wiederherstellung, Rettungs-ISO); `restore` und `mount`
+  des Clients akzeptieren den Namen `x.pxar` weiterhin.
+
 ## [0.5.0] - 2026-10-23
 
 ### Hinzugefügt

@@ -12,7 +12,7 @@ from textual.widgets import Button, Checkbox, Input, Label, OptionList, RadioBut
 from textual.widgets.option_list import Option
 
 from ..core.manager import can_use_admin
-from ..core.models import Profile
+from ..core.models import LEGACY, METADATA, Profile
 from ..core.modes import FULL, HOME, mount_choices
 from ..core.onboarding import (connect_root, connect_token, namespace_message, namespace_state,
                                provision_and_verify, verify_token_profile)
@@ -159,6 +159,12 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
             yield Static("Optional. Ein Dump ist ein sauberer, prüfbarer Stand; ohne ihn werden die Datenbankdateien "
                          "im laufenden Betrieb gelesen. MariaDB/MySQL-Zugänge richtest du danach mit [p] ein.",
                          classes="hint", markup=False)
+            yield Checkbox("Nur geänderte Dateien lesen (schneller; der erste Lauf liest einmal alles)", value=True,
+                           id="only-changed")
+            yield Checkbox("Wöchentlich alles neu lesen und prüfen (Modus data, sonntags 03:00; empfohlen)", value=True,
+                           id="weekly-data")
+            yield Static("Fängt Änderungen ab, die der Metadaten-Vergleich nicht bemerkt, und Lesefehler in selten "
+                         "benutzten Dateien. Gilt nur mit einem Zeitplan.", classes="hint", markup=False)
             yield Checkbox("Direkt nach dem Anlegen das erste Backup starten", id="start-now")
             yield Static("", id="status", markup=False)
             yield Button("Einrichten", variant="primary", id="setup")
@@ -259,6 +265,10 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
         info.update(f"Nächster Lauf: {nxt}" if nxt else "Zeitplan nicht erkannt (systemd-analyze).")
 
     # -- Ereignisse --------------------------------------------------------------
+    def on_checkbox_changed(self, e: Checkbox.Changed) -> None:
+        if e.checkbox.id == "only-changed":   # der wöchentliche Prüflauf ergibt nur mit „nur Geändertes lesen“ Sinn
+            self.query_one("#weekly-data", Checkbox).disabled = not e.value
+
     def on_input_changed(self, e: Input.Changed) -> None:
         if e.input.id in ("server", "port", "token-id", "root-user"):
             self._invalidate()
@@ -432,6 +442,9 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
                               fingerprint=fp, backup_id=hostname, backup_mode=FULL if full else HOME,
                               scope="system" if full else "user", sources=["/"] if full else [],
                               schedule=schedule, db_dump=self.query_one("#db-dump", Checkbox).value,
+                              change_detection=METADATA if self.query_one("#only-changed", Checkbox).value else LEGACY,
+                              weekly_data=bool(self.query_one("#only-changed", Checkbox).value
+                                               and self.query_one("#weekly-data", Checkbox).value),
                               full_mounts=list(self.query_one("#mounts", SelectionList).selected) if full else None),
                       secret, self.query_one("#start-now", Checkbox).value))
 
@@ -584,3 +597,48 @@ class DbDumpScreen(ModalScreen[bool]):
 def escape_markup(text: str) -> str:
     from rich.markup import escape
     return escape(text)
+
+
+class DetectScreen(ModalScreen["Profile | None"]):
+    """Änderungserkennung eines Profils: nur Geändertes lesen und wöchentlicher Prüflauf (Modus data)."""
+    BINDINGS = [("escape", "cancel", "Abbrechen")]
+
+    def __init__(self, profile: Profile):
+        super().__init__()
+        self._p = profile
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Label("Änderungserkennung", markup=False)
+            yield Static("Nur Geändertes lesen: Der Client liest nur Dateien, deren Metadaten sich geändert haben. Das "
+                         "nächste Backup nach dem Einschalten liest einmal alles. Der PBS-Server muss Version 3.3 oder "
+                         "neuer sein.", classes="hint", markup=False)
+            yield Checkbox("Nur geänderte Dateien lesen", value=self._p.change_detection == METADATA, id="det-changed")
+            yield Checkbox("Zusätzlich wöchentlich alles neu lesen (Modus data)", value=self._p.weekly_data,
+                           id="det-weekly", disabled=self._p.change_detection != METADATA)
+            yield Input(value=self._p.data_schedule, placeholder="Zeitpunkt (OnCalendar)", id="det-schedule")
+            yield Static("", id="det-status", markup=False)
+            yield Button("Speichern", variant="primary", id="ok")
+            yield Button("Abbrechen", id="cancel")
+
+    def on_checkbox_changed(self, e: Checkbox.Changed) -> None:
+        if e.checkbox.id == "det-changed":
+            self.query_one("#det-weekly", Checkbox).disabled = not e.value
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, e: Button.Pressed) -> None:
+        if e.button.id == "cancel":
+            self.dismiss(None)
+            return
+        sched = self.query_one("#det-schedule", Input).value.strip() or self._p.data_schedule
+        try:
+            validate_calendar(sched)
+        except SchedulerError as ex:
+            self.query_one("#det-status", Static).update(f"Zeitplan ungültig: {ex}")
+            return
+        self._p.change_detection = METADATA if self.query_one("#det-changed", Checkbox).value else LEGACY
+        self._p.weekly_data = bool(self.query_one("#det-weekly", Checkbox).value)
+        self._p.data_schedule = sched
+        self.dismiss(self._p)

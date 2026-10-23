@@ -76,8 +76,8 @@ def describe(p: Progress) -> str:
     """Einzeilige Anzeige für GUI, TUI und Kommandozeile."""
     rate = f"{fmt_bytes(p.rate)}/s"
     if p.percent is None:
-        return (f"{fmt_bytes(p.done)} gelesen  ·  {rate}  ·  seit {fmt_duration(p.elapsed)}"
-                "  ·  Gesamtmenge unbekannt (erstes Backup)")
+        why = p.basis or "Gesamtmenge unbekannt (erstes Backup)"
+        return f"{fmt_bytes(p.done)} gelesen  ·  {rate}  ·  seit {fmt_duration(p.elapsed)}  ·  {why}"
     eta = f"  ·  noch ca. {fmt_duration(p.eta)}" if p.eta is not None and p.rate > 0 else ""
     return (f"{p.percent:.0f} %  ·  {fmt_bytes(p.done)} von {fmt_bytes(p.total or 0)}  ·  {rate}{eta}"
             + (f"  ({p.basis})" if p.basis else ""))
@@ -127,15 +127,20 @@ class Sampler(threading.Thread):
                 self._samples.popleft()
             (ta, da), (tb, db) = self._samples[0], self._samples[-1]
             rate = (db - da) / (tb - ta) if tb > ta else 0.0
-            self.cb(Progress(done, self.total, rate, now - t0, self.basis if self.total else ""))
+            self.cb(Progress(done, self.total, rate, now - t0, self.basis))
 
 
-def estimate_total(profile, snapshots, mounts: list[str] | None = None) -> tuple[int | None, str]:
+def estimate_total(profile, snapshots, mounts: list[str] | None = None, mode: str | None = None) -> tuple[int | None, str]:
     """Erwartete Gesamtmenge: Größe des letzten Backups dieses Profils, sonst (Vollbackup) belegter Platz."""
+    from .models import METADATA
     from .modes import FULL
     mine = [s for s in snapshots if s.backup_id == profile.backup_id and s.size]
     if mine:
-        return max(mine, key=lambda s: s.backup_time).size, "letztes Backup"
+        last = max(mine, key=lambda s: s.backup_time)
+        if (mode or profile.change_detection) == METADATA and last.split:
+            # Der Client liest nur Geändertes: die Größe des letzten Backups sagt nichts über die Lesemenge
+            return None, "nur geänderte Dateien (Menge vorher unbekannt)"
+        return last.size, "letztes Backup"
     if profile.backup_mode == FULL:
         used = 0
         for path in ["/", *(mounts or [])]:

@@ -9,7 +9,7 @@ from typing import Callable, Iterator
 
 from pathlib import Path
 
-from .models import Profile, Snapshot
+from .models import DATA, METADATA, Profile, Snapshot
 from .paths import Paths
 from .modes import DEFAULT_FULL_EXCLUDES, FULL, plan_mounts
 
@@ -32,6 +32,7 @@ class PbsClient:
         self.key_content = key_content  # Key-JSON (aus dem Geheimnis-Speicher)
         self.key_path = key_path        # oder Pfad zu einer vorhandenen Datei (systemd-Credential)
         self.dump_dir: Path | None = None  # gesetzt vom Runner, wenn das Profil Datenbank-Dumps anlegt
+        self.mode_override: str | None = None  # z. B. DATA: einmalig alles neu lesen, unabhängig vom Profil
 
     @contextmanager
     def _keyfile(self) -> Iterator[str]:
@@ -113,6 +114,9 @@ class PbsClient:
             args += ["--skip-lost-and-found", "true"]
         for pattern in excludes:
             args += ["--exclude", pattern]
+        mode = self.mode_override or p.change_detection
+        if mode in (METADATA, DATA):  # METADATA: nur Geändertes lesen; DATA: alles lesen, aber geteilte Archive
+            args += ["--change-detection-mode", mode]
         if p.encrypt:
             if not keyfile:
                 raise ClientError("Verschlüsselung aktiv, aber kein Schlüssel vorhanden")
@@ -141,7 +145,7 @@ class PbsClient:
                 from . import progress as prog
                 try:
                     total, basis = prog.estimate_total(self.profile, self.list_snapshots(), plan_mounts(self.profile.full_mounts)[0]
-                                                       if self.profile.backup_mode == FULL else None)
+                                                       if self.profile.backup_mode == FULL else None, self.mode_override)
                 except ClientError:
                     total, basis = None, ""
                 sampler = prog.Sampler(proc.pid, total, basis, on_progress)

@@ -138,7 +138,7 @@ def test_cli_shows_progress_every_ten_percent_in_logs_and_hides_raw_lines(fake_e
     mgr = M.ProfileManager()
     mgr.save(profile, token="t")
 
-    def fake_run(self, p, on_line=print):
+    def fake_run(self, p, on_line=print, mode=None):
         for line in ["Starte", *prog_lines(1, 4, 9, 11, 14, 25, 26, 55, 99), "Backup erfolgreich"]:
             on_line(line)
         return 0

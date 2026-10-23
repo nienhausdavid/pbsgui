@@ -9,7 +9,8 @@ from typing import Callable
 
 from .client import ClientError, PbsClient
 from .dbdump import parse_credentials, run_dumps
-from .models import Profile
+from .models import DATA, Profile
+from .runlock import LockTimeout, run_lock
 from .paths import Paths
 from .recovery import RecoveryError, collect_recovery, ensure_recoverable
 from .modes import FULL
@@ -44,8 +45,23 @@ def read_status(paths: Paths, profile: Profile) -> dict | None:
 
 def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None,
                 on_line: Callable[[str], None] = print, binary: str | None = None,
-                progress: bool | None = None) -> int:
-    """Gibt den Exitcode zurück (0 = Erfolg). Unter systemd kommen Geheimnisse aus $CREDENTIALS_DIRECTORY."""
+                progress: bool | None = None, mode: str | None = None) -> int:
+    """Gibt den Exitcode zurück (0 = Erfolg). Unter systemd kommen Geheimnisse aus $CREDENTIALS_DIRECTORY.
+
+    mode="data": einmalig alles neu lesen (prüft auch Dateien, deren Metadaten unverändert sind).
+    Pro Profil läuft immer nur ein Backup; ein zweiter Aufruf wartet auf den ersten.
+    """
+    try:
+        with run_lock(paths.state / f"{profile.slug}.lock", on_line):
+            return _run_profile(profile, paths, store, on_line, binary, progress, mode)
+    except LockTimeout as e:
+        on_line(f"Fehler: {e}")
+        write_status(paths, profile, False, 5, "vorheriges Backup läuft noch")
+        return 5
+
+
+def _run_profile(profile: Profile, paths: Paths, store: SecretStore | None, on_line: Callable[[str], None],
+                 binary: str | None, progress: bool | None, mode: str | None) -> int:
     try:
         ensure_recoverable(profile)
     except RecoveryError as e:  # auch für Zeitplan-Läufe: kein Vollbackup ohne exportierten Schlüssel
@@ -78,8 +94,10 @@ def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None
     key_content = "" if key_path else ((store.get(profile.slug, "key") if store else None) or "")
     client = PbsClient(profile, secret, keypass, binary, key_content=key_content, key_path=key_path)
     client.dump_dir = dump_dir
+    client.mode_override = mode
     try:
-        on_line(f"Starte Backup '{profile.name}' -> {profile.repository}")
+        on_line(f"Starte Backup '{profile.name}' -> {profile.repository}"
+                + (" (alles neu lesen, Modus data)" if mode == DATA else ""))
         if progress is None:
             progress = bool(os.environ.get("PBSGUI_PROGRESS"))    # nur für interaktive Aufrufer (nicht im Journal)
         from .progress import encode

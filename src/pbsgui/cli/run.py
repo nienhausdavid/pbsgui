@@ -14,6 +14,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="pbsgui-run")
     ap.add_argument("profile")
     ap.add_argument("--scope", choices=["user", "system"], default="user")
+    ap.add_argument("--mode", choices=["data"], help="data: alles neu lesen (wöchentlicher Prüflauf)")
     args = ap.parse_args(argv)
     paths = Paths.for_scope(args.scope)
     try:
@@ -21,7 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError):
         print(f"Profil nicht gefunden: {args.profile}", file=sys.stderr)
         return 1
-    return run_profile(profile, paths, best_store(args.scope, paths.creds), on_line=lambda l: print(l, flush=True))
+    return run_profile(profile, paths, best_store(args.scope, paths.creds), on_line=lambda l: print(l, flush=True),
+                       mode=args.mode)
 
 
 if __name__ == "__main__":

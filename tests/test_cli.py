@@ -105,7 +105,7 @@ def test_probe_lists_datastores_and_namespaces(env, capsys, server):
 
 
 def test_backup_snapshots_restore(env, capsys, server):
-    add_b(capsys, server)
+    add_b(capsys, server, "--change-detection", "legacy")   # klassisch: Archiv heißt etc.pxar
     code, out, _ = run(capsys, "backup", "Test")
     assert code == 0 and "Backup erfolgreich" in out
     snaps = json.loads(run(capsys, "snapshots", "Test", "--json")[1])

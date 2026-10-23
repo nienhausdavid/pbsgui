@@ -11,6 +11,7 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md). Status: **Prototyp**.
 - Beim Einrichten: Datastores laden, Namespaces live prüfen (vorhanden / wird angelegt / mit Weg B nicht anlegbar)
 - Backup starten mit Live-Log, Snapshots listen, Restore in einen frei gewählten Zielordner
 - Zeitpläne als systemd-Timer, wählbar pro Profil: Benutzer- oder System-Units; beim Anlegen direkt auswählbar
+- **Nur Geändertes lesen** (Änderungserkennung per Metadaten-Vergleich, spart bei großen, selten geänderten Datenmengen viel Lesezeit)
 - Optional **Datenbank-Dumps** laufender Container (Postgres, MariaDB/MySQL) vor dem Backup, als Archiv `dbdumps.pxar`
   (Details und Zugangsdaten: CHANGELOG, `pbsgui dbdump --help`); beim Anlegen auch „erstes Backup direkt starten“
 - Geheimnisse verschlüsselt über `systemd-creds` (Fallback: Datei 0600)

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from .client import ClientError, PbsClient
-from .models import Profile, Snapshot
+from .models import Profile, Snapshot, logical_archive
 
 
 class FilesError(RuntimeError):
@@ -82,7 +82,7 @@ def parse_catalog(text: str) -> dict[str, list[CatalogEntry]]:
         if not path.startswith("./"):
             continue
         parts = path[2:].split("/", 1)
-        archive = parts[0].removesuffix(".didx").removesuffix(".fidx")
+        archive = logical_archive(parts[0]) or parts[0].removesuffix(".didx").removesuffix(".fidx")
         inner = "/" + (parts[1] if len(parts) > 1 else "")
         archives.setdefault(archive, []).append(
             CatalogEntry(m["kind"], inner, int(m["size"]) if m["size"] else None, m["mtime"] or ""))

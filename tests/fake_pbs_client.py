@@ -43,8 +43,13 @@ elif args[:1] == ["backup"]:
     for s in specs:
         print(f"Upload directory '{s.split(':', 1)[1]}' to '{env['PBS_REPOSITORY']}' as {s.split(':', 1)[0]}")
     bid = args[args.index("--backup-id") + 1]
+    split = "--change-detection-mode" in args and args[args.index("--change-detection-mode") + 1] == "metadata"
+    names = []
+    for s in specs:   # Modus metadata: der Client teilt x.pxar in x.mpxar.didx (Metadaten) und x.ppxar.didx (Inhalt)
+        base = s.split(":", 1)[0]
+        names += [base.replace(".pxar", ".mpxar") + ".didx", base.replace(".pxar", ".ppxar") + ".didx"] if split else [base]
     snaps.append({"backup-type": "host", "backup-id": bid, "backup-time": int(time.time()) + len(snaps),
-                  "size": 1024 * (len(snaps) + 1), "files": [{"filename": s.split(":", 1)[0]} for s in specs]})
+                  "size": 1024 * (len(snaps) + 1), "files": [{"filename": n} for n in names]})
     snaps_file.write_text(json.dumps(snaps))
     print("End Time: done")
 elif args[:2] == ["key", "create"]:
@@ -56,12 +61,13 @@ elif args[:2] == ["catalog", "dump"]:
         def q(p):
             return '"' + p.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
         for arch in sorted(Path(tree).iterdir()):
-            print(f"d {q('./' + arch.name + '.didx')}", file=sys.stderr)
+            print(f"d {q('./' + (arch.name.replace('.pxar', '.mpxar') if os.environ.get('FAKE_PBS_SPLIT') else arch.name) + '.didx')}", file=sys.stderr)
             for root, dirs, files in os.walk(arch):
                 dirs.sort()
                 for name in sorted(dirs + files):
                     full = Path(root) / name
-                    rel = "./" + arch.name + ".didx/" + str(full.relative_to(arch))
+                    top = (arch.name.replace(".pxar", ".mpxar") if os.environ.get("FAKE_PBS_SPLIT") else arch.name) + ".didx"
+                    rel = "./" + top + "/" + str(full.relative_to(arch))
                     if full.is_symlink():
                         print(f"l {q(rel)}", file=sys.stderr)
                     elif full.is_dir():

@@ -14,12 +14,12 @@ from textual.widgets.option_list import Option
 
 from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text
 from ..core.manager import ProfileManager, can_use_admin
-from ..core.models import Profile
+from ..core.models import LEGACY, METADATA, Profile
 from ..core.modes import FULL, describe, plan_mounts
 from ..core.recovery import needs_key_export, render_sheet
 from ..core.scheduler import SchedulerError, validate_calendar
 from .files import FilesScreen
-from .screens import AddServerScreen, ConfirmScreen, DbDumpScreen, MountsScreen, PromptScreen
+from .screens import AddServerScreen, ConfirmScreen, DbDumpScreen, DetectScreen, MountsScreen, PromptScreen
 
 
 class PbsTui(App):
@@ -34,7 +34,7 @@ class PbsTui(App):
     """
     BINDINGS = [("a", "add", "Hinzufügen"), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
                 ("t", "restore", "Restore"), ("f", "files", "Dateien"), ("s", "schedule", "Zeitplan"), ("m", "scope", "Modus"),
-                ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("n", "sheet", "Notfallblatt"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"), ("p", "dbdump", "DB-Dumps"),
+                ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("n", "sheet", "Notfallblatt"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"), ("p", "dbdump", "DB-Dumps"), ("c", "detect", "Änderungen"),
                 ("d", "delete", "Entfernen"), ("q", "quit", "Beenden")]
 
     def __init__(self, manager: ProfileManager | None = None):
@@ -122,6 +122,10 @@ class PbsTui(App):
             *([("Schlüssel-Export: " + (f"am {p.key_exported_at}" if p.key_exported_at else
                 "NOCH NICHT" + (" – Vollbackup gesperrt! Mit [k] sichern" if needs_key_export(p) else "")))]
               if p.encrypt and not p.keyfile else []),
+            f"Lesen:        {'nur Geändertes (Metadaten-Vergleich)' if p.change_detection == METADATA else 'alles jedes Mal (klassisch)'}  (mit [c] ändern)",
+            *([f"Prüflauf:     {('wöchentlich alles neu lesen: ' + p.data_schedule) if p.weekly_data else 'aus'}"
+               + ("" if p.schedule or not p.weekly_data else " (braucht einen Zeitplan)")]
+              if p.change_detection == METADATA else []),
             f"Datenbank-Dumps: {'an' if p.db_dump else 'aus'}  (mit [p] einrichten)",
             f"Zeitplan:      {p.schedule or '-'}  [{p.scope}, {schedule_text(self.mgr, p)}]"
             + (" – wartet auf den Schlüssel-Export ([k])" if self._schedule_waits(p) else ""),
@@ -274,7 +278,7 @@ class PbsTui(App):
             self._notify("Erst mit [r] Snapshots laden und einen auswählen", severity="warning")
             return
         snap = self._snaps[t.cursor_row]
-        archives = [f.removesuffix(".didx") for f in snap.files if f.endswith((".pxar", ".pxar.didx"))]
+        archives = snap.archives
         if not archives:
             self._notify("Snapshot enthält kein Datei-Archiv", severity="error")
             return
@@ -476,6 +480,25 @@ class PbsTui(App):
             if after:
                 after()
         self.push_screen(DbDumpScreen(self.mgr, p), closed)
+
+    def action_detect(self) -> None:
+        p = self._need()
+        if not p:
+            return
+
+        def got(res):
+            if res is None:
+                return
+            try:
+                self.mgr.apply_detection(res)
+            except Exception as e:
+                self._notify(str(e), severity="error", timeout=10)
+                return
+            self.show_overview()
+            if res.change_detection == METADATA:
+                self._notify("Gespeichert. Das nächste Backup liest einmal alles, danach nur noch Geändertes.",
+                             timeout=10)
+        self.push_screen(DetectScreen(p), got)
 
     def action_delete(self) -> None:
         p = self._need()

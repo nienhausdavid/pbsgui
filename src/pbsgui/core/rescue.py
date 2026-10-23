@@ -563,8 +563,7 @@ def _client(cfg: RescueConfig):
 def list_full_snapshots(cfg: RescueConfig):
     """Snapshots, die ein Vollbackup mit Wiederherstellungsdaten sind (root.pxar + recovery.pxar), neueste zuerst."""
     snaps = _client(cfg).list_snapshots()
-    ok = [s for s in snaps if any(f.startswith("root.pxar") for f in s.files)
-          and any(f.startswith("recovery.pxar") for f in s.files)]
+    ok = [s for s in snaps if "root.pxar" in s.archives and "recovery.pxar" in s.archives]
     if cfg.backup_id:
         ok = [s for s in ok if s.backup_id == cfg.backup_id]
     return ok

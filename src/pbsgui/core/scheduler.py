@@ -16,16 +16,18 @@ class SchedulerError(RuntimeError):
     pass
 
 
-def unit_base(profile: Profile) -> str:
-    return f"pbsgui-{profile.slug}"
+def unit_base(profile: Profile, data: bool = False) -> str:
+    """Name der systemd-Units; `data=True` ist der wöchentliche Lauf im Modus data (alles neu lesen)."""
+    return f"pbsgui-{profile.slug}" + ("-data" if data else "")
 
 
 def _q(s: str) -> str:
     return f'"{s}"' if " " in s else s
 
 
-def render_service(profile: Profile, store: SecretStore, scope: str, python: str | None = None) -> str:
-    lines = ["[Unit]", f"Description=pbsgui Backup {profile.name}",
+def render_service(profile: Profile, store: SecretStore, scope: str, python: str | None = None,
+                   data: bool = False) -> str:
+    lines = ["[Unit]", f"Description=pbsgui Backup {profile.name}" + (" (alles neu lesen)" if data else ""),
              "After=network-online.target", "Wants=network-online.target"]
     if profile.require_ac:
         lines.append("ConditionACPower=true")
@@ -35,14 +37,15 @@ def render_service(profile: Profile, store: SecretStore, scope: str, python: str
         if d:
             lines.append(d)
     py = python or sys.executable
-    lines += [f"ExecStart={_q(py)} -m pbsgui.cli.run {profile.slug} --scope {scope}",
+    lines += [f"ExecStart={_q(py)} -m pbsgui.cli.run {profile.slug} --scope {scope}" + (" --mode data" if data else ""),
               "NoNewPrivileges=yes", ""]
     return "\n".join(lines)
 
 
-def render_timer(profile: Profile) -> str:
-    return "\n".join(["[Unit]", f"Description=pbsgui Zeitplan {profile.name}", "",
-                      "[Timer]", f"OnCalendar={profile.schedule}", "Persistent=true", "",
+def render_timer(profile: Profile, data: bool = False) -> str:
+    return "\n".join(["[Unit]", f"Description=pbsgui Zeitplan {profile.name}" + (" (alles neu lesen)" if data else ""), "",
+                      "[Timer]", f"OnCalendar={profile.data_schedule if data else profile.schedule}",
+                      "Persistent=true", "",
                       "[Install]", "WantedBy=timers.target", ""])
 
 
@@ -98,30 +101,51 @@ class SystemdScheduler:
             raise SchedulerError((r.stderr or r.stdout).strip() or f"systemctl {args[0]} fehlgeschlagen")
         return r
 
+    def _write_units(self, profile: Profile, data: bool) -> str:
+        base = unit_base(profile, data)
+        (self.paths.units / f"{base}.service").write_text(
+            render_service(profile, self.store, self.paths.scope, data=data))
+        (self.paths.units / f"{base}.timer").write_text(render_timer(profile, data))
+        return base
+
     def install(self, profile: Profile) -> None:
+        """Richtet den Zeitplan ein. Mit weekly_data (und METADATA) kommt ein zweiter Timer für den Modus data dazu."""
         validate_calendar(profile.schedule, self._run)
+        data = profile.weekly_data_active
+        if data:
+            validate_calendar(profile.data_schedule, self._run)
         self.paths.units.mkdir(parents=True, exist_ok=True)
-        base = unit_base(profile)
-        (self.paths.units / f"{base}.service").write_text(render_service(profile, self.store, self.paths.scope))
-        (self.paths.units / f"{base}.timer").write_text(render_timer(profile))
+        base = self._write_units(profile, False)
+        data_base = self._write_units(profile, True) if data else None
+        if not data:
+            self._remove_units(profile, True)
         self._ctl("daemon-reload")
         self._ctl("enable", "--now", f"{base}.timer")
+        if data_base:
+            self._ctl("enable", "--now", f"{data_base}.timer")
 
-    def remove(self, profile: Profile) -> None:
-        base = unit_base(profile)
+    def _remove_units(self, profile: Profile, data: bool) -> None:
+        base = unit_base(profile, data)
         self._ctl("disable", "--now", f"{base}.timer", check=False)
         for ext in ("timer", "service"):
             (self.paths.units / f"{base}.{ext}").unlink(missing_ok=True)
+
+    def remove(self, profile: Profile) -> None:
+        for data in (False, True):
+            self._remove_units(profile, data)
         self._ctl("daemon-reload", check=False)
 
-    def status(self, profile: Profile) -> dict:
-        base = unit_base(profile)
-        r = self._ctl("show", f"{base}.timer", "-p", "ActiveState,NextElapseUSecRealtime,LastTriggerUSec",
-                      check=False)
+    def _timer_status(self, base: str) -> dict:
+        r = self._ctl("show", f"{base}.timer", "-p", "ActiveState,NextElapseUSecRealtime,LastTriggerUSec", check=False)
         info = dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
         return {"installed": (self.paths.units / f"{base}.timer").exists(),
                 "active": info.get("ActiveState") == "active",
                 "next": info.get("NextElapseUSecRealtime", ""), "last": info.get("LastTriggerUSec", "")}
+
+    def status(self, profile: Profile) -> dict:
+        st = self._timer_status(unit_base(profile))
+        st["data"] = self._timer_status(unit_base(profile, True))   # wöchentlicher Lauf im Modus data
+        return st
 
 
 def linger_enabled() -> bool:

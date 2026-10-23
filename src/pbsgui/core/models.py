@@ -10,6 +10,25 @@ def slugify(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]+", "-", name).strip("-").lower() or "profile"
 
 
+LEGACY = "legacy"      # Client liest jede Datei jedes Mal vollständig und lädt nur Neues hoch
+METADATA = "metadata"  # Client liest nur Dateien, deren Metadaten sich seit dem letzten Backup geändert haben
+CHANGE_MODES = (METADATA, LEGACY)
+DATA = "data"          # wie METADATA, liest aber alles neu und prüft so auch Dateien mit unveränderten Metadaten
+DEFAULT_DATA_SCHEDULE = "Sun *-*-* 03:00:00"   # wöchentlich, sonntags 03:00 Uhr
+
+_ARCHIVE_FILE = re.compile(r"^(?P<base>.+?)\.(?:pxar|mpxar|ppxar)(?:\.didx)?$")
+
+
+def logical_archive(filename: str) -> str | None:
+    """Archivname, wie ihn `restore`/`mount` erwarten, aus einem Dateinamen im Snapshot.
+
+    Im Modus `legacy` heißt das Archiv `x.pxar.didx`; im Modus `metadata` teilt der Client es in `x.mpxar.didx`
+    (Metadaten) und `x.ppxar.didx` (Inhalt). Beide ergeben `x.pxar`. Andere Dateien (Katalog, Manifest): None.
+    """
+    m = _ARCHIVE_FILE.match(filename)
+    return f"{m['base']}.pxar" if m else None
+
+
 def archive_name(path: str) -> str:
     """Archivname (ohne .pxar) aus einem Quellpfad, z. B. /home/david -> home-david."""
     p = path.strip("/")
@@ -39,10 +58,18 @@ class Profile:
     scope: str = "user"  # "user" | "system"
     require_ac: bool = False
     db_dump: bool = False  # laufende Datenbank-Container (Postgres, MariaDB/MySQL) vor dem Backup dumpen
+    change_detection: str = LEGACY  # METADATA = nur Geändertes lesen; bestehende Profile bleiben bei LEGACY
+    weekly_data: bool = False  # zusätzlich ein Lauf im Modus "data" (alles neu lesen); nur mit METADATA und Zeitplan
+    data_schedule: str = DEFAULT_DATA_SCHEDULE
 
     @property
     def slug(self) -> str:
         return slugify(self.name)
+
+    @property
+    def weekly_data_active(self) -> bool:
+        """Es gibt einen eigenen Zeitplan für den Lauf im Modus data (nur zusammen mit METADATA und einem Zeitplan)."""
+        return bool(self.weekly_data and self.change_detection == METADATA and self.schedule and self.data_schedule)
 
     @property
     def repository(self) -> str:
@@ -79,6 +106,21 @@ class Snapshot:
     backup_time: int
     size: int = 0
     files: list[str] = field(default_factory=list)
+
+    @property
+    def archives(self) -> list[str]:
+        """Datei-Archive des Snapshots unter dem Namen, den `restore`/`mount` erwarten (`x.pxar`, ohne Duplikate)."""
+        seen: list[str] = []
+        for f in self.files:
+            a = logical_archive(f)
+            if a and a not in seen:
+                seen.append(a)
+        return seen
+
+    @property
+    def split(self) -> bool:
+        """Snapshot wurde im Modus `metadata` erstellt (geteilte Archive)."""
+        return any(f.endswith(".mpxar.didx") for f in self.files)
 
     @property
     def path(self) -> str:
