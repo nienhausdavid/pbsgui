@@ -7,6 +7,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-23
+
 ### Hinzugefügt
 - **Änderungserkennung (`--change-detection-mode metadata`):** Der Client liest nur noch Dateien, deren Metadaten sich seit
   dem letzten Backup geändert haben, statt jede Datei jedes Mal komplett zu lesen (gemessen: 0 MiB Lesemenge bei
@@ -94,7 +96,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.6.0
 [0.5.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.5.0
 [0.4.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.4.0
 [0.3.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.3.0
