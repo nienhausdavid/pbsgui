@@ -108,6 +108,7 @@ jobs:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq apt-utils
           echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
           export GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')
           scripts/build-apt-repo.sh debs site stable
