@@ -7,6 +7,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-23
+
 ### Hinzugefügt
 - **TUI, Server hinzufügen:** Dropdowns für **Datastore** und **Namespace** (gefüllt nach „Verbindung prüfen“; Namespace
   zusätzlich „Wurzel“ und mit Weg A „Neuen Namespace anlegen …“). Die Eingabefelder bleiben als Rückfall und bleiben mit
@@ -71,6 +73,7 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.5.0
 [0.4.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.4.0
 [0.3.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.3.0
