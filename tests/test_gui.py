@@ -317,6 +317,7 @@ def test_db_dialog_lists_databases_and_creates_dump_user(app, fake_env, profile,
     c.save()
     assert c.admin_pw.text() == "" and pump(app, lambda: c.result() == 1)   # QDialog.Accepted
     assert mgr.db_credentials(d.profile)[d.dbs[maria].key]["user"] == "pbsgui_dump"
+    d.states.clear()                                                      # wie edit_credential(): Zustand neu ermitteln
     d._show(d.dbs)
     assert "Zugang: pbsgui_dump" in d.list.item(maria).text() and d.del_btn.isEnabled()
     d.remove_credential()
@@ -402,3 +403,26 @@ def test_window_restore_offers_logical_archive_names_for_split_snapshots(app, fa
     from pbsgui.core.models import Snapshot
     snap = Snapshot("host", "laptop", 1, files=["root.mpxar.didx", "root.ppxar.didx", "catalog.pcat1.didx"])
     assert snap.archives == ["root.pxar"]
+
+
+def test_db_dialog_passwordless_setup(app, fake_env, profile, paths, dock, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    mgr.save(profile, token="t")
+    d = DbDumpDialog(mgr, mgr.profiles()[0])
+    assert pump(app, lambda: len(d.dbs) == 3)
+    labels = [d.list.item(i).text() for i in range(3)]
+    maria = next(i for i, l in enumerate(labels) if "firefly_db" in l)
+    pg = next(i for i, l in enumerate(labels) if "kein Zugang nötig" in l)
+    d.list.setCurrentRow(pg)
+    assert not d.socket_btn.isEnabled()
+    d.list.setCurrentRow(maria)
+    assert d.socket_btn.isEnabled()
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    d.setup_access()
+    assert dock.data()["events"] == []                                          # Nein: nichts gestoppt
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    d.setup_access()
+    assert pump(app, lambda: "ohne Passwort (Socket)" in d.list.item(maria).text())
+    assert dock.data()["events"][0] == "stop firefly_db" and dock.data()["events"][-1] == "start firefly_db"
+    assert mgr.db_credentials(d.profile) == {} and not d.socket_btn.isEnabled()

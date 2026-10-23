@@ -8,7 +8,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout)
 
-from ..core.dbdump import MARIADB, Database, DumpError, find_databases
+from ..core.dbdump import MARIADB, Database, DumpError, access_state, find_databases, setup_socket_access
 from ..core.manager import ProfileManager
 from ..core.models import Profile
 from .workers import Worker
@@ -83,6 +83,7 @@ class DbDumpDialog(QDialog):
         super().__init__(parent)
         self.mgr, self.profile = mgr, profile
         self.dbs: list[Database] = []
+        self.states: dict[str, str] = {}
         self._worker: Worker | None = None
         self.setWindowTitle("Datenbank-Dumps")
         self.setMinimumWidth(560)
@@ -94,7 +95,10 @@ class DbDumpDialog(QDialog):
         self.enabled = QCheckBox("Dumps vor jedem Backup anlegen"); self.enabled.setChecked(profile.db_dump)
         self.status = QLabel("Suche Datenbank-Container …"); self.status.setWordWrap(True)
         self.list = QListWidget()
-        self.cred_btn = QPushButton("Zugang festlegen …"); self.cred_btn.setEnabled(False)
+        self.socket_btn = QPushButton("Ohne Passwort einrichten … (empfohlen, Container steht kurz still)")
+        self.socket_btn.setEnabled(False)
+        self.socket_btn.clicked.connect(self.setup_access)
+        self.cred_btn = QPushButton("Zugang mit Passwort festlegen …"); self.cred_btn.setEnabled(False)
         self.del_btn = QPushButton("Zugang entfernen"); self.del_btn.setEnabled(False)
         self.cred_btn.clicked.connect(self.edit_credential)
         self.del_btn.clicked.connect(self.remove_credential)
@@ -103,30 +107,46 @@ class DbDumpDialog(QDialog):
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
-        for w in (note, self.enabled, self.status, self.list, self.cred_btn, self.del_btn, self.buttons):
+        for w in (note, self.enabled, self.status, self.list, self.socket_btn, self.cred_btn, self.del_btn, self.buttons):
             lay.addWidget(w)
         self.scan()
 
     # -- Erkennung ------------------------------------------------------------
     def scan(self) -> None:
+        mgr, profile = self.mgr, self.profile
+
         def work(_l):
             try:
-                return find_databases(), ""
+                dbs = find_databases()
+                creds = mgr.db_credentials(profile)
+                return dbs, "", {d.key: access_state(d, creds) for d in dbs}
             except DumpError as e:
-                return [], str(e)
+                return [], str(e), {}
 
         self._worker = Worker(work, self)
         self._worker.done.connect(lambda res: self._show(*res))
         self._worker.failed.connect(lambda m: self._show([], m))
         self._worker.start()
 
-    def label(self, db: Database) -> str:
-        if db.engine != MARIADB:
-            return f"{db.container} ({db.owner}): Postgres, kein Zugang nötig"
-        cred = self.mgr.db_credentials(self.profile).get(db.key)
-        return f"{db.container} ({db.owner}): MariaDB/MySQL, " + (f"Zugang: {cred['user']}" if cred else "Zugang FEHLT")
+    def state(self, db: Database) -> str:
+        if db.key not in self.states:   # nicht im Hintergrund ermittelt: jetzt nachholen
+            self.states[db.key] = access_state(db, self.mgr.db_credentials(self.profile))
+        return self.states[db.key]
 
-    def _show(self, dbs: list[Database], err: str = "") -> None:
+    def label(self, db: Database) -> str:
+        how = self.state(db)
+        if how == "none":
+            return f"{db.container} ({db.owner}): Postgres, kein Zugang nötig"
+        if how == "socket":
+            return f"{db.container} ({db.owner}): MariaDB/MySQL, Zugang: ohne Passwort (Socket)"
+        if how == "password":
+            cred = self.mgr.db_credentials(self.profile).get(db.key) or {}
+            return f"{db.container} ({db.owner}): MariaDB/MySQL, Zugang: {cred.get('user', '?')}"
+        return f"{db.container} ({db.owner}): MariaDB/MySQL, Zugang FEHLT"
+
+    def _show(self, dbs: list[Database], err: str = "", states: dict | None = None) -> None:
+        if states is not None:
+            self.states = states
         self.dbs = dbs
         current = self.list.currentRow()
         self.list.clear()
@@ -145,13 +165,41 @@ class DbDumpDialog(QDialog):
     def _row_changed(self, _row: int) -> None:
         db = self._selected()
         maria = bool(db and db.engine == MARIADB)
+        self.socket_btn.setEnabled(bool(maria and self.states.get(db.key) != "socket"))
         self.cred_btn.setEnabled(maria)
         self.del_btn.setEnabled(bool(maria and db.key in self.mgr.db_credentials(self.profile)))
 
     # -- Zugänge ----------------------------------------------------------------
+    def setup_access(self) -> None:
+        db = self._selected()
+        if not db:
+            return
+        if QMessageBox.question(
+                self, "Ohne Passwort einrichten",
+                f"{db.container} wird einmalig für etwa 15 bis 40 Sekunden gestoppt (Anwendungen, die ihn nutzen, "
+                "verlieren kurz die Datenbank). Es wird kein Passwort gebraucht und keines gespeichert.\n\nFortfahren?"
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.status.setText(f"Richte {db.container} ein (Container steht kurz still) …")
+        self.socket_btn.setEnabled(False)
+
+        def work(_l):
+            setup_socket_access(db)
+            return access_state(db, self.mgr.db_credentials(self.profile))
+
+        def done(how):
+            self.states[db.key] = how
+            self._show(self.dbs)
+
+        self._worker = Worker(work, self)
+        self._worker.done.connect(done)
+        self._worker.failed.connect(lambda m: (self.status.setText(f"Fehler: {m}"), self._row_changed(self.list.currentRow())))
+        self._worker.start()
+
     def edit_credential(self) -> None:
         db = self._selected()
         if db and DbCredDialog(self.mgr, self.profile, db, self).exec():
+            self.states.pop(db.key, None)
             self._show(self.dbs)
 
     def remove_credential(self) -> None:
@@ -163,6 +211,7 @@ class DbDumpDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "Fehler", str(e))
             return
+        self.states.pop(db.key, None)
         self._show(self.dbs)
 
     def save(self) -> None:
