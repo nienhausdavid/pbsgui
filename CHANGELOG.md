@@ -7,6 +7,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-24
+
 ### Hinzugefügt
 - **Passwortloser Dump-Zugang für MariaDB, ganz ohne Root-Passwort:** `pbsgui dbdump NAME --setup-access CONTAINER` (TUI:
   Knopf „Ohne Passwort einrichten“ in `p`, GUI: gleicher Knopf im Dialog „Datenbanken und Zugänge“) legt im Container
@@ -115,7 +117,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.7.0
 [0.6.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.6.1
 [0.6.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.6.0
 [0.5.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.5.0
