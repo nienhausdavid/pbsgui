@@ -7,6 +7,17 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **Passwortloser Dump-Zugang für MariaDB, ganz ohne Root-Passwort:** `pbsgui dbdump NAME --setup-access CONTAINER` (TUI:
+  Knopf „Ohne Passwort einrichten“ in `p`, GUI: gleicher Knopf im Dialog „Datenbanken und Zugänge“) legt im Container
+  einen Benutzer `mysql` mit der Anmeldeart `unix_socket` an (nur Leserechte; gilt nur für den gleichnamigen
+  Betriebssystem-Benutzer im Container, also für alle, die `docker exec` dürfen, wie bei Postgres). Dafür wird kein
+  Passwort gebraucht und keines gespeichert: Der Container wird einmalig für etwa 15 bis 40 Sekunden sauber gestoppt,
+  ein Wegwerf-Container mit demselben Image und denselben Daten führt per `--init-file` die SQL-Datei aus, danach läuft
+  der Original-Container wieder (auch bei Fehlern, sonst mit Hinweis `docker start …`). Ist der Zugang eingerichtet, wird
+  er beim Dump bevorzugt; ein hinterlegtes Passwort bleibt als Rückfall. Gemessen mit `mariadb:11`: Dump ohne Passwort
+  geht, `DROP`/`INSERT`/`CREATE USER` werden abgelehnt, als `root` im Container wird der Benutzer abgelehnt.
+
 ## [0.6.1] - 2026-10-24
 
 ### Geändert

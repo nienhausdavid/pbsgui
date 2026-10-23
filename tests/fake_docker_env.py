@@ -10,8 +10,8 @@ FAKE_DOCKER = str(Path(__file__).parent / "fake_docker.py")
 
 
 def container(name, *dests, image="x"):
-    return {"Id": f"id-{name}", "Name": f"/{name}", "Config": {"Image": image},
-            "Mounts": [{"Destination": d, "Type": "bind"} for d in dests]}
+    return {"Id": f"id-{name}", "Name": f"/{name}", "Image": f"sha256:img-{name}", "Config": {"Image": image},
+            "Mounts": [{"Destination": d, "Type": "bind", "Source": f"/data/{name}{d}"} for d in dests]}
 
 
 @pytest.fixture

@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from ..core.client import ClientError
-from ..core.dbdump import MARIADB, DumpError, find_databases, run_dumps
+from ..core.dbdump import MARIADB, DumpError, access_state, find_databases, run_dumps, setup_socket_access
 from ..core.files import FilesError, map_to_original
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import (CHANGE_MODES, DATA, DEFAULT_DATA_SCHEDULE, LEGACY, METADATA, Profile, logical_archive,
@@ -486,6 +486,28 @@ def cmd_dbdump(a, mgr) -> int:
     except DumpError as e:
         raise CliError(str(e)) from None
     creds = mgr.db_credentials(p)
+    if a.setup_access:
+        db = _pick_database(dbs, a.setup_access)
+        if db.engine != MARIADB:
+            raise CliError("Postgres braucht keinen Zugang")
+        if access_state(db, creds) == "socket":
+            print(f"{db.key}: der passwortlose Zugang ist schon eingerichtet.")
+            return 0
+        print(f"Passwortlosen Lesezugang für {db.key} einrichten. Dafür wird der Container einmalig für etwa 15 bis 40 "
+              "Sekunden gestoppt (Anwendungen, die ihn nutzen, verlieren kurz die Datenbank). Es wird kein Passwort "
+              "gebraucht und keines gespeichert.")
+        if not a.yes:
+            if not sys.stdin.isatty():
+                raise CliError("Der Container wird dabei kurz gestoppt: zur Bestätigung --yes angeben")
+            if input("Fortfahren? [j/N] ").strip().lower() not in ("j", "ja", "y", "yes"):
+                print("Abgebrochen.")
+                return 1
+        try:
+            setup_socket_access(db, print)
+        except DumpError as e:
+            raise CliError(str(e)) from None
+        print("Fertig. Ab dem nächsten Backup wird dieser Container ohne Passwort gedumpt.")
+        return 0
     if a.set or a.create_user or a.remove:
         if a.remove:
             db = _pick_database(dbs, a.remove)
@@ -514,9 +536,13 @@ def cmd_dbdump(a, mgr) -> int:
     if not dbs:
         print("Keine laufenden Datenbank-Container gefunden (oder kein Zugriff auf deren Docker-Socket).")
     for d in dbs:
-        if d.engine == MARIADB:
-            c = creds.get(d.key)
-            state = f"Zugang: {c['user']}" if c else "Zugang FEHLT (pbsgui dbdump NAME --set/--create-user …)"
+        how = access_state(d, creds)
+        if how == "socket":
+            state = "Zugang: ohne Passwort (Socket)"
+        elif how == "password":
+            state = f"Zugang: {creds[d.key]['user']} (Passwort hinterlegt)"
+        elif how == "missing":
+            state = f"Zugang FEHLT (ohne Passwort einrichten: pbsgui dbdump {a.name} --setup-access {d.container})"
         else:
             state = "kein Zugang nötig"
         print(f"{d.key:40} {d.engine:9} {state}")
@@ -758,6 +784,10 @@ def build_parser() -> argparse.ArgumentParser:
     g = sp.add_mutually_exclusive_group()
     g.add_argument("--on", action="store_true", help="Dumps vor jedem Backup anlegen")
     g.add_argument("--off", action="store_true", help="keine Dumps mehr anlegen")
+    sp.add_argument("--setup-access", metavar="CONTAINER",
+                    help="passwortlosen Lesezugang (unix_socket) in einem MariaDB-Container einrichten, ganz ohne "
+                         "Root-Passwort; der Container steht dabei kurz still")
+    sp.add_argument("--yes", action="store_true", help="--setup-access ohne Rückfrage")
     sp.add_argument("--set", metavar="CONTAINER", help="Zugang eines MariaDB/MySQL-Containers hinterlegen (mit --user)")
     sp.add_argument("--user", help="Benutzer für --set (Passwort per Prompt oder PBSGUI_DB_PASSWORD)")
     sp.add_argument("--create-user", metavar="CONTAINER",

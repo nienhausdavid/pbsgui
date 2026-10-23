@@ -299,3 +299,99 @@ def test_stale_cleanup_handles_both_name_forms(dock, tmp_path):
         age(f, 30)
     res = run_dumps(out, {}, lambda _l: None, dock.sockets)
     assert sorted(res.removed) == ["root__weg.postgres.sql.gz", "root__weg2.postgres.sql"]
+
+
+# -- Passwortloser Zugang (unix_socket), ganz ohne Root-Passwort ---------------------------------------------------------
+from pbsgui.core.dbdump import access_state, setup_socket_access  # noqa: E402
+
+
+def maria(dock):
+    return next(d for d in find_databases(dock.sockets) if d.container == "firefly_db")
+
+
+def test_setup_socket_access_stops_runs_init_file_and_restarts_in_that_order(dock):
+    db = maria(dock)
+    assert access_state(db, {}) == "missing"
+    lines = []
+    assert setup_socket_access(db, lines.append, timeout=2, poll=0.01) is True
+    ev = dock.data()["events"]
+    assert ev == ["stop firefly_db", "oneoff firefly_db image=sha256:img-firefly_db", "oneoff-stop firefly_db",
+                  "start firefly_db"]                                          # Datenverzeichnis nie doppelt benutzt
+    assert dock.data()["stopped"] == [] and access_state(db, {}) == "socket"
+    assert any("eingerichtet" in l for l in lines)
+    assert not list(__import__("pathlib").Path(__import__("tempfile").gettempdir()).glob("pbsgui-init-*"))   # Aufräumen
+
+
+def test_setup_socket_access_is_idempotent(dock):
+    db = maria(dock)
+    setup_socket_access(db, poll=0.01, timeout=2)
+    before = len(dock.data()["events"])
+    assert setup_socket_access(db, poll=0.01, timeout=2) is False              # nichts mehr gestoppt
+    assert len(dock.data()["events"]) == before
+
+
+def test_setup_needs_no_password_at_all(dock):
+    dock.update(mysql_users={})                                                # nirgends ein gültiges Passwort
+    setup_socket_access(maria(dock), poll=0.01, timeout=2)
+    assert access_state(maria(dock), {}) == "socket"
+    args = [a for c in dock.data()["calls"] for a in c]
+    assert "root" not in args and not any(a.startswith("-p") for a in args)         # weder Root-Benutzer noch Passwort-Option
+
+
+def test_dump_uses_socket_without_credentials(dock, tmp_path):
+    setup_socket_access(maria(dock), poll=0.01, timeout=2)
+    lines = []
+    res = run_dumps(tmp_path / "d", {}, lines.append, dock.sockets)
+    assert sorted(d.container for d in res.ok) == ["firefly_db", "immich_postgres", "pg_main"] and not res.skipped
+    assert "fake socket dump of firefly_db as mysql" in read_dump(next((tmp_path / "d").glob("*firefly_db.mariadb.sql")))
+    assert any("ohne Passwort" in l for l in lines)
+
+
+def test_socket_access_is_preferred_over_a_stored_password(dock, tmp_path):
+    setup_socket_access(maria(dock), poll=0.01, timeout=2)
+    key = maria(dock).key
+    run_dumps(tmp_path / "d", {key: {"user": "x", "password": "geheim"}}, lambda _l: None, dock.sockets)
+    assert "as mysql" in read_dump(next((tmp_path / "d").glob("*firefly_db.mariadb.sql")))
+    assert "geheim" not in json.dumps(dock.data()["calls"])
+
+
+def test_password_is_still_the_fallback_without_socket_access(dock, tmp_path):
+    dock.update(mysql_users={"pbsgui_dump": "pw"})
+    key = maria(dock).key
+    res = run_dumps(tmp_path / "d", {key: {"user": "pbsgui_dump", "password": "pw"}}, lambda _l: None, dock.sockets)
+    assert len(res.ok) == 3 and "as pbsgui_dump" in read_dump(next((tmp_path / "d").glob("*firefly_db.mariadb.sql")))
+    assert access_state(maria(dock), {key: {"user": "x", "password": "y"}}) == "password"
+
+
+def test_failed_one_off_start_still_restarts_the_original_container(dock):
+    dock.update(fail_oneoff=True)
+    with pytest.raises(DumpError, match="oci runtime"):
+        setup_socket_access(maria(dock), poll=0.01, timeout=2)
+    assert dock.data()["stopped"] == [] and dock.data()["events"][-1] == "start firefly_db"   # läuft wieder
+
+
+def test_restart_failure_is_reported_with_the_manual_command(dock):
+    dock.update(fail_start=True)
+    with pytest.raises(DumpError, match="docker start firefly_db"):
+        setup_socket_access(maria(dock), poll=0.01, timeout=2)
+
+
+def test_not_a_mariadb_image_is_refused_before_anything_is_stopped(dock):
+    dock.update(no_mariadbd=["firefly_db"])
+    with pytest.raises(DumpError, match="MariaDB"):
+        setup_socket_access(maria(dock), poll=0.01, timeout=2)
+    assert dock.data()["events"] == []
+
+
+def test_postgres_and_missing_datadir_are_refused_without_stopping(dock):
+    pg = next(d for d in find_databases(dock.sockets) if d.engine == POSTGRES)
+    with pytest.raises(DumpError, match="Postgres"):
+        setup_socket_access(pg)
+    state = dock.data()
+    for c in state["sockets"][dock.sockets[1]]:
+        if c["Name"] == "/firefly_db":
+            c["Mounts"] = []
+    dock.path.write_text(json.dumps(state))
+    with pytest.raises(DumpError):
+        setup_socket_access(Database(dock.sockets[1], "x", "firefly_db", MARIADB), poll=0.01, timeout=2)
+    assert dock.data()["events"] == []

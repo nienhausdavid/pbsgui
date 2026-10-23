@@ -513,6 +513,7 @@ class DbDumpScreen(ModalScreen[bool]):
         super().__init__()
         self._mgr, self._profile = mgr, profile
         self._dbs: dict[str, object] = {}
+        self._states: dict[str, str] = {}
         self._current: str | None = None
 
     def compose(self) -> ComposeResult:
@@ -524,7 +525,8 @@ class DbDumpScreen(ModalScreen[bool]):
             yield Checkbox("Dumps vor jedem Backup anlegen", value=self._profile.db_dump, id="dump-on")
             yield Static("Suche Datenbank-Container …", id="db-status", markup=False)
             yield OptionList(id="db-list")
-            yield Button("Zugang festlegen …", id="cred", disabled=True)
+            yield Button("Ohne Passwort einrichten … (empfohlen, Container steht kurz still)", id="socket", disabled=True)
+            yield Button("Zugang mit Passwort festlegen …", id="cred", disabled=True)
             yield Button("Zugang entfernen", id="cred-del", disabled=True)
             yield Button("Speichern", variant="primary", id="ok")
             yield Button("Abbrechen", id="cancel")
@@ -533,23 +535,30 @@ class DbDumpScreen(ModalScreen[bool]):
         self.run_worker(self._scan, thread=True)
 
     def _scan(self) -> None:
-        from ..core.dbdump import DumpError, find_databases
+        from ..core.dbdump import DumpError, access_state, find_databases
         try:
             dbs, err = find_databases(), ""
+            creds = self._mgr.db_credentials(self._profile)
+            states = {d.key: access_state(d, creds) for d in dbs}
         except DumpError as ex:
-            dbs, err = [], str(ex)
-        self.app.call_from_thread(self._show, dbs, err)
+            dbs, err, states = [], str(ex), {}
+        self.app.call_from_thread(self._show, dbs, err, states)
 
     def _label(self, db) -> Text:
-        from ..core.dbdump import MARIADB
-        if db.engine != MARIADB:
+        how = self._states.get(db.key, "none" if db.engine != "mariadb" else "missing")
+        if how == "none":
             state = "Postgres, kein Zugang nötig"
+        elif how == "socket":
+            state = "MariaDB/MySQL, Zugang: ohne Passwort (Socket)"
+        elif how == "password":
+            cred = self._mgr.db_credentials(self._profile).get(db.key) or {}
+            state = f"MariaDB/MySQL, Zugang: {cred.get('user', '?')}"
         else:
-            cred = self._mgr.db_credentials(self._profile).get(db.key)
-            state = f"MariaDB/MySQL, Zugang: {cred['user']}" if cred else "MariaDB/MySQL, Zugang FEHLT"
+            state = "MariaDB/MySQL, Zugang FEHLT"
         return Text(f"{db.container} ({db.owner}): {state}")
 
-    def _show(self, dbs: list, err: str = "") -> None:
+    def _show(self, dbs: list, err: str = "", states: dict | None = None) -> None:
+        self._states = states if states is not None else self._states
         self._dbs = {d.key: d for d in dbs}
         lst = self.query_one("#db-list", OptionList)
         lst.clear_options()
@@ -563,9 +572,20 @@ class DbDumpScreen(ModalScreen[bool]):
         self._current = e.option.id
         db = self._dbs.get(self._current or "")
         maria = bool(db and db.engine == MARIADB)
+        self.query_one("#socket", Button).disabled = not (maria and self._states.get(self._current or "") != "socket")
         self.query_one("#cred", Button).disabled = not maria
         self.query_one("#cred-del", Button).disabled = not (
             maria and self._current in self._mgr.db_credentials(self._profile))
+
+    def _setup_access(self, db) -> None:
+        from ..core.dbdump import DumpError, setup_socket_access
+        try:
+            setup_socket_access(db)
+            msg = f"{db.container}: passwortloser Lesezugang eingerichtet"
+        except DumpError as ex:
+            msg = f"Fehler: {ex}"
+        self.app.call_from_thread(self.app.notify, escape_markup(msg), severity="error" if msg.startswith("Fehler") else "information", timeout=15)
+        self._scan()
 
     def action_cancel(self) -> None:
         self.dismiss(False)
@@ -574,16 +594,26 @@ class DbDumpScreen(ModalScreen[bool]):
         bid = e.button.id
         if bid == "cancel":
             self.dismiss(False)
+        elif bid == "socket" and self._current in self._dbs:
+            db = self._dbs[self._current]
+
+            def go(yes):
+                if yes:
+                    self.query_one("#db-status", Static).update(f"Richte {db.container} ein (Container steht kurz still) …")
+                    self.run_worker(lambda: self._setup_access(db), thread=True)
+            self.app.push_screen(ConfirmScreen(
+                f"{db.container} wird einmalig für etwa 15 bis 40 Sekunden gestoppt (Anwendungen, die ihn nutzen, "
+                "verlieren kurz die Datenbank). Es wird kein Passwort gebraucht und keines gespeichert. Fortfahren?"), go)
         elif bid == "cred" and self._current in self._dbs:
             self.app.push_screen(DbCredScreen(self._mgr, self._profile, self._dbs[self._current]),
-                                 lambda ok: self._show(list(self._dbs.values())) if ok else None)
+                                 lambda ok: self.run_worker(self._scan, thread=True) if ok else None)
         elif bid == "cred-del" and self._current:
             try:
                 self._mgr.remove_db_credential(self._profile, self._current)
             except Exception as ex:
                 self.app.notify(escape_markup(str(ex)), severity="error")
                 return
-            self._show(list(self._dbs.values()))
+            self.run_worker(self._scan, thread=True)
         elif bid == "ok":
             self._profile.db_dump = self.query_one("#dump-on", Checkbox).value
             try:

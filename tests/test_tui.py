@@ -519,3 +519,37 @@ async def test_db_screen_toggle_saves_flag_and_overview_shows_it(mgr, dock):
         await pilot.pause()
         assert mgr.profiles()[0].db_dump is True
         assert "Datenbank-Dumps: an" in text(pilot.app.query_one("#overview", Static))
+
+
+async def test_db_screen_passwordless_setup_button(mgr, dock):
+    prof = mgr.profiles()[0]
+    async with PbsTui(mgr).run_test(size=(140, 70)) as pilot:
+        await pilot.pause()
+        await pilot.press("p")
+        assert await wait_for(pilot, lambda: pilot.app.screen.query_one("#db-list", OptionList).option_count == 3)
+        scr = pilot.app.screen
+        lst = scr.query_one("#db-list", OptionList)
+        maria = next(i for i in range(3) if "firefly_db" in str(lst.get_option_at_index(i).prompt))
+        pg = next(i for i in range(3) if "kein Zugang nötig" in str(lst.get_option_at_index(i).prompt))
+        lst.highlighted = pg
+        await pilot.pause()
+        assert scr.query_one("#socket", Button).disabled is True                    # Postgres braucht das nicht
+        lst.highlighted = maria
+        await pilot.pause()
+        assert scr.query_one("#socket", Button).disabled is False
+        scr.query_one("#socket", Button).press()
+        await pilot.pause()
+        assert pilot.app.screen.__class__.__name__ == "ConfirmScreen"
+        pilot.app.screen.query_one("#no", Button).press()                           # Nein: nichts wird gestoppt
+        await pilot.pause()
+        assert dock.data()["events"] == []
+        scr.query_one("#socket", Button).press()
+        await pilot.pause()
+        pilot.app.screen.query_one("#yes", Button).press()
+        assert await wait_for(pilot, lambda: "ohne Passwort (Socket)" in str(
+            scr.query_one("#db-list", OptionList).get_option_at_index(maria).prompt))
+        assert dock.data()["events"][0] == "stop firefly_db" and dock.data()["events"][-1] == "start firefly_db"
+        assert mgr.db_credentials(prof) == {}                                       # es wurde nichts gespeichert
+        lst.highlighted = maria
+        await pilot.pause()
+        assert scr.query_one("#socket", Button).disabled is True                    # schon eingerichtet

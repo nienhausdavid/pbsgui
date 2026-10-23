@@ -365,3 +365,47 @@ def test_dbdump_ambiguous_container_name(env, capsys, server, dock):
     dock.path.write_text(json.dumps(state))
     code, _, err = run(capsys, "dbdump", "Test", "--remove", "firefly_db")
     assert code == 1 and "nicht eindeutig" in err
+
+
+# -- Passwortloser Zugang für MariaDB ------------------------------------------------------------------------------------
+def test_dbdump_list_points_to_passwordless_setup(env, capsys, server, dock):
+    add_b(capsys, server)
+    out = run(capsys, "dbdump", "Test")[1]
+    assert "Zugang FEHLT (ohne Passwort einrichten: pbsgui dbdump Test --setup-access firefly_db)" in out
+
+
+def test_dbdump_setup_access_end_to_end_without_any_password(env, capsys, server, dock, tmp_path):
+    add_b(capsys, server)
+    dock.update(mysql_users={})                                                   # es gibt kein einziges gültiges Passwort
+    code, out, err = run(capsys, "dbdump", "Test", "--setup-access", "firefly_db", "--yes")
+    assert code == 0, err
+    assert "kein Passwort" in out and "eingerichtet" in out
+    assert dock.data()["events"][0] == "stop firefly_db" and dock.data()["events"][-1] == "start firefly_db"
+    assert "Zugang: ohne Passwort (Socket)" in run(capsys, "dbdump", "Test")[1]
+    code, out, _ = run(capsys, "dbdump", "Test", "--run", "--dest", str(tmp_path / "d"))
+    assert code == 0 and "ohne Passwort" in out and "0 übersprungen" in out
+    n = len(dock.data()["events"])
+    assert "schon eingerichtet" in run(capsys, "dbdump", "Test", "--setup-access", "firefly_db")[1]
+    assert len(dock.data()["events"]) == n                                        # zweites Mal: nichts gestoppt
+
+
+def test_dbdump_setup_access_asks_before_stopping_a_container(env, capsys, server, dock, monkeypatch):
+    add_b(capsys, server)
+    code, _, err = run(capsys, "dbdump", "Test", "--setup-access", "firefly_db")   # kein Terminal, kein --yes
+    assert code == 1 and "--yes" in err and dock.data()["events"] == []
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("builtins.input", lambda _p="": "n")
+    code, out, _ = run(capsys, "dbdump", "Test", "--setup-access", "firefly_db")
+    assert code == 1 and "Abgebrochen" in out and dock.data()["events"] == []
+    monkeypatch.setattr("builtins.input", lambda _p="": "j")
+    assert run(capsys, "dbdump", "Test", "--setup-access", "firefly_db")[0] == 0
+    assert "stop firefly_db" in dock.data()["events"]
+
+
+def test_dbdump_setup_access_refuses_postgres_and_reports_failure(env, capsys, server, dock):
+    add_b(capsys, server)
+    code, _, err = run(capsys, "dbdump", "Test", "--setup-access", "immich_postgres", "--yes")
+    assert code == 1 and "Postgres" in err and dock.data()["events"] == []
+    dock.update(fail_oneoff=True)
+    code, _, err = run(capsys, "dbdump", "Test", "--setup-access", "firefly_db", "--yes")
+    assert code == 1 and "oci runtime" in err and dock.data()["events"][-1] == "start firefly_db"
