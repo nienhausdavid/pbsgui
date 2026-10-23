@@ -1,5 +1,4 @@
 """Datenbank-Dumps: Erkennung, Zugangsdaten, Dump-Lauf und Einbindung in Runner/Client (Fake-docker)."""
-import gzip
 import json
 import os
 import socket
@@ -19,8 +18,7 @@ from pbsgui.core.secrets import FileStore
 from fake_docker_env import container, dock  # noqa: F401
 
 def read_dump(path):
-    with gzip.open(path, "rt") as f:
-        return f.read()
+    return Path(path).read_text()
 
 
 # -- Erkennung ----------------------------------------------------------------------------------------------
@@ -77,7 +75,7 @@ def test_run_dumps_postgres_without_secret_and_mariadb_needs_credentials(dock, t
     assert sorted(d.container for d in res.ok) == ["immich_postgres", "pg_main"]
     assert [d.container for d, _ in res.skipped] == ["firefly_db"]               # kein Zugang -> nicht erraten
     names = sorted(p.name for p in out.iterdir())
-    assert any(n.endswith("__immich_postgres.postgres.sql.gz") for n in names) and len(names) == 2
+    assert any(n.endswith("__immich_postgres.postgres.sql") for n in names) and len(names) == 2
     assert "fake postgres dump of immich_postgres" in read_dump(next(p for p in out.iterdir() if "immich" in p.name))
     assert oct(out.stat().st_mode & 0o777) == "0o700"
     assert all(oct(p.stat().st_mode & 0o777) == "0o600" for p in out.iterdir())
@@ -90,7 +88,7 @@ def test_mariadb_dump_with_credentials_passes_password_via_stdin_only(dock, tmp_
              {"user": "pbsgui_dump", "password": "geheimes-pw"}}
     res = run_dumps(tmp_path / "d", creds, lambda _l: None, dock.sockets)
     assert len(res.ok) == 3 and not res.failed
-    sql = read_dump(next((tmp_path / "d").glob("*firefly_db.mariadb.sql.gz")))
+    sql = read_dump(next((tmp_path / "d").glob("*firefly_db.mariadb.sql")))
     assert "fake mysql dump of firefly_db as pbsgui_dump" in sql
     assert "geheimes-pw" not in json.dumps(dock.data()["calls"])                  # nie in der Kommandozeile
 
@@ -98,7 +96,7 @@ def test_mariadb_dump_with_credentials_passes_password_via_stdin_only(dock, tmp_
 def test_failed_dump_keeps_previous_good_dump(dock, tmp_path):
     out = tmp_path / "d"
     run_dumps(out, {}, lambda _l: None, dock.sockets)
-    target = next(out.glob("*immich_postgres.postgres.sql.gz"))
+    target = next(out.glob("*immich_postgres.postgres.sql"))
     before = read_dump(target)
     dock.update(fail=["immich_postgres"])
     lines = []
@@ -222,13 +220,13 @@ def test_dumps_are_overwritten_not_accumulated(dock, tmp_path):
 def test_stale_dump_of_vanished_container_is_removed_after_14_days(dock, tmp_path):
     out = tmp_path / "d"
     out.mkdir()
-    old, young, foreign = out / "root__weg.postgres.sql.gz", out / "root__neu_weg.postgres.sql.gz", out / "notiz.txt"
+    old, young, foreign = out / "root__weg.postgres.sql", out / "root__neu_weg.postgres.sql", out / "notiz.txt"
     for f in (old, young, foreign):
         f.write_text("x")
     age(old, 20); age(young, 3); age(foreign, 400)
     lines = []
     res = run_dumps(out, {}, lines.append, dock.sockets)
-    assert res.removed == ["root__weg.postgres.sql.gz"] and not old.exists()
+    assert res.removed == ["root__weg.postgres.sql"] and not old.exists()
     assert young.exists() and foreign.exists()                                  # jung bzw. keine Dump-Datei
     assert any("Entfernt" in l and "weg.postgres" in l for l in lines)
 
@@ -236,7 +234,7 @@ def test_stale_dump_of_vanished_container_is_removed_after_14_days(dock, tmp_pat
 def test_old_dump_of_detected_container_is_never_removed_even_when_failing(dock, tmp_path):
     out = tmp_path / "d"
     run_dumps(out, {}, lambda _l: None, dock.sockets)
-    target = next(out.glob("*immich_postgres.postgres.sql.gz"))
+    target = next(out.glob("*immich_postgres.postgres.sql"))
     age(target, 90)
     dock.update(fail=["immich_postgres"])
     res = run_dumps(out, {}, lambda _l: None, dock.sockets)
@@ -250,7 +248,7 @@ def test_remove_stale_without_directory(tmp_path):
 def test_stopped_container_dump_goes_after_14_days(dock, tmp_path):
     out = tmp_path / "d"
     run_dumps(out, {}, lambda _l: None, dock.sockets)
-    pg = next(out.glob("*pg_main.postgres.sql.gz"))
+    pg = next(out.glob("*pg_main.postgres.sql"))
     state = dock.data()
     state["sockets"][dock.sockets[0]] = [c for c in state["sockets"][dock.sockets[0]] if c["Name"] != "/pg_main"]
     dock.path.write_text(json.dumps(state))                                      # Container gestoppt/entfernt
@@ -259,3 +257,45 @@ def test_stopped_container_dump_goes_after_14_days(dock, tmp_path):
     age(pg, 15)
     run_dumps(out, {}, lambda _l: None, dock.sockets)
     assert not pg.exists()
+
+
+# -- Unkomprimierte Dumps (PBS komprimiert und dedupliziert selbst) -------------------------------------------------------
+def test_dumps_are_plain_text_not_gzip(dock, tmp_path):
+    out = tmp_path / "d"
+    run_dumps(out, {}, lambda _l: None, dock.sockets)
+    f = next(out.glob("*immich_postgres.postgres.sql"))
+    raw = f.read_bytes()
+    assert not raw.startswith(b"\x1f\x8b") and raw.startswith(b"-- fake postgres dump")        # kein gzip-Strom
+    assert not list(out.glob("*.gz"))
+
+
+def test_new_plain_dump_replaces_the_old_gzip_dump(dock, tmp_path):
+    out = tmp_path / "d"
+    out.mkdir()
+    old = out / next(d for d in find_databases(dock.sockets) if d.container == "immich_postgres").legacy_filename
+    old.write_bytes(b"\x1f\x8b alter gzip-Dump")
+    run_dumps(out, {}, lambda _l: None, dock.sockets)
+    assert not old.exists() and (out / old.name.removesuffix(".gz")).exists()
+
+
+def test_old_gzip_dump_stays_when_the_new_dump_fails(dock, tmp_path):
+    out = tmp_path / "d"
+    out.mkdir()
+    old = out / next(d for d in find_databases(dock.sockets) if d.container == "immich_postgres").legacy_filename
+    old.write_bytes(b"\x1f\x8b alter gzip-Dump")
+    age(old, 60)                                                                   # sehr alt, aber der letzte gute Stand
+    dock.update(fail=["immich_postgres"])
+    res = run_dumps(out, {}, lambda _l: None, dock.sockets)
+    assert [d.container for d, _ in res.failed] == ["immich_postgres"]
+    assert old.exists() and res.removed == []
+
+
+def test_stale_cleanup_handles_both_name_forms(dock, tmp_path):
+    out = tmp_path / "d"
+    out.mkdir()
+    gone_gz, gone_sql = out / "root__weg.postgres.sql.gz", out / "root__weg2.postgres.sql"
+    for f in (gone_gz, gone_sql):
+        f.write_text("x")
+        age(f, 30)
+    res = run_dumps(out, {}, lambda _l: None, dock.sockets)
+    assert sorted(res.removed) == ["root__weg.postgres.sql.gz", "root__weg2.postgres.sql"]

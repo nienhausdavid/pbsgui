@@ -3,6 +3,8 @@
 Warum: Der Client liest die Dateien einer laufenden Datenbank nacheinander über Minuten. Das Ergebnis ist nur
 absturzkonsistent (wie nach einem Stromausfall) und lässt sich meist, aber nicht garantiert wiederherstellen.
 Ein Dump ist ein sauberer, jederzeit prüfbarer Stand und wird als eigenes Archiv `dbdumps.pxar` mitgesichert.
+Die Dumps liegen bewusst UNKOMPRIMIERT als `.sql` im Archiv: PBS komprimiert die Blöcke selbst und erkennt unveränderte
+Teile wieder (Deduplizierung). Ein gzip-Strom ändert sich dagegen komplett und würde bei jedem Lauf voll hochgeladen.
 
 Erkennung (nicht nach Namen): Pro Docker-kompatiblem Socket (System-Daemon, rootless-Daemons aller Benutzer,
 Podman-Docker-Socket) werden die laufenden Container untersucht. Eine Datenbank liegt vor, wenn ein Datenverzeichnis
@@ -18,7 +20,6 @@ Zugangsdaten:
 from __future__ import annotations
 
 import glob
-import gzip
 import json
 import os
 import pwd
@@ -78,7 +79,12 @@ class Database:
 
     @property
     def filename(self) -> str:
-        return f"{_safe(self.owner)}__{_safe(self.container)}.{self.engine}.sql.gz"
+        return f"{_safe(self.owner)}__{_safe(self.container)}.{self.engine}.sql"
+
+    @property
+    def legacy_filename(self) -> str:
+        """Dateiname der früheren, gzip-komprimierten Dumps (bis 0.6.0)."""
+        return self.filename + ".gz"
 
 
 @dataclass
@@ -190,8 +196,8 @@ def dump_credentials(creds: dict[str, dict]) -> str:
 
 
 # -- Ausführen -------------------------------------------------------------------------------------------------
-def _stream_to_gzip(cmd: list[str], dest: Path, stdin_data: str | None = None, timeout: float = DUMP_TIMEOUT) -> int:
-    """Führt cmd aus und schreibt stdout gzip-komprimiert nach dest (atomar). Gibt die Größe zurück."""
+def _stream_to_file(cmd: list[str], dest: Path, stdin_data: str | None = None, timeout: float = DUMP_TIMEOUT) -> int:
+    """Führt cmd aus und schreibt stdout unkomprimiert nach dest (atomar). Gibt die Größe zurück."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(dest.parent, 0o700)
     fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=".dump-", suffix=".tmp")
@@ -216,7 +222,7 @@ def _stream_to_gzip(cmd: list[str], dest: Path, stdin_data: str | None = None, t
                     proc.stdin.close()
                 except BrokenPipeError:
                     pass
-            with gzip.open(tmp, "wb", compresslevel=6) as out:
+            with open(tmp, "wb") as out:
                 shutil.copyfileobj(proc.stdout, out, 1 << 20)
             code = proc.wait()
         finally:
@@ -236,12 +242,18 @@ def _stream_to_gzip(cmd: list[str], dest: Path, stdin_data: str | None = None, t
 
 
 def dump_database(db: Database, dest_dir: Path, cred: dict | None = None) -> int:
+    size = _dump_database(db, dest_dir, cred)
+    (dest_dir / db.legacy_filename).unlink(missing_ok=True)   # der neue Dump ersetzt den alten gzip-Dump
+    return size
+
+
+def _dump_database(db: Database, dest_dir: Path, cred: dict | None) -> int:
     dest = dest_dir / db.filename
     if db.engine == POSTGRES:
-        return _stream_to_gzip(_docker(db.socket, "exec", db.container, "sh", "-c", _POSTGRES_DUMP), dest)
+        return _stream_to_file(_docker(db.socket, "exec", db.container, "sh", "-c", _POSTGRES_DUMP), dest)
     if not cred:
         raise DumpError("kein Datenbank-Zugang hinterlegt")
-    return _stream_to_gzip(_docker(db.socket, "exec", "-i", db.container, "sh", "-c", _MYSQL_DUMP, "sh",
+    return _stream_to_file(_docker(db.socket, "exec", "-i", db.container, "sh", "-c", _MYSQL_DUMP, "sh",
                                    cred["user"]), dest, stdin_data=cred["password"] + "\n")
 
 
@@ -256,10 +268,10 @@ def remove_stale(dest_dir: Path, active: Iterable[Database], on_line: Callable[[
     import time
     if not dest_dir.is_dir():
         return []
-    keep = {db.filename for db in active}
+    keep = {name for db in active for name in (db.filename, db.legacy_filename)}
     limit = (now if now is not None else time.time()) - days * 86400
     removed: list[str] = []
-    for f in sorted(dest_dir.glob("*__*.sql.gz")):
+    for f in sorted([*dest_dir.glob("*__*.sql"), *dest_dir.glob("*__*.sql.gz")]):
         try:
             if f.name in keep or not f.is_file() or f.stat().st_mtime >= limit:
                 continue

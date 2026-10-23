@@ -351,7 +351,7 @@ def test_dbdump_run_writes_dumps_and_reports_failures(env, capsys, server, dock,
     dest = tmp_path / "dumps"
     code, out, _ = run(capsys, "dbdump", "Test", "--run", "--dest", str(dest))
     assert code == 0 and "2 gesichert, 1 übersprungen, 0 fehlgeschlagen" in out     # MariaDB ohne Zugang übersprungen
-    assert len(list(dest.glob("*.postgres.sql.gz"))) == 2
+    assert len(list(dest.glob("*.postgres.sql"))) == 2
     dock.update(fail=["pg_main"])
     code, out, _ = run(capsys, "dbdump", "Test", "--run", "--dest", str(dest))
     assert code == 1 and "1 fehlgeschlagen" in out

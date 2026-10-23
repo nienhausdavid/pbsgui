@@ -7,6 +7,12 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Geändert
+- **Datenbank-Dumps werden unkomprimiert gesichert** (`*.sql` statt `*.sql.gz`). PBS komprimiert die Blöcke selbst und
+  erkennt unveränderte Teile wieder; ein gzip-Strom ändert sich dagegen komplett und wurde bei jedem Lauf voll
+  hochgeladen (gemessen: 140 MiB je Lauf für den Immich-Dump). Ein neuer Dump ersetzt den alten `.sql.gz` des Containers;
+  schlägt der neue Dump fehl, bleibt der alte erhalten.
+
 ## [0.6.0] - 2026-10-23
 
 ### Hinzugefügt
