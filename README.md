@@ -23,14 +23,17 @@ bleibt dessen eigene ACL bestehen (die App entfernt sie vorher).
 - Root-Login per Passwort und 2FA-Ablauf ungeprüft (getestet wurde mit API-Token)
 - System-Scope (pkexec-Helfer, System-Units) ist nur per Unit-Test mit Fake-Runner geprüft
 - Master-Key-Erzeugung (RSA) und Prune fehlen; Key-Rotation ebenso (ein Key wird nie überschrieben)
-- Keine Lizenz festgelegt
 
 ## Installation
-Als Debian-Paket (Debian 13; reines Python, nutzt `python3-textual` und `python3-pyside6.*` der Distribution):
+Ein Befehl (Debian 13 / Ubuntu), Details in [docs/INSTALLATION.md](docs/INSTALLATION.md):
+```bash
+curl -fsSL https://raw.githubusercontent.com/nienhausdavid/pbsgui/main/scripts/install.sh | sudo sh
+```
+Als Debian-Paket aus dem Quellcode (Debian 13; reines Python, nutzt `python3-textual` und `python3-pyside6.*` der Distribution):
 ```bash
 scripts/build-deb.sh dist && sudo apt install ./dist/pbsgui_*_all.deb
 ```
-Ein signiertes APT-Repository über GitHub Pages ist vorbereitet, siehe [docs/RELEASING.md](docs/RELEASING.md).
+Das signierte APT-Repository liegt auf GitHub Pages (`https://nienhausdavid.github.io/pbsgui`), siehe [docs/RELEASING.md](docs/RELEASING.md).
 Den `proxmox-backup-client` gibt es im Proxmox-Client-Repository (`pbs-client`).
 
 ## Einzelne Dateien wiederherstellen (File-Level-Restore)
@@ -86,3 +89,6 @@ scripts/install-desktop.sh        # Starter + Icon im Anwendungsmenü installier
 ```
 Ende-zu-Ende in QEMU (Backup → ISO-Wiederherstellung → Boot): `tests/vm/` (siehe Kopf von `e2e.py`).
 Debian/Ubuntu: `sudo apt install python3-venv`, dazu den `proxmox-backup-client` aus dem Proxmox-Client-Repo.
+
+## Lizenz
+[AGPL-3.0-or-later](LICENSE).

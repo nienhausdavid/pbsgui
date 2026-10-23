@@ -47,8 +47,11 @@ Source: https://github.com/nienhausdavid/pbsgui
 
 Files: *
 Copyright: 2026 David Nienhaus
-License: UNSPECIFIED
- Lizenz noch nicht festgelegt. Bis dahin sind alle Rechte vorbehalten.
+License: AGPL-3+
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU Affero General Public License as published by the Free
+ Software Foundation, either version 3 of the License, or (at your option) any
+ later version. The full text is in /usr/share/common-licenses/AGPL-3 .
 COPY
 printf 'pbsgui (%s) unstable; urgency=low\n\n  * Release %s.\n\n -- David Nienhaus <noreply@users.noreply.github.com>  %s\n' \
   "$version" "$version" "$(date -R)" | gzip -9n > "$d/usr/share/doc/$pkg/changelog.gz"

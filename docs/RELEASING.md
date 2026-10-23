@@ -13,7 +13,7 @@
    neuen Versionen signieren; Nutzer müssten dann einen neuen öffentlichen Schlüssel importieren.
 2. **GitHub Pages** aktivieren: Repository → Settings → Pages → Source: *GitHub Actions*.
    Auf dem kostenlosen Plan muss das Repository dafür **öffentlich** sein.
-3. Lizenz festlegen (`LICENSE` und `usr/share/doc/pbsgui/copyright` in `scripts/build-deb.sh`).
+3. Lizenz: AGPL-3.0-or-later (`LICENSE`, `pyproject.toml`, `usr/share/doc/pbsgui/copyright` in `scripts/build-deb.sh`).
 
 ## Versionen
 

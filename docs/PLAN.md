@@ -117,7 +117,7 @@ Pro Profil `.service` + `.timer`:
   PBS-API simuliert). Kein Test-PBS nötig; ein Test gegen einen echten Server kann später
   als optionaler Integrationstest folgen.
 - Exakte Rollen/Rechte für Prune und Restore gegen die PBS-Doku verifizieren.
-- Lizenz festlegen.
+- Lizenz: AGPL-3.0-or-later (siehe `LICENSE`).
 - Hinweis: BackupPilot (AGPL) wurde nur zur Orientierung gelesen, Code wird nicht übernommen.
 
 ## Wiederherstellung auf neuem PC (Rettungs-ISO)
