@@ -4,6 +4,8 @@ leeren Platte -> Boot der wiederhergestellten Platte.
 
 Phasen (einzeln oder alle):  provision  backup  restore  verify  cleanup
 Voraussetzung: Quell-Image (tests/vm/build_source_image.sh) und ISO (scripts/build-iso.sh).
+Kleinere Ziel-Platte: `restore_cli --shrink` (Zielgröße TARGET_SIZE in Bytes, z. B. 5 GiB bei 6-GiB-Quelle), danach
+`verify --shrink` (prüft zusätzlich, dass Platte und Root-LV kleiner sind und alle UUIDs gleich blieben).
 Umgebung: PBS_TEST_SECRET = Secret des Admin-Tokens root@pam!testpbsgui (nur lesend/Provisionierung im Test-Namespace).
 """
 from __future__ import annotations
@@ -280,7 +282,7 @@ def restore_cli(a) -> None:
         env = f"PBSGUI_TOKEN_SECRET='{s['secret']}' PBSGUI_LUKS_PASSPHRASE='{PASS}' PBSGUI_NEW_LUKS_PASSPHRASE='{NEWPASS}'"
         log(f"Wiederherstellung per CLI, Verschlüsselung: {a.encryption}")
         out, rc = vm.run(f"{env} pbsgui rescue run --disk /dev/vda --keyfile /media/usb/key.json "
-                         f"--encryption {a.encryption} --confirm-disk /dev/vda", 1800)
+                         f"--encryption {a.encryption} --confirm-disk /dev/vda" + (" --shrink" if a.shrink else ""), 1800)
         print(out[-2500:])
         assert rc == 0, "Wiederherstellung fehlgeschlagen"
         vm.run("sync", 60)
@@ -332,6 +334,12 @@ def verify(a) -> None:
                       and f"UUID={luks_new[0]['uuid']}" in crypttab)
         print(f"Kennungen identisch (ohne LUKS-Container bei none/new): {same} | Verschlüsselung wie gewählt: {enc_ok}")
         assert ok and same and enc_ok, "Verifikation fehlgeschlagen"
+        if a.shrink:      # kleinere Platte: Platte und Root-LV müssen kleiner sein als im Original
+            size = lambda t: next(n["size"] for n in flat(t["blockdevices"]) if n.get("type") == "disk")
+            root = lambda t: next(n["size"] for n in flat(t["blockdevices"]) if "/" in (n.get("mountpoints") or []))
+            assert size(new) < size(orig) and root(new) < root(orig), \
+                f"Größen nicht kleiner: Platte {size(new)} / {size(orig)}, Root {root(new)} / {root(orig)}"
+            log(f"Größe angepasst: Platte {size(orig) >> 20} -> {size(new) >> 20} MiB, Root {root(orig) >> 20} -> {root(new) >> 20} MiB")
         log(f"VERIFIKATION ERFOLGREICH ({mode}): System bootet, Dateien und Kennungen stimmen, Verschlüsselung wie gewählt")
         vm.send("poweroff\n")
         try:
@@ -363,6 +371,7 @@ def main() -> None:
     ap.add_argument("--source-image", default=str(WORK / "source.img"))
     ap.add_argument("--iso", default=str(next(iter(sorted((ROOT / "dist").glob("pbsgui-rescue-*.iso"))), "")))
     ap.add_argument("--screens", action="store_true", help="Screenshots nach docs/images/ schreiben")
+    ap.add_argument("--shrink", action="store_true", help="restore_cli: kleinere Ziel-Platte mit Größe anpassen; verify: Größen prüfen")
     ap.add_argument("--encryption", choices=["keep", "none", "new"], default="keep")
     a = ap.parse_args()
     phases = ["provision", "backup", "restore", "verify"] if a.phase == "all" else [a.phase]

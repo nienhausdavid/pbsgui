@@ -41,6 +41,9 @@ def add_arguments(sub) -> None:
             r.add_argument("--snapshot", help="Snapshot-Pfad; Standard: neuester")
             r.add_argument("--dry-run", action="store_true", help="nur anzeigen, was getan würde")
             r.add_argument("--confirm-disk", help="Ziel-Platte zur Bestätigung noch einmal angeben (ohne Rückfrage)")
+            r.add_argument("--shrink", action="store_true",
+                           help="Größe anpassen: erlaubt eine KLEINERE Ziel-Platte (Partitionen/LVs werden verkleinert, "
+                                "die belegten Daten plus 20 %% Reserve müssen passen)")
             r.add_argument("--encryption", choices=["keep", "new", "none"], default="keep",
                            help="LUKS: keep = wie im Original (Standard), new = neu verschlüsseln mit neuer Passphrase "
                                 "(PBSGUI_NEW_LUKS_PASSPHRASE), none = ohne Verschlüsselung aufbauen")
@@ -150,8 +153,14 @@ def _run(a) -> int:
                       if needs_passphrase(rec, a.encryption) else "")
     if a.encryption == "new":
         cfg.new_passphrase = _new_passphrase()
+    shrink = a.shrink
+    src_size = rec.root_disk().size
+    if size < src_size and not shrink:
+        print(f"Die Ziel-Platte ({size / 2**30:.1f} GiB) ist kleiner als das Original ({src_size / 2**30:.1f} GiB).")
+        if sys.stdin.isatty() and input("Partitionen und Volumes verkleinern ('Größe anpassen')? [j/N] ").strip().lower() in ("j", "y"):
+            shrink = True
     plan = build_layout_plan(rec, a.disk, cfg.passphrase or None, target_size=size, encryption=a.encryption,
-                             new_passphrase=cfg.new_passphrase or None)
+                             new_passphrase=cfg.new_passphrase or None, shrink=shrink, snapshot_size=snap.size or None)
     print("\nGeplante Wiederherstellung:")
     for line in plan.summary:
         print("  " + line)

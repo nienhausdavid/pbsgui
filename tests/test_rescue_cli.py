@@ -7,7 +7,8 @@ import pytest
 
 from pbsgui.cli.main import main
 from pbsgui.core import rescue as rescue_mod
-from test_rescue import LSBLK_DISKS, rec_dir, snap, put_snapshots  # noqa: F401
+from test_rescue import LSBLK_DISKS, snap, put_snapshots  # noqa: F401
+from test_rescue_shrink import rec_dir  # noqa: F401  (Wiederherstellungsdaten mit echten LVM-Metadaten)
 
 @pytest.fixture
 def env(fake_env, rec_dir, tmp_path, monkeypatch):
@@ -136,3 +137,28 @@ def test_run_keep_still_asks_for_old_passphrase(env, capsys, monkeypatch):
     monkeypatch.delenv("PBSGUI_LUKS_PASSPHRASE", raising=False)
     code, _, err = run(capsys, *base_args("--dry-run"))
     assert code == 1 and "PBSGUI_LUKS_PASSPHRASE" in err
+
+
+def small_disk(monkeypatch, size=128 * 2**30):
+    monkeypatch.setattr(rescue_mod, "candidate_disks", lambda lsblk_json=None: [
+        {"path": "/dev/sda", "size": size, "model": "Klein", "tran": "sata", "removable": False}])
+
+
+def test_smaller_disk_without_shrink_is_refused_and_names_the_option(env, capsys, monkeypatch):
+    small_disk(monkeypatch)
+    code, out, err = run(capsys, *base_args("--dry-run"))
+    assert code == 1 and "--shrink" in err and "kleiner als das Original" in out
+
+
+def test_shrink_dry_run_shows_old_and_new_sizes(env, capsys, monkeypatch):
+    small_disk(monkeypatch)
+    code, out, err = run(capsys, *base_args("--dry-run", "--shrink"))
+    assert code == 0, err
+    assert "Größe angepasst" in out and "vg/root" in out and " -> " in out
+    assert "luks-pass" not in out
+
+
+def test_shrink_too_small_names_the_minimum(env, capsys, monkeypatch):
+    small_disk(monkeypatch, 20 * 2**30)
+    code, _, err = run(capsys, *base_args("--dry-run", "--shrink"))
+    assert code == 1 and "mindestens" in err and "GiB nötig" in err

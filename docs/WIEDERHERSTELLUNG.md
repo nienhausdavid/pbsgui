@@ -72,6 +72,27 @@ Gibt es im Zielsystem noch kein `cryptsetup-initramfs` (Original war unverschlü
 es im neuen System nach; dafür braucht der Rechner Netzwerk. Dateisystem- und LVM-Kennungen bleiben in allen Fällen
 dieselben; nur der LUKS-Container bekommt bei „neu“ eine neue UUID.
 
+### Kleinere Ziel-Platte („Größe anpassen“)
+
+Ist die gewählte Platte **kleiner** als die Original-Platte (Beispiel: Original 512 GB mit 50 GB belegt, Ziel 128 GB),
+erscheint unter der Platten-Liste die Option **„Größe anpassen“**. Ohne Haken bricht der Assistent mit „Ziel-Platte zu
+klein“ ab. Mit Haken berechnet er das Layout neu:
+
+- **EFI-Partition und `/boot` behalten ihre Größe**, ebenso BIOS-Boot und unbekannte Partitionen.
+- **Swap** (Partition oder LV) wird im Verhältnis Ziel/Original verkleinert, mindestens 1 GiB, nie größer als vorher.
+- Alle übrigen **Partitionen und Logical Volumes** teilen sich den Rest im Verhältnis ihrer alten Größen, nie größer als
+  vorher. Jedes Dateisystem bekommt mindestens **belegten Platz + 20 % Reserve, mindestens 2 GiB**. Wer damit auf sein
+  Minimum fällt, behält es; die anderen teilen den verbleibenden Platz. Die Verteilung ist deterministisch.
+- Passt es nicht, nennt die Fehlermeldung die **nötige Mindestgröße** der Ziel-Platte.
+- **Alle UUIDs bleiben gleich** (Partitionen, Dateisysteme, LUKS im Modus „wie im Original“, PV/VG/LV); `fstab`,
+  `crypttab` und GRUB bleiben gültig. Die Partitionstabelle wird neu geschrieben, der GPT-Sicherungs-Header liegt am
+  Ende der kleineren Platte. Alle drei Verschlüsselungs-Modi funktionieren.
+- Der Plan im nächsten Schritt zeigt **alt -> neu** für jede Partition und jedes LV.
+
+Der belegte Platz stammt aus den Wiederherstellungsdaten (`fsusage.json`, ab pbsgui 0.6 im Backup). Bei älteren
+Backups schätzt pbsgui ihn aus der Snapshot-Größe und weist im Plan darauf hin.
+Nicht unterstützt: Volume Groups über mehrere Platten, Thin-Pools/Snapshots/RAID-LVs, erweiterte MBR-Partitionen.
+
 ## 5. Plan prüfen und bestätigen
 
 ![Schritt 4: Bestätigen](images/06-bestaetigen.png)
@@ -103,6 +124,7 @@ PBSGUI_TOKEN_SECRET=… PBSGUI_LUKS_PASSPHRASE=… \
   pbsgui rescue run --server pbs.example.org --datastore main --auth-id user@pbs!tok --backup-id mein-pc \
   --keyfile /media/pbsgui/sdb1/key.json --disk /dev/sda --dry-run      # erst ansehen, dann ohne --dry-run
 # Verschlüsselung wählen: --encryption keep (Standard) | new (PBSGUI_NEW_LUKS_PASSPHRASE setzen) | none
+# Kleinere Ziel-Platte als das Original: --shrink (Größe anpassen); interaktiv wird es automatisch angeboten
 ```
 
 ## Wenn etwas nicht klappt
@@ -113,7 +135,8 @@ PBSGUI_TOKEN_SECRET=… PBSGUI_LUKS_PASSPHRASE=… \
 | „missing key“ | Das Backup ist verschlüsselt: im ersten Schritt die exportierte Schlüsseldatei angeben. |
 | „LUKS-Header … fehlt im Backup“ | Das Backup war unverschlüsselt; der Header wird nur in verschlüsselte Backups gelegt. Ausweg: „neu verschlüsseln“ oder „ohne Verschlüsselung“ wählen. |
 | „Neue Verschlüsselung braucht eine getrennte /boot-Partition“ | GRUB kann ein verschlüsseltes Root-Dateisystem ohne eigenes `/boot` nicht lesen: „wie im Original“ oder „ohne“ wählen. |
-| „Ziel-Platte zu klein“ | Die neue Platte muss mindestens so groß sein wie die alte. |
+| „Ziel-Platte zu klein“ | Die neue Platte ist kleiner als die alte: „Größe anpassen“ ankreuzen bzw. `--shrink` angeben. |
+| „Ziel-Platte zu klein, auch mit ‚Größe anpassen‘ … mindestens X GiB nötig“ | Die belegten Daten plus Reserve passen nicht: größere Platte nehmen (mindestens X GiB) oder vorher im Original aufräumen und neu sichern. |
 | Keine Ziel-Platte angeboten | Die Platte ist eingehängt oder ist der Rettungsstick. `lsblk` und `umount` prüfen. |
 | System bootet nicht (neue Hardware) | Rettungsstick erneut starten, `pbsgui rescue` nicht erneut ausführen, sondern manuell: Ziel einhängen, `chroot`, `update-initramfs -u -k all`, `grub-install`, `update-grub`. |
 

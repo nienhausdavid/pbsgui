@@ -119,6 +119,20 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
         sh(["sfdisk", "--dump", path], f"partition-table-{name}.sfdisk")
         sh(["sgdisk", f"--backup={dest / f'gpt-{name}.bin'}", path], artifact=f"gpt-{name}.bin")
 
+    # Belegter Platz je Einhängepunkt: Grundlage, um bei der Wiederherstellung auf eine kleinere Platte zu rechnen
+    usage: dict[str, dict[str, int]] = {}
+    for n in devices:
+        for mp in n.get("mountpoints") or []:
+            if mp and mp.startswith("/") and mp not in usage:
+                try:
+                    st = os.statvfs(mp)
+                    usage[mp] = {"size": st.f_blocks * st.f_frsize, "used": (st.f_blocks - st.f_bfree) * st.f_frsize}
+                except OSError:
+                    pass
+    if usage:
+        (dest / "fsusage.json").write_text(json.dumps(usage, indent=2))
+        out.files.append("fsusage.json")
+
     sh(["blkid"], "blkid.txt")
     sh(["findmnt", "-J"], "findmnt.json")
     sh(["efibootmgr", "-v"], "efibootmgr.txt")

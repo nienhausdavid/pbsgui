@@ -7,6 +7,17 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **Wiederherstellung auf einer kleineren Platte** („Größe anpassen“; Assistent: Haken bei zu kleiner Platte,
+  `pbsgui rescue run --shrink`, interaktiv wird es angeboten). EFI und `/boot` behalten ihre Größe, Swap wird
+  proportional (mind. 1 GiB) verkleinert, die übrigen Partitionen und LVs teilen sich den Rest proportional, aber nie
+  unter belegtem Platz + 20 % Reserve (mind. 2 GiB); sonst Fehlermeldung mit der nötigen Mindestgröße. UUIDs bleiben
+  erhalten, die LVM-Metadaten werden für das kleinere Physical Volume umgeschrieben, die Partitionstabelle neu
+  geschrieben (GPT-Backup-Header am Plattenende). Der Plan zeigt alt -> neu. Funktioniert mit allen drei
+  Verschlüsselungs-Modi. Nicht unterstützt: VGs über mehrere Platten, Thin-Pools/Snapshots/RAID, erweiterte MBR-Partitionen.
+- Vollbackups legen den belegten Platz je Einhängepunkt als `fsusage.json` in den Wiederherstellungsdaten ab (Grundlage
+  für „Größe anpassen“; bei älteren Backups wird er aus der Snapshot-Größe geschätzt).
+
 ### Geändert
 - **GUI schneller:** Der Start dauerte ca. 4 s, weil das Geheimnis des Schlüssels zweimal per `systemd-creds` entschlüsselt wurde,
   nur um „Schlüssel vorhanden?“ anzuzeigen. Jetzt genügt ein Dateicheck (`SecretStore.exists`); Start und Profilwechsel

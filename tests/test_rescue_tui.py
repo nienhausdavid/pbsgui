@@ -2,12 +2,13 @@
 import shutil
 
 import pytest
-from textual.widgets import Button, DataTable, Input
+from textual.widgets import Button, Checkbox, DataTable, Input
 
 from pbsgui.core import rescue as rescue_mod
 from pbsgui.core.rescue import RescueConfig
 from pbsgui.tui import rescue as rtui
-from test_rescue import rec_dir, snap, put_snapshots  # noqa: F401
+from test_rescue import snap, put_snapshots  # noqa: F401
+from test_rescue_shrink import rec_dir  # noqa: F401  (Wiederherstellungsdaten mit echten LVM-Metadaten)
 
 
 async def wait_for(pilot, cond, timeout=6.0):
@@ -223,3 +224,25 @@ async def test_disk_screen_fits_the_linux_console(lab):
         nxt = s.query_one("#next", Button).region
         assert nxt.y + nxt.height <= 50, f"Weiter-Knopf unterhalb des Bildschirms: {nxt}"
         assert s.query_one("#panel").max_scroll_y == 0
+
+
+async def test_smaller_disk_offers_shrink_option(lab, monkeypatch):
+    monkeypatch.setattr(rescue_mod, "candidate_disks", lambda lsblk_json=None: [
+        {"path": "/dev/sda", "size": 600_000_000_000, "model": "Gross", "tran": "sata", "removable": False},
+        {"path": "/dev/sdb", "size": 128 * 2**30, "model": "Klein", "tran": "sata", "removable": False}])
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 70)) as pilot:
+        await to_disks(pilot, app)
+        s = app.screen
+        box = s.query_one("#shrink", Checkbox)
+        assert not box.display                                                   # große Platte: keine Option
+        s.query_one("#disks", DataTable).move_cursor(row=1)
+        assert await wait_for(pilot, lambda: box.display)                        # kleine Platte: wird angeboten
+        fill(s, **{"pass": "luks-pw"})
+        s.query_one("#next", Button).press()                                    # ohne Haken: klare Fehlermeldung
+        assert await wait_for(pilot, lambda: "Größe anpassen" in str(s.query_one("#status").render()))
+        assert app.screen is s
+        box.value = True
+        s.query_one("#next", Button).press()
+        assert await wait_for(pilot, lambda: app.screen.__class__.__name__ == "PlanScreen")
+        assert app.plan.resizes and any("->" in l for l in app.plan.summary)

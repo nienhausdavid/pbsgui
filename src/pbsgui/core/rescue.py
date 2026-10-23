@@ -63,6 +63,7 @@ class RecoveryData:
     efi_label: str = "debian"
     mount_prefix: str = ""
     source_disk: str = ""   # kname der Quell-Platte erzwingen (Tests); sonst die Platte mit `/`
+    usage: dict[str, int] = field(default_factory=dict)   # Einhängepunkt -> belegte Bytes (fsusage.json)
 
     @classmethod
     def from_dir(cls, d: Path, mount_prefix: str = "", source_disk: str = "") -> "RecoveryData":
@@ -93,7 +94,18 @@ class RecoveryData:
             label = m.group(1) if m else label
         except OSError:
             pass
-        return cls(disks, manifest, sfdisk, luks, vgs, pvs, label, mount_prefix.rstrip("/"), source_disk)
+        usage: dict[str, int] = {}
+        try:
+            raw = json.loads((d / "fsusage.json").read_text())
+            pre = mount_prefix.rstrip("/")
+            for mp, v in raw.items():     # mit Test-Präfix zählen nur die Einhängepunkte unter dem Präfix
+                if not pre:
+                    usage[mp] = int(v["used"])
+                elif mp == pre or mp.startswith(pre + "/"):
+                    usage[mp[len(pre):] or "/"] = int(v["used"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return cls(disks, manifest, sfdisk, luks, vgs, pvs, label, mount_prefix.rstrip("/"), source_disk, usage)
 
     def real_mp(self, mp: str) -> str:
         """Einhängepunkt ohne Test-Präfix (nur für Integrationstests gesetzt)."""
@@ -134,6 +146,7 @@ class Plan:
     summary: list[str] = field(default_factory=list)
     crypttab: dict[str, str | None] = field(default_factory=dict)   # Mapper-Name -> LUKS-UUID (None = Eintrag entfernen)
     needs_cryptsetup: bool = False   # neue LUKS-Container in einem Zielsystem, das evtl. kein cryptsetup-initramfs hat
+    resizes: list = field(default_factory=list)   # Größenänderungen (shrink.Resize) bei kleinerer Ziel-Platte
 
 
 def partition_path(disk: str, n: int) -> str:
@@ -205,24 +218,42 @@ def _is_data_partition(part: "Node", rec: "RecoveryData") -> bool:
 
 def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | None = None,
                       target_size: int | None = None, mount_root: str = "/mnt/target",
-                      encryption: str = "keep", new_passphrase: str | None = None) -> Plan:
+                      encryption: str = "keep", new_passphrase: str | None = None, shrink: bool = False,
+                      snapshot_size: int | None = None, workdir: Path | None = None) -> Plan:
     """Schritte: Platte leeren, Partitionstabelle, LUKS/LVM/Dateisysteme mit alten UUIDs, Einhängen.
 
     encryption: "keep" = wie im Original (LUKS-Header und alte Passphrase), "new" = neue LUKS-Container mit
     neuer Passphrase (auch wenn das Original unverschlüsselt war), "none" = ohne Verschlüsselung.
+    shrink: Ziel-Platte darf kleiner sein als das Original; Partitionen/LVs werden verkleinert (siehe core/shrink.py).
+    snapshot_size: Snapshot-Größe als Schätzung des belegten Platzes, falls das Backup keine fsusage.json enthält.
     """
     if encryption not in ENCRYPTION_MODES:
         raise RescueError(f"Unbekannte Verschlüsselungs-Option: {encryption}")
     if encryption == "new" and not new_passphrase:
         raise RescueError("Für die neue Verschlüsselung wird eine neue Passphrase benötigt")
     src = rec.root_disk()
-    if target_size is not None and target_size < src.size:
+    smaller = target_size is not None and target_size < src.size
+    if smaller and not shrink:
         raise RescueError(f"Ziel-Platte zu klein: {target_size / 2**30:.1f} GiB, die Original-Platte hatte "
-                          f"{src.size / 2**30:.1f} GiB")
+                          f"{src.size / 2**30:.1f} GiB. Mit 'Größe anpassen' (--shrink) werden Partitionen und "
+                          "Volumes verkleinert, sofern die belegten Daten passen.")
     dump = rec.sfdisk.get(src.kname)
     if not dump:
         raise RescueError(f"Partitionstabelle der Platte {src.kname} fehlt in den Wiederherstellungsdaten")
     plan = Plan(mount_root=mount_root)
+    vg_files = dict(rec.vg_files)
+    if smaller:
+        from . import shrink as _shrink
+        sr = _shrink.compute_shrink(rec, src, dump, target_size, encryption, snapshot_size)
+        dump = sr.dump
+        plan.resizes, plan.warnings = sr.resizes, list(sr.warnings)
+        if sr.vg_texts:
+            import tempfile
+            wd = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="pbsgui-shrink-"))
+            wd.mkdir(parents=True, exist_ok=True)
+            for vg, text in sr.vg_texts.items():
+                vg_files[vg] = wd / f"lvm-{vg}.vg"
+                vg_files[vg].write_text(text)
     plan.summary.append(f"Ziel-Platte {target_disk} wird komplett überschrieben (Original: {src.path}, "
                         f"{src.size / 2**30:.1f} GiB)")
     plan.steps += [
@@ -268,10 +299,10 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
             return
         if node.fstype == "LVM2_member":
             vg, uuid = rec.pvs.get(node.path, ("", ""))
-            if not vg or not uuid or vg not in rec.vg_files:
+            if not vg or not uuid or vg not in vg_files:
                 raise RescueError(f"LVM-Metadaten für {node.path} fehlen in den Wiederherstellungsdaten")
             plan.steps.append(Step(f"LVM-Volume {dev} anlegen (PV-UUID {uuid})",
-                                   ["pvcreate", "-ff", "-y", "--uuid", uuid, "--restorefile", str(rec.vg_files[vg]),
+                                   ["pvcreate", "-ff", "-y", "--uuid", uuid, "--restorefile", str(vg_files[vg]),
                                     dev], destructive=True))
             vg_pvs.setdefault(vg, []).append(dev)
             for c in node.children:  # Logical Volumes: entstehen durch vgcfgrestore + vgchange
@@ -297,7 +328,7 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
 
     for vg, devs in vg_pvs.items():
         plan.steps.append(Step(f"Volume Group {vg} wiederherstellen",
-                               ["vgcfgrestore", "-f", str(rec.vg_files[vg]), "--force", vg], destructive=True))
+                               ["vgcfgrestore", "-f", str(vg_files[vg]), "--force", vg], destructive=True))
         plan.steps.append(Step(f"Volume Group {vg} aktivieren", ["vgchange", "-ay", vg]))
         plan.cleanup.append(Step(f"Volume Group {vg} deaktivieren",
                                  ["sh", "-c", 'for i in 1 2 3 4 5; do vgchange -an "$1" && exit 0; sleep 2; done; exit 5',
@@ -329,6 +360,11 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
         plan.steps.append(Step(f"{mp} einhängen ({dev})", ["sh", "-c", 'mkdir -p "$1" && mount "$2" "$1"', "mount",
                                                            target, dev]))
         plan.summary.append(f"{mp:<12} {node.fstype:<6} {dev}")
+    if plan.resizes:
+        plan.summary.append("")
+        plan.summary.append(f"Größe angepasst: Ziel-Platte {target_size / 2**30:.1f} GiB statt {src.size / 2**30:.1f} GiB "
+                            "(alt -> neu)")
+        plan.summary += ["  " + r.line() for r in plan.resizes]
     # Aufräumen in umgekehrter Reihenfolge des Aufbaus: erst aushängen, dann VG deaktivieren, dann LUKS schließen
     # erst normal, dann lazy aushängen; danach die Geräte freigeben lassen (sonst bleibt der LV/LUKS "in Benutzung")
     plan.cleanup = [Step("Zielsystem aushängen", ["sh", "-c", 'sync; umount -R "$1" 2>/dev/null; '

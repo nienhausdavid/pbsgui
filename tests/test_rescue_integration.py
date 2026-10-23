@@ -117,13 +117,22 @@ def populate_and_mount(st: dict, dev: str, tree: Path):
     sh("cp", "-a", f"{SRC_MP}/.", str(tree / "root.pxar"))
 
 
+SHRUNK = 600 * 2 ** 20     # kleinere Ziel-Platte statt SIZE + 100 MiB
+
+
+@pytest.mark.parametrize("shrunk", [False, True], ids=["gleich-gross", "kleiner"])
 @pytest.mark.parametrize("mode", ["keep", "none", "new"])
-def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch, mode):
+def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch, mode, shrunk):
     base, st = lab
+    if shrunk:   # Reserve und Swap-Minimum für die winzige Testplatte herabsetzen (Produktiv: 2 GiB / 1 GiB)
+        from pbsgui.core import shrink
+        monkeypatch.setattr(shrink, "RESERVE_MIN", 32 * 2 ** 20)
+        monkeypatch.setattr(shrink, "SWAP_MIN", 16 * 2 ** 20)
+    dsize = SHRUNK if shrunk else SIZE + 100 * 2 ** 20
     tree, rec_dir = base / "tree", base / "rec"
     dev = build_source(base, st)
     populate_and_mount(st, dev, tree)
-    orig = json.loads(sh("lsblk", "-J", "-b", "-o", "NAME,PATH,UUID,PARTUUID,FSTYPE", dev))
+    orig = json.loads(sh("lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,UUID,PARTUUID,FSTYPE", dev))
 
     # Wiederherstellungsdaten wie im echten Backup sammeln, aber NUR für unsere Test-Geräte
     real_run = subprocess.run
@@ -152,13 +161,15 @@ def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch, 
     # Neue, leere Platte (etwas größer als das Original) und Plan ausführen
     dst_img = base / "dst.img"
     dst_img.write_bytes(b"")
-    os.truncate(dst_img, SIZE + 100 * 2 ** 20)
+    os.truncate(dst_img, dsize)
     ddev = loop_attach(dst_img)
     st["loops"].append(ddev)
     rec = RecoveryData.from_dir(rec_dir, mount_prefix=SRC_MP, source_disk=Path(dev).name)
     assert rec.root_disk().path == dev
-    plan = build_layout_plan(rec, ddev, PASS if mode == "keep" else None, target_size=SIZE + 100 * 2 ** 20,
-                             mount_root=DST_MP, encryption=mode, new_passphrase=NEWPASS if mode == "new" else None)
+    plan = build_layout_plan(rec, ddev, PASS if mode == "keep" else None, target_size=dsize,
+                             mount_root=DST_MP, encryption=mode, new_passphrase=NEWPASS if mode == "new" else None,
+                             shrink=shrunk, snapshot_size=20 * 2 ** 20)
+    assert bool(plan.resizes) == shrunk
     lines = []
     failed = run_steps(plan.steps, lines.append)
     assert failed is None, "\n".join(lines[-15:])
@@ -170,7 +181,7 @@ def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch, 
     assert run_steps([restore_step(fake, "host/it/2026-01-01T00:00:00Z", "root.pxar", DST_MP)], lines.append) is None
 
     # 1) Identische Kennungen: Partitionstabelle, LUKS, PV/VG, Dateisysteme
-    new = json.loads(sh("lsblk", "-J", "-b", "-o", "NAME,PATH,UUID,PARTUUID,FSTYPE", ddev))
+    new = json.loads(sh("lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,UUID,PARTUUID,FSTYPE", ddev))
     flat = lambda t: {n["path"].split("/")[-1].replace(Path(t["blockdevices"][0]["path"]).name, "DISK"): n
                       for n in walk(t["blockdevices"])}
     def walk(nodes):
@@ -204,6 +215,17 @@ def test_rebuild_layout_with_original_uuids_and_restore_files(lab, monkeypatch, 
                    if v["vg_name"] == st["vg"])
     pv_dev = f"{ddev}p3" if mode == "none" else f"/dev/mapper/{st['map']}"
     assert sh("pvs", "--noheadings", "-o", "pv_uuid", pv_dev) == orig_pv["pv_uuid"]
+    if shrunk:   # 1b) Größen: EFI und /boot unverändert, Rest kleiner; LVs zurechtgestutzt; GPT-Backup am Plattenende
+        sizes = {k: int(n["size"]) for k, n in n_nodes.items()}
+        osz = {k: int(n["size"]) for k, n in o_nodes.items()}
+        assert sizes["DISKp1"] == osz["DISKp1"] and sizes["DISKp2"] == osz["DISKp2"]
+        assert sizes["DISKp3"] < osz["DISKp3"] and sizes["DISKp3"] + 2 ** 20 * 194 <= dsize
+        root_new = next(v for k, v in sizes.items() if k.endswith(f"{st['vg']}-root"))
+        root_old = next(v for k, v in osz.items() if k.endswith(f"{st['vg']}-root"))
+        assert 100 * 2 ** 20 < root_new < root_old       # kleiner, aber mit Platz für die Daten (+ Reserve)
+        dump = sh("sfdisk", "--dump", ddev)
+        assert f"last-lba: {dsize // 512 - 34}" in dump           # Tabelle nutzt die ganze Platte, Backup-Header am Ende
+        assert sh("sfdisk", "--verify", ddev).endswith("No errors detected.") or "No errors" in sh("sfdisk", "--verify", ddev)
     # 2) Dateien identisch (Inhalt, Rechte, Besitzer, Links)
     assert Path(f"{DST_MP}/etc/hostname").read_text() == "quell-pc\n"
     assert Path(f"{DST_MP}/home/datei.bin").read_bytes() == Path(tree / "root.pxar/home/datei.bin").read_bytes()

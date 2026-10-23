@@ -15,7 +15,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Input, Label, RadioButton, RadioSet, RichLog, Static
+from textual.widgets import Button, Checkbox, DataTable, Footer, Input, Label, RadioButton, RadioSet, RichLog, Static
 
 from ..core import rescue
 from ..core.pbs_api import ApiError, fetch_fingerprint
@@ -39,6 +39,7 @@ Button.-primary { background: ansi_green; color: ansi_bright_white; }
 Button.-error { background: ansi_red; color: ansi_bright_white; }
 DataTable { border: round ansi_bright_black; }
 DataTable:focus { border: round ansi_bright_cyan; }
+Checkbox { border: none; height: 1; padding: 0 1; background: ansi_default; margin-bottom: 1; }
 #log { height: 22; }
 """
 
@@ -199,6 +200,7 @@ class DiskScreen(Screen):
             yield Static("Die gewählte Platte wird KOMPLETT überschrieben. Eingehängte Platten und das "
                          "Rettungsmedium werden nicht angeboten.", classes="warn", markup=False)
             yield DataTable(id="disks", cursor_type="row")
+            yield Checkbox("Größe anpassen: kleinere Platte, Partitionen und Volumes werden verkleinert", id="shrink")
             yield Label("Verschlüsselung der neuen Platte", classes="title", markup=False)
             orig = "verschlüsselt (LUKS)" if rescue.original_encrypted(self.app.rec) else "unverschlüsselt"
             with RadioSet(id="enc"):
@@ -225,12 +227,35 @@ class DiskScreen(Screen):
             t.add_row(d["path"], fmt_size(d["size"]), d["model"] or "-",
                       (d["tran"] or "-") + (" (Wechseldatenträger)" if d["removable"] else ""))
         self._sync_enc()
+        self._sync_shrink()
         if not self.disks:
             self.query_one("#status", Say).update("Keine zulässige Ziel-Platte gefunden.")
         t.focus()
 
     def _mode(self) -> str:
         return ("keep", "new", "none")[self.query_one("#enc", RadioSet).pressed_index or 0]
+
+    def _selected(self) -> dict | None:
+        if not self.disks:
+            return None
+        return self.disks[min(self.query_one("#disks", DataTable).cursor_row, len(self.disks) - 1)]
+
+    def _sync_shrink(self) -> None:
+        """Die Option „Größe anpassen“ wird nur angeboten, wenn die gewählte Platte kleiner als das Original ist."""
+        d = self._selected()
+        smaller = bool(d) and d["size"] < self.app.rec.root_disk().size
+        box = self.query_one("#shrink", Checkbox)
+        box.display = smaller
+        if smaller:
+            self.query_one("#status", Say).update(
+                f"Die Platte ({fmt_size(d['size'])}) ist kleiner als das Original "
+                f"({fmt_size(self.app.rec.root_disk().size)}): „Größe anpassen“ ankreuzen, um fortzufahren.")
+        elif not d or d["size"] >= self.app.rec.root_disk().size:
+            box.value = False
+
+    def on_data_table_row_highlighted(self, _e) -> None:
+        if self.disks:
+            self._sync_shrink()
 
     def _sync_enc(self) -> None:
         mode = self._mode()
@@ -263,7 +288,9 @@ class DiskScreen(Screen):
         try:
             self.app.plan = rescue.build_layout_plan(self.app.rec, d["path"], c.passphrase or None,
                                                      target_size=d["size"], encryption=c.encryption,
-                                                     new_passphrase=c.new_passphrase or None)
+                                                     new_passphrase=c.new_passphrase or None,
+                                                     shrink=self.query_one("#shrink", Checkbox).value,
+                                                     snapshot_size=self.app.snap.size or None)
         except RescueError as ex:
             self.query_one("#status", Say).update(f"Fehler: {ex}")
             return
