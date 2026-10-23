@@ -7,6 +7,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-24
+
 ### Geändert
 - **Datenbank-Dumps werden unkomprimiert gesichert** (`*.sql` statt `*.sql.gz`). PBS komprimiert die Blöcke selbst und
   erkennt unveränderte Teile wieder; ein gzip-Strom ändert sich dagegen komplett und wurde bei jedem Lauf voll
@@ -102,7 +104,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.6.1
 [0.6.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.6.0
 [0.5.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.5.0
 [0.4.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.4.0
