@@ -295,6 +295,96 @@ def restore_cli(a) -> None:
         vm.kill()
 
 
+CHECK_SCRIPT = r"""
+import glob, json, subprocess, sys
+orig = json.load(open(sorted(glob.glob('/tmp/pbsgui-recovery-*/lsblk.json'))[-1]))
+new = json.loads(subprocess.run(['lsblk', '-J', '-b', '-o', 'NAME,KNAME,PATH,SIZE,TYPE,FSTYPE,UUID,PARTUUID,MOUNTPOINTS', sys.argv[1]],
+                                capture_output=True, text=True).stdout)
+flat = lambda ns: [x for n in ns for x in [n, *flat(n.get('children', []))]]
+src = next(d for d in orig['blockdevices'] if d['type'] == 'disk' and any(c.get('mountpoints') and '/' in c['mountpoints'] for c in flat([d])))
+ids = lambda ns: (sorted((n.get('fstype') or '', n.get('uuid') or '') for n in flat(ns) if n.get('uuid') and n.get('fstype') != 'crypto_LUKS'),
+                  sorted(n['partuuid'] for n in flat(ns) if n.get('partuuid')))
+o, n = ids([src]), ids(new['blockdevices'])
+print('DISK', src['size'], '->', new['blockdevices'][0]['size'])
+for a, b in zip(flat([src]), flat(new['blockdevices'])):
+    pass
+print('UUIDS_SAME', o == n)
+if o != n:
+    print('only-old', [x for x in o[0] if x not in n[0]], [x for x in o[1] if x not in n[1]])
+    print('only-new', [x for x in n[0] if x not in o[0]], [x for x in n[1] if x not in o[1]])
+for x in flat(new['blockdevices']):
+    print('NODE', x['path'], x.get('size'), x.get('fstype'), x.get('uuid'))
+"""
+
+
+def restore_existing(a) -> None:
+    """Vorhandenes Backup LESEN und per `pbsgui rescue run --shrink` auf eine kleinere Platte wiederherstellen.
+
+    Schreibt/löscht nichts auf dem PBS (kein Admin-Token). Zugang: PBSGUI_TOKEN_SECRET in der Umgebung dieses Prozesses,
+    Schlüsseldatei (exportiert, 0600) per --keyfile. Ziel: sparse Datei unter build/vm (TARGET_SIZE, Standard 64 GiB).
+    Beides gelangt nur ins RAM der VM (Secret ohne Echo auf der seriellen Konsole), nie in eine Datei im Repo.
+    """
+    import base64 as b64
+    secret = os.environ["PBSGUI_TOKEN_SECRET"]
+    key = Path(a.keyfile).read_bytes()
+    target = WORK / "restored.img"
+    target.write_bytes(b"")
+    os.truncate(target, int(os.environ.get("TARGET_SIZE", 64 * 2**30)))
+    vm = VM("rescue-existing", WORK, [target], iso=Path(a.iso), mem=2048)
+    try:
+        vm.start()
+        vm.expect(r"root@[\w-]+:[~/]\S*# ", 300)
+        vm.send("\n")
+        vm.run("true", 30)
+        vm.run("pkill -f '[p]bsgui rescue' || true; unset HISTFILE", 10)
+        wait_network(vm)
+        vm.run("mkdir -p /media/usb /etc/pbsgui", 10)
+        vm.run(f"echo {b64.b64encode(key).decode()} | base64 -d > /media/usb/key.json; chmod 600 /media/usb/key.json", 10)
+        cfg = {"server": HOST, "datastore": a.datastore, "namespace": a.namespace, "auth_id": a.auth_id, "fingerprint": FP,
+               "backup_id": a.backup_id}
+        vm.run(f"echo '{json.dumps(cfg)}' > /etc/pbsgui/rescue.json", 10)
+        vm.run("stty -echo", 10)                       # das Secret soll nicht im Terminal-Echo (Log) landen
+        vm.send(f"export PBSGUI_TOKEN_SECRET='{secret}'\n")
+        vm.run("stty echo", 10)
+        out, rc = vm.run("pbsgui rescue snapshots", 120)
+        print(out[-1500:])
+        snap = f"--snapshot {a.snapshot}" if a.snapshot else ""
+        log(f"Wiederherstellung (read-only auf dem PBS) mit --shrink, Verschlüsselung: {a.encryption}")
+        out, rc = vm.run(f"pbsgui rescue run --disk /dev/vda --keyfile /media/usb/key.json --encryption {a.encryption} "
+                         f"{snap} --shrink --confirm-disk /dev/vda 2>&1 | tail -150", 7200)
+        print(out[-6000:])
+        assert "Wiederherstellung abgeschlossen" in out, "Wiederherstellung fehlgeschlagen"
+        vm.run("vgscan >/dev/null 2>&1; vgchange -ay >/dev/null 2>&1; udevadm settle", 60)
+        vm.run(f"echo {b64.b64encode(CHECK_SCRIPT.encode()).decode()} | base64 -d > /tmp/check.py", 10)
+        out, _ = vm.run("python3 /tmp/check.py /dev/vda", 60)
+        print(out)
+        (WORK / "existing-check.txt").write_text(out)
+        vm.run("vgchange -an >/dev/null 2>&1; sync", 60)
+        vm.send("poweroff\n")
+        try:
+            vm.proc.wait(timeout=240)
+        except Exception:
+            pass
+    finally:
+        vm.kill()
+        vm.buf = ""     # nichts davon weitergeben
+
+
+def boot_attempt(a) -> None:
+    """Versucht, die wiederhergestellte Platte zu booten (fremde Hardware: Fehlschlag möglich, wird ehrlich gemeldet)."""
+    vm = VM("boot-existing", WORK, [WORK / "restored.img"], mem=2048)
+    try:
+        vm.start()
+        time.sleep(60)
+        shot = WORK / "boot-existing.png"
+        vm.screenshot(shot)
+        vm._pump(1)
+        print(vm.buf[-1500:])
+        log(f"Screenshot: {shot}")
+    finally:
+        vm.kill()
+
+
 def verify(a) -> None:
     mode = getattr(a, "encryption", "keep")
     img = WORK / "restored.img"
@@ -367,7 +457,11 @@ def cleanup(_a) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("phase", choices=["provision", "backup", "restore", "restore_cli", "verify", "cleanup", "all"])
+    ap.add_argument("phase", choices=["provision", "backup", "restore", "restore_cli", "restore_existing", "boot_attempt", "verify", "cleanup", "all"])
+    ap.add_argument("--keyfile", default=str(Path.home() / "vmtest-key.json"), help="restore_existing: exportierte Schlüsseldatei")
+    ap.add_argument("--datastore", default="hddraid"); ap.add_argument("--namespace", default="DavidsLaptop")
+    ap.add_argument("--auth-id", default="pbsgui-LinuxLaptop@pbs!backup"); ap.add_argument("--backup-id", default="LinuxLaptop")
+    ap.add_argument("--snapshot", default="", help="restore_existing: Snapshot-Pfad (Standard: neuester)")
     ap.add_argument("--source-image", default=str(WORK / "source.img"))
     ap.add_argument("--iso", default=str(next(iter(sorted((ROOT / "dist").glob("pbsgui-rescue-*.iso"))), "")))
     ap.add_argument("--screens", action="store_true", help="Screenshots nach docs/images/ schreiben")
