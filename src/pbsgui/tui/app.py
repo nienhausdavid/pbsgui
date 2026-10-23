@@ -105,7 +105,7 @@ class PbsTui(App):
             return
         if p.keyfile:
             key = f"eigene Schlüsseldatei {p.keyfile}"
-        elif self.mgr.secrets.get(p.slug, "key"):
+        elif self.mgr.secrets.exists(p.slug, "key"):
             key = f"automatischer Schlüssel, Fingerprint {p.key_fingerprint}"
         else:
             key = "kein Schlüssel"
@@ -387,7 +387,7 @@ class PbsTui(App):
         p = self._need()
         if not p:
             return
-        if not self.mgr.secrets.get(p.slug, "key"):
+        if not self.mgr.secrets.exists(p.slug, "key"):
             self._notify("Kein automatisch erzeugter Schlüssel vorhanden", severity="warning")
             return
 
