@@ -73,7 +73,7 @@ class ProfileManager:
         return restore_to_folder(client, snapshot, archive, rels, Path(target), on_line=on_line)
 
     def has_key(self, profile: Profile) -> bool:
-        return bool(profile.keyfile or self.secrets.get(profile.slug, "key"))
+        return bool(profile.keyfile or self.secrets.exists(profile.slug, "key"))
 
     def enable_encryption(self, profile: Profile) -> bool:
         """Erzeugt automatisch einen Key, falls noch keiner existiert. True = neu erzeugt.

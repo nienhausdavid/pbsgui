@@ -46,6 +46,10 @@ class SecretStore:
 
     suffix = ""
 
+    def exists(self, profile_slug: str, kind: str) -> bool:
+        """Ist das Geheimnis gespeichert? Entschlüsselt nicht (systemd-creds braucht ca. 2 s pro Aufruf)."""
+        return self.path(profile_slug, kind).exists()
+
     def unit_directive(self, profile_slug: str, kind: str) -> str | None:
         """Zeile für die systemd-Unit oder None, falls das Geheimnis fehlt."""
         raise NotImplementedError

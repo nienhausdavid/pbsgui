@@ -4,11 +4,11 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QProgressBar, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
-                               QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox,
-                               QPlainTextEdit, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
-                               QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGroupBox, QHeaderView, QProgressBar, QCheckBox, QComboBox,
+                               QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
+                               QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
+                               QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.modes import DEFAULT_FULL_EXCLUDES, FULL
@@ -40,28 +40,44 @@ class MainWindow(QMainWindow):
         super().__init__()
         from .. import __version__
         self.setWindowTitle(f"pbsgui {__version__} – Proxmox Backup")
-        self.resize(1000, 640)
+        self.setMinimumSize(640, 440)             # klein genug zum bequemen Verkleinern (Inhalt scrollt)
+        self.resize(1080, 720)
         self.mgr = manager or ProfileManager()
         self.admin_ok = can_use_admin()
         self.current: Profile | None = None
         self._workers: set[Worker] = set()
 
-        self.plist = QListWidget()
-        add = QPushButton("Server hinzufügen …"); add.clicked.connect(self.add_server)
+        self.plist = QListWidget(); self.plist.setObjectName("profiles")
+        add = QPushButton("＋  Server hinzufügen"); add.setObjectName("primary"); add.clicked.connect(self.add_server)
         rem = QPushButton("Entfernen"); rem.clicked.connect(self.remove_profile)
-        left = QWidget(); ll = QVBoxLayout(left)
-        ll.addWidget(QLabel("Profile")); ll.addWidget(self.plist); ll.addWidget(add); ll.addWidget(rem)
+        left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(12, 12, 6, 12); ll.setSpacing(8)
+        title = QLabel("Profile"); title.setObjectName("sectionTitle")
+        ll.addWidget(title); ll.addWidget(self.plist, 1); ll.addWidget(add); ll.addWidget(rem)
+        left.setMinimumWidth(180)
 
-        self.tabs = QTabWidget()
+        self.head = QLabel(""); self.head.setObjectName("pageTitle")
+        self.subhead = QLabel(""); self.subhead.setObjectName("muted"); self.subhead.setWordWrap(True)
+        self.tabs = QTabWidget(); self.tabs.setDocumentMode(True)
         self.tabs.addTab(self._build_backup_tab(), "Backup")
         self.tabs.addTab(self._build_snapshots_tab(), "Snapshots")
         self.tabs.addTab(self._build_schedule_tab(), "Zeitplan")
-        split = QSplitter(); split.addWidget(left); split.addWidget(self.tabs)
-        split.setStretchFactor(1, 1); split.setSizes([240, 760])
+        right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(6, 12, 12, 8); rl.setSpacing(2)
+        rl.addWidget(self.head); rl.addWidget(self.subhead); rl.addSpacing(6); rl.addWidget(self.tabs, 1)
+
+        split = QSplitter(); split.addWidget(left); split.addWidget(right)
+        split.setStretchFactor(0, 0); split.setStretchFactor(1, 1); split.setSizes([230, 850])
+        split.setChildrenCollapsible(False); split.setHandleWidth(3)
         self.setCentralWidget(split)
         self.statusBar().showMessage("Bereit")
         self.plist.currentRowChanged.connect(self._select)
         self.reload()
+        geo = QSettings("pbsgui", "pbsgui").value("geometry")   # Fenstergröße und -lage merken
+        if geo:
+            self.restoreGeometry(geo)
+
+    def closeEvent(self, ev) -> None:
+        QSettings("pbsgui", "pbsgui").setValue("geometry", self.saveGeometry())
+        super().closeEvent(ev)
 
     # -- Hilfen -------------------------------------------------------------
     def run_async(self, fn, on_done=None, on_line=None) -> Worker:
@@ -83,9 +99,9 @@ class MainWindow(QMainWindow):
         profiles = self.mgr.profiles()
         for p in profiles:
             self.plist.addItem(p.name)
-        self.plist.blockSignals(False)
         names = [p.name for p in profiles]
         self.plist.setCurrentRow(names.index(select) if select in names else (0 if names else -1))
+        self.plist.blockSignals(False)      # erst jetzt wieder melden, sonst wird zweimal geladen
         self._select(self.plist.currentRow())
 
     def _select(self, row: int) -> None:
@@ -95,8 +111,12 @@ class MainWindow(QMainWindow):
             self.tabs.widget(i).setEnabled(self.current is not None)
         p = self.current
         if not p:
+            self.head.setText("Kein Profil"); self.subhead.setText("Mit „Server hinzufügen“ ein Backup-Ziel einrichten.")
             return
         full = p.backup_mode == FULL
+        self.head.setText(p.name)
+        self.subhead.setText(f"{p.server} · {p.datastore}{'/' + p.namespace if p.namespace else ''} · "
+                             f"{'Ganzes System' if full else 'Nur Home'}")
         self.f_id.setText(p.backup_id); self.f_ns.setText(p.namespace)
         self.sources.clear(); self.sources.addItems(p.effective_sources)
         self.sources.setEnabled(not full); self.src_add.setEnabled(not full); self.src_rm.setEnabled(not full)
@@ -122,57 +142,91 @@ class MainWindow(QMainWindow):
 
     # -- Tab Backup ---------------------------------------------------------
     def _build_backup_tab(self) -> QWidget:
-        w = QWidget(); lay = QVBoxLayout(w)
-        form = QFormLayout()
+        w = QWidget(); outer = QVBoxLayout(w); outer.setContentsMargins(0, 8, 0, 0); outer.setSpacing(8)
+
+        # Aktionsleiste: immer sichtbar, unabhängig vom Scrollen
+        save = QPushButton("Speichern"); save.clicked.connect(self.save_profile)
+        self.backup_btn = QPushButton("Jetzt sichern"); self.backup_btn.setObjectName("primary")
+        self.backup_btn.clicked.connect(self.backup_now)
+        bar = QHBoxLayout(); bar.addWidget(self.backup_btn); bar.addWidget(save); bar.addStretch()
+        outer.addLayout(bar)
+
+        # Einstellungen (scrollbar, damit das Fenster klein werden darf)
         self.f_id = QLineEdit(); self.f_ns = QLineEdit()
         self.f_enc = QCheckBox("Clientseitig verschlüsseln (empfohlen)"); self.f_key = QLineEdit()
         self.f_key.setPlaceholderText("optional – leer = automatisch erzeugter Schlüssel")
         self.f_master = QLineEdit(); self.f_master.setPlaceholderText("optional – RSA-Master-Public-Key (.pem)")
         self.key_info = QLabel(""); self.key_info.setWordWrap(True)
+        self.key_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.key_btn = QPushButton("Schlüssel exportieren …"); self.key_btn.clicked.connect(self.export_key_dialog)
         self.sheet_btn = QPushButton("Notfallblatt speichern …"); self.sheet_btn.clicked.connect(self.save_sheet)
-        self.f_changed = QCheckBox("Nur geänderte Dateien lesen (Metadaten-Vergleich; schneller)")
-        self.f_changed.setToolTip("Nach dem Umstellen liest das nächste Backup einmal alles, danach nur noch Geändertes. "
-                                  "Der PBS-Server muss Version 3.3 oder neuer sein.")
+        self.f_changed = QCheckBox("Nur geänderte Dateien lesen (schneller)")
+        self.f_changed.setToolTip("Metadaten-Vergleich. Nach dem Umstellen liest das nächste Backup einmal alles, danach nur "
+                                  "noch Geändertes. Der PBS-Server muss Version 3.3 oder neuer sein.")
         self.f_weekly = QCheckBox("Zusätzlich wöchentlich alles neu lesen (Modus data)")
         self.f_weekly.setToolTip("Prüft auch Dateien, deren Metadaten unverändert sind, und meldet Lesefehler. "
                                  "Gilt nur mit einem Zeitplan.")
         self.f_data_sched = QLineEdit(); self.f_data_sched.setPlaceholderText("Zeitpunkt, z. B. Sun *-*-* 03:00:00")
         self.f_changed.toggled.connect(self.f_weekly.setEnabled)
-        self.f_dbdump = QCheckBox("Datenbank-Dumps vor dem Backup anlegen (Postgres, MariaDB/MySQL in Containern)")
+        self.f_dbdump = QCheckBox("Datenbank-Dumps vor dem Backup anlegen")
         self.db_btn = QPushButton("Datenbanken und Zugänge …"); self.db_btn.clicked.connect(self.db_dialog)
-        form.addRow("Backup-ID", self.f_id); form.addRow("Namespace", self.f_ns)
-        form.addRow(self.f_changed); form.addRow(self.f_weekly); form.addRow("Prüflauf", self.f_data_sched)
-        form.addRow(self.f_dbdump); form.addRow("", self.db_btn)
-        form.addRow(self.f_enc); form.addRow("Eigene Schlüsseldatei", self.f_key)
-        form.addRow("Master-Public-Key", self.f_master)
-        form.addRow(self.key_info); form.addRow("", self.key_btn); form.addRow("", self.sheet_btn)
-        lay.addLayout(form)
-        lay.addWidget(QLabel("Quellordner"))
+
+        g_id = QGroupBox("Ziel"); f = QFormLayout(g_id)
+        f.addRow("Backup-ID", self.f_id); f.addRow("Namespace", self.f_ns)
+
+        g_chg = QGroupBox("Geschwindigkeit"); cl = QVBoxLayout(g_chg)
+        cl.addWidget(self.f_changed); cl.addWidget(self.f_weekly)
+        cf = QFormLayout(); cf.addRow("Prüflauf", self.f_data_sched); cl.addLayout(cf)
+
         self.sources = QListWidget()
         self.sources.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        row = QHBoxLayout()
+        self.sources.setMinimumHeight(60); self.sources.setMaximumHeight(110)
         self.src_add = QPushButton("Ordner hinzufügen …"); self.src_add.clicked.connect(self.add_source)
         self.src_rm = QPushButton("Entfernen"); self.src_rm.clicked.connect(self.remove_source)
-        row.addWidget(self.src_add); row.addWidget(self.src_rm); row.addStretch()
-        self.mode_info = QLabel(""); self.mode_info.setWordWrap(True)
+        self.mode_info = QLabel(""); self.mode_info.setWordWrap(True); self.mode_info.setObjectName("muted")
         self.mount_label = QLabel("Laufwerke mitsichern (Haken = ja):")
-        self.mount_list = MountList(); self.mount_list.setMaximumHeight(120)
-        lay.addWidget(self.mode_info); lay.addWidget(self.sources); lay.addLayout(row)
-        lay.addWidget(self.mount_label); lay.addWidget(self.mount_list)
-        lay.addWidget(QLabel("Ausschlüsse (ein Muster pro Zeile)"))
-        self.excludes = QPlainTextEdit(); self.excludes.setMaximumHeight(70)
-        lay.addWidget(self.excludes)
-        row2 = QHBoxLayout()
-        save = QPushButton("Speichern"); save.clicked.connect(self.save_profile)
-        self.backup_btn = QPushButton("Jetzt sichern"); self.backup_btn.clicked.connect(self.backup_now)
-        row2.addWidget(save); row2.addWidget(self.backup_btn); row2.addStretch()
-        lay.addLayout(row2)
+        self.mount_list = MountList(); self.mount_list.setMaximumHeight(110)
+        self.excludes = QPlainTextEdit(); self.excludes.setMaximumHeight(80)
+        self.excludes.setPlaceholderText("Ein Muster pro Zeile, z. B. *.tmp")
+        g_src = QGroupBox("Was wird gesichert?"); sl = QVBoxLayout(g_src)
+        srow = QHBoxLayout(); srow.addWidget(self.src_add); srow.addWidget(self.src_rm); srow.addStretch()
+        sl.addWidget(self.mode_info); sl.addWidget(self.sources); sl.addLayout(srow)
+        sl.addWidget(self.mount_label); sl.addWidget(self.mount_list)
+        sl.addWidget(QLabel("Ausschlüsse")); sl.addWidget(self.excludes)
+
+        g_enc = QGroupBox("Verschlüsselung"); el = QVBoxLayout(g_enc)
+        el.addWidget(self.f_enc); el.addWidget(self.key_info)
+        krow = QHBoxLayout(); krow.addWidget(self.key_btn); krow.addWidget(self.sheet_btn); krow.addStretch()
+        el.addLayout(krow)
+        kf = QFormLayout(); kf.addRow("Eigene Schlüsseldatei", self.f_key); kf.addRow("Master-Public-Key", self.f_master)
+        el.addLayout(kf)
+
+        g_db = QGroupBox("Datenbanken"); dl = QVBoxLayout(g_db)
+        hint = QLabel("Postgres- und MariaDB/MySQL-Container werden vor dem Backup gedumpt."); hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        dl.addWidget(self.f_dbdump); dl.addWidget(hint)
+        drow = QHBoxLayout(); drow.addWidget(self.db_btn); drow.addStretch(); dl.addLayout(drow)
+
+        inner = QWidget(); il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 8, 0); il.setSpacing(10)
+        for g in (g_id, g_chg, g_src, g_enc, g_db):
+            il.addWidget(g)
+        il.addStretch()
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(inner)
+
+        # Fortschritt und Protokoll
         self.bar = QProgressBar(); self.bar.setRange(0, 100); self.bar.setVisible(False)
-        self.bar_text = QLabel(""); self.bar_text.setVisible(False)
-        self.log = QPlainTextEdit(); self.log.setReadOnly(True)
-        lay.addWidget(self.bar); lay.addWidget(self.bar_text)
-        lay.addWidget(self.log, 1)
+        self.bar_text = QLabel(""); self.bar_text.setVisible(False); self.bar_text.setObjectName("muted")
+        self.log = QPlainTextEdit(); self.log.setReadOnly(True); self.log.setObjectName("log")
+        self.log.setPlaceholderText("Hier erscheint das Protokoll des Backups.")
+        lp = QWidget(); ll = QVBoxLayout(lp); ll.setContentsMargins(0, 0, 0, 0); ll.setSpacing(4)
+        ll.addWidget(self.bar); ll.addWidget(self.bar_text); ll.addWidget(self.log, 1)
+
+        split = QSplitter(Qt.Orientation.Vertical); split.setChildrenCollapsible(False)
+        split.addWidget(scroll); split.addWidget(lp)
+        split.setStretchFactor(0, 3); split.setStretchFactor(1, 1); split.setSizes([420, 160])
+        outer.addWidget(split, 1)
         return w
 
     def add_source(self) -> None:
@@ -238,7 +292,7 @@ class MainWindow(QMainWindow):
             return
         if p.keyfile:
             text, can_export = f"Eigene Schlüsseldatei: {p.keyfile}", False
-        elif self.mgr.secrets.get(p.slug, "key"):
+        elif self.mgr.secrets.exists(p.slug, "key"):
             text, can_export = f"Automatisch erzeugter Schlüssel, Fingerprint: {p.key_fingerprint}", True
             text += (f"\nExtern gesichert am {p.key_exported_at}." if p.key_exported_at else
                      "\nNOCH NICHT exportiert" + (" – das Vollbackup ist bis dahin gesperrt!" if needs_key_export(p)
@@ -337,7 +391,7 @@ class MainWindow(QMainWindow):
 
     # -- Tab Snapshots ------------------------------------------------------
     def _build_snapshots_tab(self) -> QWidget:
-        w = QWidget(); lay = QVBoxLayout(w)
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 10, 0, 0)
         row = QHBoxLayout()
         r = QPushButton("Aktualisieren"); r.clicked.connect(self.refresh_snapshots)
         rs = QPushButton("Wiederherstellen …"); rs.clicked.connect(self.restore_selected)
@@ -345,7 +399,12 @@ class MainWindow(QMainWindow):
         row.addWidget(r); row.addWidget(rs); row.addWidget(rf); row.addStretch()
         self.snap_table = QTableWidget(0, 4)
         self.snap_table.setHorizontalHeaderLabels(["Zeit", "ID", "Größe", "Archive"])
-        self.snap_table.horizontalHeader().setStretchLastSection(True)
+        hh = self.snap_table.horizontalHeader(); hh.setStretchLastSection(True)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.snap_table.verticalHeader().setVisible(False); self.snap_table.setAlternatingRowColors(True)
+        self.snap_table.setShowGrid(False)
         self.snap_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.snap_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         lay.addLayout(row); lay.addWidget(self.snap_table)
@@ -398,7 +457,7 @@ class MainWindow(QMainWindow):
 
     # -- Tab Zeitplan -------------------------------------------------------
     def _build_schedule_tab(self) -> QWidget:
-        w = QWidget(); lay = QVBoxLayout(w); form = QFormLayout()
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 10, 0, 0); lay.setSpacing(10)
         self.f_scope = QComboBox()
         self.f_scope.addItems(["Benutzer – sichert nur deine Daten, kein sudo nötig",
                                "System – ganzes System, braucht Administrator-Rechte"])
@@ -406,23 +465,30 @@ class MainWindow(QMainWindow):
             self.f_scope.model().item(1).setEnabled(False)  # ausgegraut ohne Admin-Rechte
             self.f_scope.setItemData(1, "Keine Administrator-Rechte erkannt", Qt.ItemDataRole.ToolTipRole)
         self.f_preset = QComboBox()
+        for cb in (self.f_scope, self.f_preset):   # lange Einträge dürfen das Fenster nicht aufweiten
+            cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(18)
         for label, _v in PRESETS:
             self.f_preset.addItem(label)
         self.f_preset.activated.connect(lambda i: PRESETS[i][1] and self.f_sched.setText(PRESETS[i][1]))
         self.f_sched = QLineEdit(); self.f_sched.setPlaceholderText("systemd OnCalendar, z. B. *-*-* 02:00:00")
         self.f_ac = QCheckBox("Nur bei Netzbetrieb (ConditionACPower)")
+        g = QGroupBox("Zeitplan"); form = QFormLayout(g)
         form.addRow("Modus", self.f_scope); form.addRow("Vorlage", self.f_preset)
         form.addRow("Zeitplan", self.f_sched); form.addRow(self.f_ac)
-        lay.addLayout(form)
+        lay.addWidget(g)
         row = QHBoxLayout()
-        inst = QPushButton("Zeitplan aktivieren"); inst.clicked.connect(self.install_schedule)
+        inst = QPushButton("Zeitplan aktivieren"); inst.setObjectName("primary"); inst.clicked.connect(self.install_schedule)
         rm = QPushButton("Zeitplan entfernen"); rm.clicked.connect(self.remove_schedule)
         row.addWidget(inst); row.addWidget(rm); row.addStretch()
         lay.addLayout(row)
         self.sched_status = QLabel(); self.sched_status.setWordWrap(True)
+        self.sched_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        gs = QGroupBox("Status"); sl = QVBoxLayout(gs); sl.addWidget(self.sched_status)
         self.linger_box = QPushButton("Timer auch ohne Login erlauben (linger)")
         self.linger_box.clicked.connect(self.do_linger)
-        lay.addWidget(self.sched_status); lay.addWidget(self.linger_box); lay.addStretch()
+        sl.addWidget(self.linger_box, 0, Qt.AlignmentFlag.AlignLeft)
+        lay.addWidget(gs); lay.addStretch()
         return w
 
     def refresh_status(self) -> None:

@@ -7,6 +7,15 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Geändert
+- **GUI schneller:** Der Start dauerte ca. 4 s, weil das Geheimnis des Schlüssels zweimal per `systemd-creds` entschlüsselt wurde,
+  nur um „Schlüssel vorhanden?“ anzuzeigen. Jetzt genügt ein Dateicheck (`SecretStore.exists`); Start und Profilwechsel
+  dauern ca. 0,1 s.
+- **GUI überarbeitet:** einheitliches Aussehen (Fusion-Stil, Stylesheet auf Basis der Systempalette, hell und dunkel),
+  Kopfzeile mit Server und Umfang, Einstellungen in Gruppen und scrollbar, feste Aktionsleiste („Jetzt sichern“),
+  Protokoll in eigenem, verschiebbarem Bereich. Das Fenster lässt sich auf ca. 700 × 490 verkleinern (vorher
+  mindestens 780 × 780) und merkt sich Größe und Lage.
+
 ## [0.7.0] - 2026-10-24
 
 ### Hinzugefügt
