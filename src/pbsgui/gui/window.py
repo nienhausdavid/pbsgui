@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QProgressBar, QCheckBox, QComb
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.modes import DEFAULT_FULL_EXCLUDES, FULL
 from ..core.recovery import needs_key_export, render_sheet
-from ..core.models import Profile
+from ..core.models import LEGACY, METADATA, Profile
 from ..core.paths import Paths
 from ..core.runner import read_status
 from ..core.scheduler import enable_linger, linger_enabled
@@ -111,6 +111,9 @@ class MainWindow(QMainWindow):
         self.excludes.setPlainText("\n".join(p.excludes))
         self.f_enc.setChecked(p.encrypt); self.f_key.setText(p.keyfile); self.f_master.setText(p.master_pubkey)
         self.f_dbdump.setChecked(p.db_dump)
+        self.f_changed.setChecked(p.change_detection == METADATA)
+        self.f_weekly.setChecked(p.weekly_data); self.f_weekly.setEnabled(p.change_detection == METADATA)
+        self.f_data_sched.setText(p.data_schedule)
         self.refresh_key_info()
         self.f_sched.setText(p.schedule); self.f_ac.setChecked(p.require_ac)
         self.f_scope.setCurrentIndex(1 if p.scope == "system" else 0)
@@ -128,9 +131,18 @@ class MainWindow(QMainWindow):
         self.key_info = QLabel(""); self.key_info.setWordWrap(True)
         self.key_btn = QPushButton("Schlüssel exportieren …"); self.key_btn.clicked.connect(self.export_key_dialog)
         self.sheet_btn = QPushButton("Notfallblatt speichern …"); self.sheet_btn.clicked.connect(self.save_sheet)
+        self.f_changed = QCheckBox("Nur geänderte Dateien lesen (Metadaten-Vergleich; schneller)")
+        self.f_changed.setToolTip("Nach dem Umstellen liest das nächste Backup einmal alles, danach nur noch Geändertes. "
+                                  "Der PBS-Server muss Version 3.3 oder neuer sein.")
+        self.f_weekly = QCheckBox("Zusätzlich wöchentlich alles neu lesen (Modus data)")
+        self.f_weekly.setToolTip("Prüft auch Dateien, deren Metadaten unverändert sind, und meldet Lesefehler. "
+                                 "Gilt nur mit einem Zeitplan.")
+        self.f_data_sched = QLineEdit(); self.f_data_sched.setPlaceholderText("Zeitpunkt, z. B. Sun *-*-* 03:00:00")
+        self.f_changed.toggled.connect(self.f_weekly.setEnabled)
         self.f_dbdump = QCheckBox("Datenbank-Dumps vor dem Backup anlegen (Postgres, MariaDB/MySQL in Containern)")
         self.db_btn = QPushButton("Datenbanken und Zugänge …"); self.db_btn.clicked.connect(self.db_dialog)
         form.addRow("Backup-ID", self.f_id); form.addRow("Namespace", self.f_ns)
+        form.addRow(self.f_changed); form.addRow(self.f_weekly); form.addRow("Prüflauf", self.f_data_sched)
         form.addRow(self.f_dbdump); form.addRow("", self.db_btn)
         form.addRow(self.f_enc); form.addRow("Eigene Schlüsseldatei", self.f_key)
         form.addRow("Master-Public-Key", self.f_master)
@@ -186,6 +198,9 @@ class MainWindow(QMainWindow):
         p.encrypt, p.keyfile = self.f_enc.isChecked(), self.f_key.text().strip()
         p.master_pubkey = self.f_master.text().strip()
         p.db_dump = self.f_dbdump.isChecked()
+        p.change_detection = METADATA if self.f_changed.isChecked() else LEGACY
+        p.weekly_data = self.f_weekly.isChecked()
+        p.data_schedule = self.f_data_sched.text().strip() or p.data_schedule
         p.schedule, p.require_ac = self.f_sched.text().strip(), self.f_ac.isChecked()
         return p
 
@@ -194,6 +209,11 @@ class MainWindow(QMainWindow):
         if not p:
             return False
         try:
+            stored = self.mgr.profiles_store.load(p.name)
+            if (stored.change_detection, stored.weekly_data, stored.data_schedule) != \
+                    (p.change_detection, p.weekly_data, p.data_schedule) and p.schedule and \
+                    self.mgr.schedule_status(p)["installed"] and schedule == "keep":
+                schedule = "install"   # wöchentlichen data-Timer angleichen (in demselben Speichern)
             if p.encrypt and not self.mgr.has_key(p):
                 if self.mgr.enable_encryption(p):  # erzeugt und speichert den Key automatisch
                     self._offer_key_export(p)
@@ -363,7 +383,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Wiederherstellen", "Bitte einen Snapshot auswählen.")
             return
         snap = self._snaps[row]
-        archives = [f for f in snap.files if f.endswith(".pxar")] or snap.files
+        archives = snap.archives or snap.files
         archive, ok = QInputDialog.getItem(self, "Archiv wählen", "Archiv:", archives, 0, False)
         if not ok:
             return

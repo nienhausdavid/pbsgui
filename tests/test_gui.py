@@ -375,3 +375,30 @@ def test_after_create_without_options_does_nothing(app, fake_env, profile, paths
     monkeypatch.setattr(window_mod.MainWindow, "backup_now", lambda self: seen.append("backup"))
     w._after_create(w.current, False)
     assert seen == []
+
+
+# -- Änderungserkennung --------------------------------------------------------------------------------------------------
+def test_dialog_only_changed_is_on_by_default_and_sets_profile(app):
+    from pbsgui.core.models import Profile
+    d = AddServerDialog(admin_ok=True)
+    assert d.only_changed.isChecked() is True
+    assert d._scoped(Profile(name="x", server="s", datastore="d", auth_id="a")).change_detection == "metadata"
+    d.only_changed.setChecked(False)
+    assert d._scoped(Profile(name="x", server="s", datastore="d", auth_id="a")).change_detection == "legacy"
+
+
+def test_window_backup_tab_roundtrips_change_detection(app, fake_env, profile, paths):
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    mgr.save(profile, token="t")                                       # bestehendes Profil: klassisch
+    w = window_mod.MainWindow(mgr)
+    assert w.f_changed.isChecked() is False
+    w.f_changed.setChecked(True)
+    assert w.save_profile() is True
+    assert mgr.profiles_store.load("Laptop").change_detection == "metadata"
+    assert window_mod.MainWindow(mgr).f_changed.isChecked() is True
+
+
+def test_window_restore_offers_logical_archive_names_for_split_snapshots(app, fake_env, profile, paths):
+    from pbsgui.core.models import Snapshot
+    snap = Snapshot("host", "laptop", 1, files=["root.mpxar.didx", "root.ppxar.didx", "catalog.pcat1.didx"])
+    assert snap.archives == ["root.pxar"]

@@ -16,7 +16,7 @@ from ..core.client import PbsClient
 from pathlib import Path
 
 from ..core.manager import can_use_admin
-from ..core.models import Profile
+from ..core.models import LEGACY, METADATA, Profile
 from ..core.modes import FULL, HOME
 from ..core.onboarding import namespace_message, namespace_state
 from ..core.pbs_api import ApiError, PbsApi, TokenExistsError, fetch_fingerprint
@@ -106,10 +106,18 @@ class AddServerDialog(QDialog):
         self.db_note = QLabel("Optional. Ein Dump ist ein sauberer, prüfbarer Stand; ohne ihn werden die Datenbankdateien "
                               "im laufenden Betrieb gelesen. MariaDB/MySQL-Zugänge richtest du danach ein.")
         self.db_note.setWordWrap(True)
+        self.only_changed = QCheckBox("Nur geänderte Dateien lesen (schneller; der erste Lauf liest einmal alles)")
+        self.only_changed.setChecked(True)
+        self.weekly_data = QCheckBox("Wöchentlich alles neu lesen und prüfen (Modus data, sonntags 03:00; empfohlen)")
+        self.weekly_data.setChecked(True)
+        self.weekly_note = QLabel("Fängt Änderungen ab, die der Metadaten-Vergleich nicht bemerkt, und Lesefehler in "
+                                  "selten benutzten Dateien. Gilt nur mit einem Zeitplan.")
+        self.weekly_note.setWordWrap(True)
+        self.only_changed.toggled.connect(self.weekly_data.setEnabled)
         self.start_now = QCheckBox("Direkt nach dem Anlegen das erste Backup starten")
         run_box = QGroupBox("Ablauf"); rl = QFormLayout(run_box)
         rl.addRow("Zeitplan", self.schedule); rl.addRow("", self.schedule_custom); rl.addRow("", self.schedule_info)
-        rl.addRow(self.db_dump); rl.addRow(self.db_note); rl.addRow(self.start_now)
+        rl.addRow(self.only_changed); rl.addRow(self.weekly_data); rl.addRow(self.weekly_note); rl.addRow(self.db_dump); rl.addRow(self.db_note); rl.addRow(self.start_now)
         self.schedule.currentIndexChanged.connect(self._schedule_changed)
         self.schedule_custom.editingFinished.connect(self._update_schedule_info)
 
@@ -253,6 +261,8 @@ class AddServerDialog(QDialog):
         """Setzt Umfang, Modus (System/Benutzer) und Quellen gemäß der Auswahl."""
         profile.backup_mode = self.backup_mode()
         profile.schedule, profile.db_dump = self._schedule, self.db_dump.isChecked()
+        profile.change_detection = METADATA if self.only_changed.isChecked() else LEGACY
+        profile.weekly_data = self.only_changed.isChecked() and self.weekly_data.isChecked()
         if profile.backup_mode == FULL:
             profile.scope, profile.sources = "system", ["/"]
             profile.full_mounts = self.mount_list.selected()
