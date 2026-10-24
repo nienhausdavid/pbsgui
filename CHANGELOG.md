@@ -7,6 +7,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-24
+
 ### Hinzugefügt
 - **Server nachträglich ändern:** Server, Port, Fingerprint, Datastore, Namespace und Token eines vorhandenen Profils lassen sich ändern
   (`pbsgui server NAME …`, GUI „Server ändern …“ im Backup-Tab, TUI `i`). Profilname, Schlüssel, Quellen, Zeitplan und Verlauf bleiben.
@@ -254,7 +256,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.8.3...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.0
 [0.8.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.3
 [0.8.2]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.2
 [0.8.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.1
