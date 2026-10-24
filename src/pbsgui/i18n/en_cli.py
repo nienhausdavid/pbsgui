@@ -407,3 +407,41 @@ EN.update({
 EN.update({
     'In die Zwischenablage kopiert ({0}). Jetzt im Passwortmanager einfügen und speichern.': 'Copied to the clipboard ({0}). Now paste it into your password manager and save it.',
 })
+
+EN.update({
+    '{0}: Hinweis: {1}': '{0}: note: {1}',
+    'Schlüssel anzeigen / exportieren / kopieren / Master-Schlüssel / zurückholen (info|export|copy|copy-kit|copy-sheet|confirm|master-create|master-use|recover)': 'Show / export / copy the key / master key / recover (info|export|copy|copy-kit|copy-sheet|confirm|master-create|master-use|recover)',
+    '{0} gespeichert in {1} (Rechte 0600).': '{0} saved to {1} (permissions 0600).',
+    'Passphrase des Master-Schlüssels': 'Passphrase of the master key',
+    'Zurückgeholter Schlüssel': 'Recovered key',
+    'neue Datei (0600) für geheime Ausgaben (privater Master-Schlüssel, zurückgeholter Schlüssel)': 'new file (0600) for secret output (private master key, recovered key)',
+    'geheime Ausgabe in die Zwischenablage statt in eine Datei': 'put the secret output on the clipboard instead of a file',
+    'privater Master-Schlüssel (für recover)': 'private master key (for recover)',
+    'Snapshot für recover (Standard: neuester mit Schlüsselkopie)': 'snapshot for recover (default: newest with a key copy)',
+    'recover: den Schlüssel gleich im Profil einsetzen (nur wenn der alte Schlüssel verloren ist)': 'recover: install the key in the profile right away (only if the old key is lost)',
+    'master-create: nur dieses Profil, nicht alle verschlüsselten Profile': 'master-create: this profile only, not all encrypted profiles',
+    '{0} in die Zwischenablage kopiert ({1}).': '{0} copied to the clipboard ({1}).',
+    'Ziel angeben: --output DATEI oder --clipboard (geheime Schlüssel werden nie auf der Konsole ausgegeben)': 'Specify a target: --output FILE or --clipboard (secret keys are never printed on the console)',
+    'Öffentlicher Master-Schlüssel eingetragen. Fingerprint: {0}': 'Public master key entered. Fingerprint: {0}',
+    'Passphrase des Master-Schlüssels (mindestens 8 Zeichen)': 'Passphrase of the master key (at least 8 characters)',
+    'Erzeuge den Master-Schlüssel (4096 Bit, dauert einen Moment) …': 'Creating the master key (4096 bit, takes a moment) …',
+    'Privater Master-Schlüssel': 'Private master key',
+    'Fingerprint: {0}\nJetzt den privaten Schlüssel UND die Passphrase getrennt vom Rechner sichern (Passwortmanager, Tresor). Ab dem nächsten Backup enthält jeder Snapshot die Schlüsselkopie.': 'Fingerprint: {0}\nNow back up the private key AND the passphrase separately from this computer (password manager, safe). From the next backup on every snapshot contains the key copy.',
+    'Privaten Master-Schlüssel angeben: --master-key DATEI': 'Specify the private master key: --master-key FILE',
+    'Schlüssel zurückgeholt und im Profil eingesetzt (Fingerprint {0}).': 'Key recovered and installed in the profile (fingerprint {0}).',
+    'Master-Schlüssel: ja, Fingerprint {0}; privater Teil gesichert: {1}': 'Master key: yes, fingerprint {0}; private part backed up: {1}',
+    'Master-Schlüssel: nein (einrichten: pbsgui key master-create NAME --output DATEI)': 'Master key: no (set up: pbsgui key master-create NAME --output FILE)',
+    'Öffentlichen Master-Schlüssel angeben: pbsgui key master-use NAME DATEI.pem': 'Specify the public master key: pbsgui key master-use NAME FILE.pem',
+    'Der Master-Schlüssel gehört zu Profilen mit automatisch erzeugtem Schlüssel': 'The master key belongs to profiles with an automatically generated key',
+    'Es ist schon ein Master-Schlüssel eingetragen (Fingerprint {0})': 'A master key is already set (fingerprint {0})',
+    'Kein Snapshot mit Schlüsselkopie gefunden (Backups ohne Master-Schlüssel enthalten keine)': 'No snapshot with a key copy found (backups made without a master key contain none)',
+    'Passphrase wiederholen: ': 'Repeat the passphrase: ',
+})
+
+EN.update({
+    'Verschlüsselungs-Schlüssel mit dem privaten Master-Schlüssel aus einem Backup zurückholen': 'recover the encryption key from a backup with the private master key',
+    'privater Master-Schlüssel (master-private.pem)': 'private master key (master-private.pem)',
+    'neue Datei (0600) für den zurückgeholten Schlüssel; danach als --keyfile verwenden': 'new file (0600) for the recovered key; then use it as --keyfile',
+    'Snapshot-Pfad; Standard: neuester mit Schlüsselkopie': 'snapshot path; default: newest with a key copy',
+    'Schlüssel zurückgeholt und in {0} gespeichert (Rechte 0600). Jetzt mit --keyfile {0} wiederherstellen.': 'Key recovered and saved to {0} (permissions 0600). Now restore with --keyfile {0}.',
+})

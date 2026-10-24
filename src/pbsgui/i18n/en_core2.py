@@ -215,3 +215,18 @@ EN.update({
     'ACHTUNG: Dieser Text enthält den geheimen Verschlüsselungs-Schlüssel. Nur im Passwortmanager oder an einem sicheren Ort ablegen, nie ungeschützt weitergeben.': 'WARNING: This text contains the secret encryption key. Store it only in your password manager or another safe place, never pass it on unprotected.',
     'SCHLÜSSEL (Inhalt von key.json; als Datei speichern und bei der Wiederherstellung angeben)': 'KEY (content of key.json; save it as a file and provide it during the restore)',
 })
+
+EN.update({
+    'Dieser Snapshot enthält keine Schlüsselkopie für den Master-Schlüssel (wurde ohne Master-Schlüssel erstellt)': 'This snapshot contains no key copy for the master key (it was created without a master key)',
+    'Schlüsselkopie nicht lesbar': 'Key copy not readable',
+    'Kein Master-Schlüssel eingerichtet: geht der Schlüssel verloren, sind die Backups unlesbar (pbsgui key master-create)': 'No master key set up: if the key is lost the backups are unreadable (pbsgui key master-create)',
+    'Der private Master-Schlüssel ist noch nicht als gesichert bestätigt': 'The private master key has not been confirmed as backed up yet',
+    'Der zurückgeholte Schlüssel ({0}…) passt nicht zum vorhandenen Schlüssel des Profils ({1}…)': 'The recovered key ({0}…) does not match the existing key of the profile ({1}…)',
+    'Das ist kein öffentlicher Master-Schlüssel (erwartet: -----BEGIN PUBLIC KEY-----)': 'This is not a public master key (expected: -----BEGIN PUBLIC KEY-----)',
+    'Die Passphrase des Master-Schlüssels ist zu kurz (mindestens 8 Zeichen)': 'The passphrase of the master key is too short (at least 8 characters)',
+    'Das ist kein gültiger öffentlicher Schlüssel (PEM)': 'This is not a valid public key (PEM)',
+    'Master-Schlüssel konnte nicht erzeugt werden: {0}': 'The master key could not be created: {0}',
+    'Schlüssel konnte nicht zurückgeholt werden (falsche Passphrase oder falscher Master-Schlüssel?): {0}': 'The key could not be recovered (wrong passphrase or wrong master key?): {0}',
+    'Master-Schlüssel:      ja (öffentlicher Fingerprint {0}). Der PRIVATE Master-Schlüssel liegt getrennt; `pbsgui key recover` holt den Schlüssel damit aus einem Snapshot zurück.': 'Master key:            yes (public fingerprint {0}). The PRIVATE master key is kept separately; `pbsgui key recover` uses it to recover the key from a snapshot.',
+    'Master-Schlüssel:      nein (geht der Schlüssel verloren, sind die Backups endgültig unlesbar)': 'Master key:            no (if the key is lost the backups are permanently unreadable)',
+})

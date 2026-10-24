@@ -13,6 +13,7 @@ The interface is available in **English and German**. It follows the system lang
 - Backup scope chosen during setup: **home only** (default, no sudo, user mode) or the **entire system** (file level, needs administrator rights, runs in system mode via `pkexec`/systemd). A full backup covers `/` plus the **chosen drives** (`--include-dev`): internal local file systems (ext4, xfs, btrfs, vfat …) are preselected, **USB drives** (also behind LUKS/LVM) and mounts under `/media`, `/mnt`, `/run` only on explicit choice, **network mounts** (NFS, CIFS, sshfs …) and virtual file systems never, **bind-mount duplicates** are not read twice. Excluded are `/proc`, `/sys`, `/dev`, `/run`, `/tmp` and the like; there are no Docker/container default exclusions. It is **not** a system image
 - Server setup: way A (once as root, creates user/token/ACLs) or way B (existing token), with fingerprint pinning
 - **Change the server afterwards** (server, port, fingerprint, datastore, namespace, token): `pbsgui server NAME …`, GUI “Change server …”, TUI `i`; the new settings are checked with the client before anything is saved
+- **Master key** (RSA) as insurance against losing the encryption key: every snapshot then carries a key copy that only the private master key opens; set up and recovery in the GUI, TUI and CLI (also on the rescue ISO: `pbsgui rescue recover-key`)
 - Client-side encryption on by default: the key is generated automatically (without a passphrase, because the client only accepts one via a TTY), stored encrypted in the secret store and provided only briefly as a 0600 file in tmpfs; export dialog for safekeeping
 - During setup: load datastores, check namespaces live (exists / will be created / cannot be created with way B)
 - Start a backup with a live log, list snapshots, restore into a freely chosen target folder
@@ -31,7 +32,7 @@ leaves its own ACL behind (the app removes it first).
 ## Not yet / not verified
 - Root login by password and the 2FA flow are unchecked (testing used an API token)
 - System scope (pkexec helper, system units) is only covered by a unit test with a fake runner
-- Master key generation (RSA) and prune are missing; so is key rotation (a key is never overwritten)
+- Prune is missing; so is key rotation (a key is never overwritten)
 
 ## Installation
 One command (Debian 13 / Ubuntu), details in [docs/INSTALLATION.md](docs/INSTALLATION.md):
@@ -100,12 +101,14 @@ pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id us
 pbsgui server Laptop --server pbs2.example.org --fetch-fingerprint --datastore backup   # change the server afterwards
 pbsgui key export Laptop ~/laptop-key.json                       # back up the key!
 pbsgui key copy-kit Laptop                                       # or: copy key + emergency sheet to the clipboard (password manager)
+pbsgui key master-create Laptop --output ~/master-private.pem   # master key: insurance against losing the key (then store the file + passphrase safely)
+pbsgui key recover Laptop --master-key ~/master-private.pem --output ~/key.json   # get the key back from a snapshot
 pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
 pbsgui language en                             # choose the interface language (en, de, auto)
 ```
 Secrets are never accepted as an argument: prompt or `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
-TUI keys: a add, b backup, r snapshots, t restore, f files, x compare, w restore test, g search all snapshots, e dashboard, h history, i change server, s schedule, m mode, v encryption, k back up key to a file, y copy key + emergency sheet to the clipboard, o sources, u drives, p DB dumps, n emergency sheet, d remove, q quit. In the file browser: p preview, v versions.
+TUI keys: M master key, a add, b backup, r snapshots, t restore, f files, x compare, w restore test, g search all snapshots, e dashboard, h history, i change server, s schedule, m mode, v encryption, k back up key to a file, y copy key + emergency sheet to the clipboard, o sources, u drives, p DB dumps, n emergency sheet, d remove, q quit. In the file browser: p preview, v versions.
 
 ## Development
 ```bash

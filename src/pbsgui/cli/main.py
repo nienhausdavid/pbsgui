@@ -608,7 +608,14 @@ def cmd_key(a, mgr) -> int:
             print(tr("Extern gesichert: {0}", tr("ja, am ") + p.key_exported_at if p.key_exported_at else tr("NEIN (pbsgui key export ...)")))
         if p.keyfile:
             print(tr("Eigene Schlüsseldatei: {0}", p.keyfile))
+        if p.encrypt and not p.keyfile:
+            if p.master_pubkey:
+                print(tr("Master-Schlüssel: ja, Fingerprint {0}; privater Teil gesichert: {1}", p.master_fingerprint, p.master_key_ack_at or tr("NEIN")))
+            else:
+                print(tr("Master-Schlüssel: nein (einrichten: pbsgui key master-create NAME --output DATEI)"))
         return 0
+    if a.action in ("master-create", "master-use", "recover"):
+        return _cmd_master(a, mgr, p)
     if a.action == "confirm":
         if not a.dest:
             raise CliError(tr("Schlüsseldatei angeben: pbsgui key confirm NAME DATEI"))
@@ -636,6 +643,78 @@ def cmd_key(a, mgr) -> int:
     print(tr("Schlüssel exportiert nach {0} (Rechte 0600). An einem sicheren Ort aufbewahren.", a.dest))
     _activate_pending(mgr, p)
     return 0
+
+
+def _save_secret_file(dest: str, text: str) -> None:
+    if Path(dest).exists():
+        raise CliError(tr("{0} existiert bereits", dest))
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+
+
+def _deliver_secret(a, text: str, what: str) -> None:
+    """Geheimen Text in eine neue 0600-Datei oder in die Zwischenablage legen (nie auf die Konsole)."""
+    if a.output:
+        _save_secret_file(a.output, text)
+        print(tr("{0} gespeichert in {1} (Rechte 0600).", what, a.output))
+    elif a.clipboard:
+        from ..core.clipboard import ClipboardError, copy_text
+        try:
+            tool = copy_text(text)
+        except ClipboardError as e:
+            raise CliError(str(e))
+        print(tr("{0} in die Zwischenablage kopiert ({1}).", what, tool))
+    else:
+        raise CliError(tr("Ziel angeben: --output DATEI oder --clipboard (geheime Schlüssel werden nie auf der Konsole ausgegeben)"))
+
+
+def _cmd_master(a, mgr: ProfileManager, p: Profile) -> int:
+    from ..core.masterkey import MasterKeyError
+    try:
+        if a.action == "master-use":
+            if not a.dest:
+                raise CliError(tr("Öffentlichen Master-Schlüssel angeben: pbsgui key master-use NAME DATEI.pem"))
+            fp = mgr.use_master_pubkey(p, Path(a.dest).read_text())
+            print(tr("Öffentlicher Master-Schlüssel eingetragen. Fingerprint: {0}", fp))
+            return 0
+        if a.action == "master-create":
+            if not p.encrypt or p.keyfile:
+                raise CliError(tr("Der Master-Schlüssel gehört zu Profilen mit automatisch erzeugtem Schlüssel"))
+            if p.master_pubkey:
+                raise CliError(tr("Es ist schon ein Master-Schlüssel eingetragen (Fingerprint {0})", p.master_fingerprint))
+            if not (a.output or a.clipboard):
+                raise CliError(tr("Ziel angeben: --output DATEI oder --clipboard (geheime Schlüssel werden nie auf der Konsole ausgegeben)"))
+            pw = secret_from("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels (mindestens 8 Zeichen)"))
+            if sys.stdin.isatty() and not os.environ.get("PBSGUI_MASTER_PASSPHRASE") and getpass.getpass(tr("Passphrase wiederholen: ")) != pw:
+                raise CliError(tr("Die Passphrasen stimmen nicht überein"))
+            print(tr("Erzeuge den Master-Schlüssel (4096 Bit, dauert einen Moment) …"), flush=True)
+            key = mgr.setup_master_key(p, pw, all_profiles=not a.this_only)
+            _deliver_secret(a, key.private_pem, tr("Privater Master-Schlüssel"))
+            mgr.confirm_master_key_backup(p)
+            print(tr("Fingerprint: {0}\nJetzt den privaten Schlüssel UND die Passphrase getrennt vom Rechner sichern (Passwortmanager, Tresor). Ab dem nächsten Backup enthält jeder Snapshot die Schlüsselkopie.", key.fingerprint))
+            return 0
+        # recover
+        if not a.master_key:
+            raise CliError(tr("Privaten Master-Schlüssel angeben: --master-key DATEI"))
+        pem = Path(a.master_key).read_text()
+        pw = secret_from("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels"))
+        snaps = mgr.snapshots(p)
+        if a.snapshot is not None:
+            snap = _pick_snapshot(mgr, p, a.snapshot)
+        else:
+            snap = next((s for s in snaps if any(n in s.files for n in ("rsa-encrypted.key", "rsa-encrypted.key.blob"))), None)
+            if snap is None:
+                raise CliError(tr("Kein Snapshot mit Schlüsselkopie gefunden (Backups ohne Master-Schlüssel enthalten keine)"))
+        key_json = mgr.recover_key(p, snap, pem, pw)
+        if a.install:
+            mgr.install_recovered_key(p, key_json)
+            print(tr("Schlüssel zurückgeholt und im Profil eingesetzt (Fingerprint {0}).", p.key_fingerprint))
+            return 0
+        _deliver_secret(a, key_json, tr("Zurückgeholter Schlüssel"))
+        return 0
+    except (MasterKeyError, OSError, ClientError) as e:
+        raise CliError(str(e))
 
 
 def _activate_pending(mgr: ProfileManager, p: Profile) -> None:
@@ -905,8 +984,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help=tr("wöchentlich zusätzlich alles neu lesen (Modus data); braucht metadata und einen Zeitplan"))
     sp.add_argument("--data-schedule", metavar="AUSDRUCK", help=tr("Zeitpunkt dieses Laufs (OnCalendar)"))
     add("status", cmd_status, tr("Zeitplan- und Laufstatus"), "name")
-    sp = add("key", cmd_key, tr("Schlüssel anzeigen / exportieren / kopieren / bereits gesicherte Datei bestätigen (info|export|copy|copy-kit|copy-sheet|confirm)"), "action")
+    sp = add("key", cmd_key, tr("Schlüssel anzeigen / exportieren / kopieren / Master-Schlüssel / zurückholen (info|export|copy|copy-kit|copy-sheet|confirm|master-create|master-use|recover)"), "action")
     sp.add_argument("name"); sp.add_argument("dest", nargs="?")
+    sp.add_argument("--output", metavar="DATEI", help=tr("neue Datei (0600) für geheime Ausgaben (privater Master-Schlüssel, zurückgeholter Schlüssel)"))
+    sp.add_argument("--clipboard", action="store_true", help=tr("geheime Ausgabe in die Zwischenablage statt in eine Datei"))
+    sp.add_argument("--master-key", metavar="DATEI", help=tr("privater Master-Schlüssel (für recover)"))
+    sp.add_argument("--snapshot", help=tr("Snapshot für recover (Standard: neuester mit Schlüsselkopie)"))
+    sp.add_argument("--install", action="store_true", help=tr("recover: den Schlüssel gleich im Profil einsetzen (nur wenn der alte Schlüssel verloren ist)"))
+    sp.add_argument("--this-only", action="store_true", help=tr("master-create: nur dieses Profil, nicht alle verschlüsselten Profile"))
     sp = add("remove", cmd_remove, tr("Profil entfernen"), "name"); sp.add_argument("--yes", action="store_true")
     sp = add("recovery", cmd_recovery, tr("Wiederherstellung auf neuem PC: Checkliste, Notfallblatt"), "name")
     sp.add_argument("--sheet", metavar="DATEI", help=tr("Notfallblatt (ohne Geheimnisse) speichern"))

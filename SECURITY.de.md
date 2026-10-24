@@ -19,6 +19,13 @@ Bitte keine öffentlichen Issues für Sicherheitslücken. Schreib an den Maintai
 - **Programme** werden immer mit Argumentlisten gestartet, nie über eine Shell mit Benutzereingaben.
 - **Wiederherstellung:** „Überschreiben“ ist auf das Home-Verzeichnis begrenzt (Symlinks werden aufgelöst), alte
   Fassungen werden vorher gesichert.
+- **Server nachträglich ändern:** Die neuen Angaben werden vor dem Speichern mit dem Client geprüft; eine geänderte Token-ID braucht ihr Secret, ein neuer
+  Fingerprint muss ausdrücklich bestätigt werden.
+- **Master-Schlüssel:** Den privaten Master-Schlüssel und seine Passphrase speichert pbsgui nie; er wird einmal ausgegeben (Zwischenablage oder 0600-Datei), und der
+  Einrichtungsdialog schließt erst nach der Bestätigung des Sicherns. Die Passphrase erreicht den Client über ein Pseudo-Terminal, nie als Argument oder in der Ausgabe.
+- **Katalog-Zwischenspeicher und Restore-Test:** Die zwischengespeicherten Dateilisten (`~/.cache/pbsgui/catalogs`) sind nur für den Benutzer lesbar (0600/0700); bei
+  verschlüsselten Backups enthalten sie Dateinamen im Klartext. Stichproben des Restore-Tests liegen nur im Arbeitsspeicher und werden sofort gelöscht. Die Dateivorschau folgt
+  nie symbolischen Links und lehnt Pfade außerhalb des Archivs ab.
 
 - **Web-Oberfläche der Rettungs-ISO** (nur auf Wunsch aktiv): zufällige Passphrase (etwa 78 Bit), HTTPS, Rate Limiting, Sperren,
   Honeypot (verstecktes Feld, Köder-Adressen), Abschaltung nach 40 Fehlversuchen, eine Sitzung mit Zeitlimits, CSRF-Token,

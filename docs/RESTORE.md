@@ -76,6 +76,19 @@ passwords the address is locked out (for growing durations); after 40 failed att
 console shows the hit. There is only ever one session, it expires after 15 minutes of inactivity, and every change needs a
 CSRF token. Wiping a disk requires typing the device name, as everywhere.
 
+## If the key is lost: recover it with the master key
+
+If `key.json` is gone but you set up a **master key** earlier (GUI “Set up the master key …”, `pbsgui key master-create`), you can get the key back from any
+snapshot that was created afterwards. You need the private master key (`master-private.pem`) and its passphrase, plus the server access from the emergency sheet:
+
+```bash
+PBSGUI_TOKEN_SECRET=… PBSGUI_MASTER_PASSPHRASE=… pbsgui rescue recover-key --server pbs.example.org --datastore main \
+  --auth-id user@pbs!tok --backup-id my-pc --master-key /media/usb/master-private.pem --output /tmp/key.json
+```
+
+Then give `/tmp/key.json` as the key file in the wizard (or as `--keyfile`). Snapshots made without a master key contain no key copy: for them only the
+original key helps.
+
 ## 2. Connection to the backup server
 
 The fields server, datastore, namespace, backup ID and token ID come from your **emergency sheet** (with a

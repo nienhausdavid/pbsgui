@@ -71,6 +71,7 @@ def overview_details(ov: Overview) -> list[str]:
     if ov.error:
         out.append(tr("{0}: Server nicht erreichbar: {1}", ov.profile.name, ov.error))
     out += [tr("{0}: Warnung: {1}", ov.profile.name, w) for w in ov.warnings]
+    out += [tr("{0}: Hinweis: {1}", ov.profile.name, n) for n in ov.notes]
     return out
 
 
@@ -259,7 +260,7 @@ def cmd_dashboard(a, mgr: ProfileManager) -> int:
     if a.json:
         print(json.dumps([{"profile": o.profile.name, "state": o.state, "last_backup": o.last_backup, "size": o.size,
                            "growth_last": o.growth_last, "growth_30d": o.growth_30d, "snapshots": o.snapshots,
-                           "logical_total": o.logical_total, "running": o.running, "warnings": o.warnings,
+                           "logical_total": o.logical_total, "running": o.running, "warnings": o.warnings, "notes": o.notes,
                            "last_run": o.last_run.to_dict() | {"log": []} if o.last_run else None,
                            "datastore": (lambda u: u and {"total": u.total, "used": u.used, "avail": u.avail, "dedup": u.dedup})(
                                usages.get((o.profile.server, o.profile.port, o.profile.datastore)))} for o in ovs], indent=2))

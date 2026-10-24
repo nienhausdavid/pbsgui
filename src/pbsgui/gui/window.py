@@ -24,6 +24,7 @@ from .add_server import AddServerDialog
 from .db_dialog import DbDumpDialog
 from .edit_server import EditServerDialog
 from .files_dialog import FilesDialog
+from .master_dialogs import MasterKeySetupDialog, RecoverKeyDialog
 from .insight import DashboardTab, DiffDialog, HistoryTab, RestoreTestDialog, SearchAllDialog
 from .mounts_widget import MountList
 from . import style
@@ -252,6 +253,10 @@ class MainWindow(QMainWindow):
         self.kit_copy_btn = QPushButton(tr("Schlüssel + Notfallblatt kopieren")); self.kit_copy_btn.clicked.connect(lambda: self.copy_key("kit"))
         self.kit_copy_btn.setToolTip(tr("Notfallblatt und Schlüssel in einem Text in die Zwischenablage kopieren"))
         self.sheet_copy_btn = QPushButton(tr("Notfallblatt kopieren")); self.sheet_copy_btn.clicked.connect(lambda: self.copy_key("sheet"))
+        self.master_btn = QPushButton(tr("Master-Schlüssel einrichten …")); self.master_btn.clicked.connect(self.setup_master)
+        self.master_btn.setToolTip(tr("Versicherung gegen Schlüsselverlust: jedes Backup enthält eine Kopie des Schlüssels, die nur der private Master-Schlüssel öffnet"))
+        self.master_use_btn = QPushButton(tr("Öffentlichen Master-Schlüssel verwenden …")); self.master_use_btn.clicked.connect(self.use_master)
+        self.recover_btn = QPushButton(tr("Schlüssel zurückholen …")); self.recover_btn.clicked.connect(self.recover_key_dialog)
         self.f_changed = QCheckBox(tr("Nur geänderte Dateien lesen (schneller)"))
         self.f_changed.setToolTip(tr("Metadaten-Vergleich. Nach dem Umstellen liest das nächste Backup einmal alles, danach nur noch Geändertes. Der PBS-Server muss Version 3.3 oder neuer sein."))
         self.f_weekly = QCheckBox(tr("Zusätzlich wöchentlich alles neu lesen (Modus data)"))
@@ -291,7 +296,8 @@ class MainWindow(QMainWindow):
         el.addWidget(self.f_enc); el.addWidget(self.key_info)
         krow = QHBoxLayout(); krow.addWidget(self.key_btn); krow.addWidget(self.sheet_btn); krow.addStretch()
         krow2 = QHBoxLayout(); krow2.addWidget(self.key_copy_btn); krow2.addWidget(self.kit_copy_btn); krow2.addWidget(self.sheet_copy_btn); krow2.addStretch()
-        el.addLayout(krow); el.addLayout(krow2)
+        krow3 = QHBoxLayout(); krow3.addWidget(self.master_btn); krow3.addWidget(self.master_use_btn); krow3.addWidget(self.recover_btn); krow3.addStretch()
+        el.addLayout(krow); el.addLayout(krow2); el.addLayout(krow3)
         kf = QFormLayout(); kf.addRow(tr("Eigene Schlüsseldatei"), self.f_key); kf.addRow("Master-Public-Key", self.f_master)
         el.addLayout(kf)
 
@@ -404,7 +410,13 @@ class MainWindow(QMainWindow):
             text, can_export = tr("Der Schlüssel wird beim Speichern automatisch erzeugt."), False
         else:
             text, can_export = tr("Verschlüsselung ist aus: Backups liegen unverschlüsselt auf dem Server."), False
+        if can_export or (p.encrypt and not p.keyfile):
+            text += "\n" + (tr("Master-Schlüssel: ja (Fingerprint {0}), privater Teil gesichert: {1}", p.master_fingerprint[:23], p.master_key_ack_at or tr("NEIN"))
+                            if p.master_pubkey else tr("Master-Schlüssel: nein – geht der Schlüssel verloren, sind alle Backups unlesbar."))
         self.key_info.setText(text)
+        self.master_btn.setEnabled(p.encrypt and not p.keyfile and not p.master_pubkey)
+        self.master_use_btn.setEnabled(p.encrypt and not p.keyfile and not p.master_pubkey)
+        self.recover_btn.setEnabled(p.encrypt and not p.keyfile)
         self.key_btn.setEnabled(can_export)
         for b_ in (self.key_copy_btn, self.kit_copy_btn):
             b_.setEnabled(can_export)
@@ -449,6 +461,41 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(tr("Notfallblatt kopiert (enthält keine Geheimnisse)"))
         return True
+
+    def setup_master(self) -> None:
+        p = self.current
+        if p and self.save_profile():
+            MasterKeySetupDialog(self.mgr, p, self).exec()
+            self.refresh_key_info()
+
+    def use_master(self) -> None:
+        p = self.current
+        if not p:
+            return
+        f, _ = QFileDialog.getOpenFileName(self, tr("Öffentlichen Master-Schlüssel wählen"), str(Path.home()), "PEM (*.pem);;*")
+        if not f:
+            return
+        try:
+            fp = self.mgr.use_master_pubkey(p, Path(f).read_text())
+        except Exception as e:
+            QMessageBox.warning(self, tr("Fehler"), str(e))
+            return
+        self.statusBar().showMessage(tr("Öffentlicher Master-Schlüssel eingetragen. Fingerprint: {0}", fp))
+        self.refresh_key_info()
+
+    def recover_key_dialog(self) -> None:
+        p = self.current
+        if not p:
+            return
+
+        def open_dialog(snaps):
+            RecoverKeyDialog(self.mgr, p, list(snaps), self).exec()
+            self.refresh_key_info()
+        if self._snaps:
+            open_dialog(self._snaps)
+        else:
+            self.statusBar().showMessage(tr("Lade Snapshots …"))
+            self.run_async(lambda _l: self.mgr.snapshots(p), open_dialog)
 
     def _ask_key_backup(self, p: Profile, text: str | None = None) -> bool:
         """Vollbackup ist gesperrt, bis der Schlüssel gesichert ist: Zwischenablage oder Datei anbieten. True = gesichert."""

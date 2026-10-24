@@ -375,3 +375,14 @@ EN.update({
 EN.update({
     'Dieses Vollbackup startet, sobald der Schlüssel gesichert ist. Schlüssel und Notfallblatt jetzt in die Zwischenablage kopieren (im Passwortmanager einfügen) und das Backup starten?': 'This full backup starts as soon as the key is backed up. Copy the key and emergency sheet to the clipboard now (paste them into your password manager) and start the backup?',
 })
+
+EN.update({
+    'Master-Key': 'Master key',
+    'Master-Schlüssel: {0}  (mit [M] einrichten)': 'Master key:      {0}  (set up with [M])',
+    'ja, Fingerprint {0}; privater Teil gesichert: {1}': 'yes, fingerprint {0}; private part backed up: {1}',
+    'Versicherung gegen Schlüsselverlust: Jedes Backup enthält danach eine Kopie des Verschlüsselungs-Schlüssels, die nur der PRIVATE Master-Schlüssel öffnet. Den privaten Teil und die Passphrase getrennt vom Rechner aufbewahren (Passwortmanager, Tresor); pbsgui speichert ihn nie.': 'Insurance against losing the key: afterwards every backup contains a copy of the encryption key that only the PRIVATE master key can open. Keep the private part and the passphrase separate from this computer (password manager, safe); pbsgui never stores it.',
+    'In Datei speichern': 'Save to a file',
+    'Datei zum Speichern (neue Datei, Rechte 0600)': 'File to save to (new file, permissions 0600)',
+    'Kopiert. Jetzt im Passwortmanager einfügen und speichern.': 'Copied. Now paste it into your password manager and save it.',
+    'Neue Datei angeben (die Datei darf noch nicht existieren)': 'Specify a new file (it must not exist yet)',
+})

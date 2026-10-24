@@ -29,6 +29,7 @@ def add_arguments(sub) -> None:
     for name, help_ in (("disks", tr("mögliche Ziel-Platten anzeigen")),
                         ("keys", tr("USB-Sticks einhängen und nach Schlüsseldateien suchen")), ("snapshots", tr("Vollbackups des Servers auflisten")),
                         ("run", tr("Wiederherstellung durchführen")),
+                        ("recover-key", tr("Verschlüsselungs-Schlüssel mit dem privaten Master-Schlüssel aus einem Backup zurückholen")),
                         ("vm-snapshots", tr("VM-Backups (Proxmox VE, Snapshots vm/<id>) des Servers auflisten")),
                         ("vm-run", tr("VM-Abbild auf eine oder mehrere physische Platten wiederherstellen (V2P)"))):
         r = rsub.add_parser(name, help=help_)
@@ -39,6 +40,10 @@ def add_arguments(sub) -> None:
             r.add_argument("--fingerprint"); r.add_argument("--backup-id")
             r.add_argument("--keyfile", help=tr("exportierte Schlüsseldatei (bei verschlüsseltem Backup)"))
             r.add_argument("--yes", action="store_true", help=tr("Fingerprint ohne Rückfrage akzeptieren"))
+        if name == "recover-key":
+            r.add_argument("--master-key", required=True, metavar="DATEI", help=tr("privater Master-Schlüssel (master-private.pem)"))
+            r.add_argument("--output", required=True, metavar="DATEI", help=tr("neue Datei (0600) für den zurückgeholten Schlüssel; danach als --keyfile verwenden"))
+            r.add_argument("--snapshot", help=tr("Snapshot-Pfad; Standard: neuester mit Schlüsselkopie"))
         if name in ("vm-snapshots", "vm-run"):
             r.add_argument("--vmid", help=tr("VM-Nummer (entspricht --backup-id)"))
         if name == "vm-run":
@@ -129,8 +134,9 @@ def cmd_rescue(a, mgr=None) -> int:
             keys = find_key_files(mount=os.geteuid() == 0)
             print("\n".join(keys) if keys else tr("Keine Schlüsseldatei gefunden."))
             return 0 if keys else 1
-        if a.rescue_cmd in ("snapshots", "run", "vm-snapshots", "vm-run"):
-            return {"snapshots": _snapshots, "run": _run, "vm-snapshots": _vm_snapshots, "vm-run": _vm_run}[a.rescue_cmd](a)
+        if a.rescue_cmd in ("snapshots", "run", "vm-snapshots", "vm-run", "recover-key"):
+            return {"snapshots": _snapshots, "run": _run, "vm-snapshots": _vm_snapshots, "vm-run": _vm_run,
+                    "recover-key": _recover_key}[a.rescue_cmd](a)
         from ..tui.rescue import run as run_tui  # ohne Unterbefehl: geführter Assistent
         run_tui()
         return 0
@@ -143,6 +149,35 @@ def cmd_rescue(a, mgr=None) -> int:
             msg += tr("\nHinweis: Das Backup ist verschlüsselt. Mit --keyfile die exportierte Schlüsseldatei angeben.")
         print(tr("Fehler: {0}", msg), file=sys.stderr)
         return 1
+
+
+def _recover_key(a) -> int:
+    """Schlüssel aus einem Snapshot zurückholen, wenn Gerät und key.json verloren sind (nur der private Master-Schlüssel ist da)."""
+    from ..core.client import client_binary
+    from ..core.masterkey import ENCRYPTED_NAMES, MasterKeyError, recover_key
+    from ..core.rescue import _client
+    cfg = build_config(a)
+    client = _client(cfg)
+    snaps = [s for s in client.list_snapshots() if (not cfg.backup_id or s.backup_id == cfg.backup_id)
+             and any(n in s.files for n in ENCRYPTED_NAMES)]
+    if a.snapshot:
+        snaps = [s for s in snaps if s.path == a.snapshot]
+    if not snaps:
+        raise RescueCliError(tr("Kein Snapshot mit Schlüsselkopie gefunden (Backups ohne Master-Schlüssel enthalten keine)"))
+    if Path(a.output).exists():
+        raise RescueCliError(tr("{0} existiert bereits", a.output))
+    pw = _secret("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels"))
+    try:
+        with tempfile.TemporaryDirectory(prefix="pbsgui-blob-") as tmp:
+            blob = client.restore_encrypted_key(snaps[0], str(Path(tmp) / "rsa-encrypted.key"))
+        key_json = recover_key(cfg.client or client_binary(), blob, Path(a.master_key).read_text(), pw)
+    except MasterKeyError as e:
+        raise RescueCliError(str(e))
+    fd = os.open(a.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(key_json)
+    print(tr("Schlüssel zurückgeholt und in {0} gespeichert (Rechte 0600). Jetzt mit --keyfile {0} wiederherstellen.", a.output))
+    return 0
 
 
 def _snapshots(a) -> int:

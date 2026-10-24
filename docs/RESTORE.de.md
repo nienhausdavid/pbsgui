@@ -73,6 +73,20 @@ Passwörtern wird die Adresse gesperrt (mit wachsender Dauer); nach 40 Fehlversu
 Konsole zeigt den Treffer. Es gibt immer nur eine Sitzung, sie läuft nach 15 Minuten Leerlauf ab, und jede Änderung braucht ein
 CSRF-Token. Das Löschen einer Platte verlangt wie überall das Eintippen des Gerätenamens.
 
+## Schlüssel verloren: mit dem Master-Schlüssel zurückholen
+
+Ist `key.json` weg, du hast aber vorher einen **Master-Schlüssel** eingerichtet (GUI „Master-Schlüssel einrichten …“, `pbsgui key master-create`), holst du den
+Schlüssel aus jedem danach erstellten Snapshot zurück. Du brauchst den privaten Master-Schlüssel (`master-private.pem`) mit seiner Passphrase und den Zugang
+vom Notfallblatt:
+
+```bash
+PBSGUI_TOKEN_SECRET=… PBSGUI_MASTER_PASSPHRASE=… pbsgui rescue recover-key --server pbs.example.org --datastore main \
+  --auth-id user@pbs!tok --backup-id mein-pc --master-key /media/usb/master-private.pem --output /tmp/key.json
+```
+
+Danach `/tmp/key.json` im Assistenten als Schlüsseldatei angeben (oder als `--keyfile`). Snapshots ohne Master-Schlüssel enthalten keine Schlüsselkopie: dort hilft
+nur der ursprüngliche Schlüssel.
+
 ## 2. Verbindung zum Backup-Server
 
 Die Felder Server, Datastore, Namespace, Backup-ID und Token-ID kommen von deinem **Notfallblatt** (bei einer

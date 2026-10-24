@@ -9,6 +9,18 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **Master-Schlüssel (Versicherung gegen Schlüsselverlust):** einrichten in der GUI („Master-Schlüssel einrichten …“), der TUI (`M`) oder mit
+  `pbsgui key master-create NAME --output DATEI|--clipboard`. pbsgui erzeugt mit dem Client ein 4096-Bit-RSA-Paar (die Passphrase geht über ein
+  Pseudo-Terminal, nie als Argument), trägt den **öffentlichen** Teil in die Profile ein (standardmäßig in alle verschlüsselten Profile, damit ein privater
+  Schlüssel für alle Geräte reicht) und gibt den **privaten** Teil einmal zum Sichern aus (Zwischenablage oder 0600-Datei; pbsgui speichert ihn nie). Der Dialog
+  schließt erst, wenn bestätigt ist, dass privater Schlüssel und Passphrase gesichert sind. Danach enthält jeder Snapshot eine Kopie des Schlüssels, die nur der
+  private Master-Schlüssel öffnet. Vorhandene öffentliche Schlüssel anderer Geräte lassen sich verwenden (`key master-use`, GUI „Öffentlichen Master-Schlüssel verwenden …“).
+- **Schlüssel zurückholen:** `pbsgui key recover NAME --master-key DATEI --output DATEI` (GUI „Schlüssel zurückholen …“), und in der Rettungs-ISO ohne Profil
+  `pbsgui rescue recover-key --server … --master-key DATEI --output key.json`; das Ergebnis dient als `--keyfile`. Nur Snapshots, die mit Master-Schlüssel erstellt
+  wurden, enthalten die Kopie. `key recover --install` setzt den Schlüssel im Profil wieder ein, wenn der alte verloren ist.
+- Dashboard, `pbsgui key info`, GUI und Notfallblatt zeigen, ob ein Master-Schlüssel eingerichtet und sein privater Teil als gesichert bestätigt ist.
+
 ## [0.9.1] - 2026-10-24
 
 ### Hinzugefügt

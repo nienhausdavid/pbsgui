@@ -103,6 +103,30 @@ elif args[:1] == ["restore"] and args[3] == "-" and args[2].endswith(".img"):   
     print(f"restore image {args[2]}", file=sys.stderr)
     sys.stdout.buffer.write(src.read_bytes())
     sys.stdout.buffer.flush()
+elif args[:2] == ["key", "create-master-key"]:    # Passphrase nur auf dem Terminal, wie der echte Client
+    import base64
+    sys.stdout.write("Master Key Password: "); sys.stdout.flush(); pw = sys.stdin.readline().strip()
+    sys.stdout.write("\nVerify Password: "); sys.stdout.flush(); pw2 = sys.stdin.readline().strip()
+    if pw != pw2:
+        print("Error: passwords do not match", file=sys.stderr)
+        sys.exit(1)
+    raw = base64.b64encode(os.urandom(48)).decode()
+    Path("master-public.pem").write_text("-----BEGIN PUBLIC KEY-----\n" + raw + "\n-----END PUBLIC KEY-----\n")
+    Path("master-private.pem").write_text("-----BEGIN ENCRYPTED PRIVATE KEY-----\nfake:" + pw + "\n-----END ENCRYPTED PRIVATE KEY-----\n")
+elif args[:2] == ["key", "import-with-master-key"]:
+    master = Path(args[args.index("--master-keyfile") + 1]).read_text()
+    enc = Path(args[args.index("--encrypted-keyfile") + 1]).read_bytes()
+    sys.stdout.write("Master Key Password: "); sys.stdout.flush(); pw = sys.stdin.readline().strip()
+    if "fake:" + pw not in master or not enc:
+        print("Error: failed to read PEM-formatted private key - bad decrypt", file=sys.stderr)
+        sys.exit(1)
+    Path(args[2]).write_text(enc.decode())            # Test: die "verschlüsselte" Kopie ist der Klartext des Schlüssels
+elif args[:1] == ["restore"] and args[2] in ("rsa-encrypted.key", "rsa-encrypted.key.blob"):
+    blob = os.environ.get("FAKE_PBS_RSA")
+    if not blob or (args[2].endswith(".blob") and not os.environ.get("FAKE_PBS_RSA_BLOBNAME")):
+        print(f"Error: archive {args[2]} not found", file=sys.stderr)
+        sys.exit(1)
+    Path(args[3]).write_text(blob)
 elif args[:1] == ["restore"] and args[3] == "-":     # Konfiguration eines VM-Snapshots auf stdout (qemu-server.conf)
     conf = os.environ.get("FAKE_PBS_VMCONF")
     if not conf or args[2] != "qemu-server.conf":

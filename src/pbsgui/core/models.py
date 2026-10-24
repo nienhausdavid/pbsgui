@@ -54,6 +54,8 @@ class Profile:
     key_fingerprint: str = ""  # Fingerprint des automatisch erzeugten Keys (öffentlich)
     key_exported_at: str = ""  # Zeitpunkt des Schlüssel-Exports (Pflicht beim Vollbackup)
     master_pubkey: str = ""  # optional: RSA-Master-Public-Key (--master-pubkey-file)
+    master_fingerprint: str = ""  # SHA-256 des öffentlichen Master-Schlüssels (zur Wiedererkennung, nicht geheim)
+    master_key_ack_at: str = ""  # Zeitpunkt, an dem bestätigt wurde, dass der PRIVATE Master-Schlüssel gesichert ist
     schedule: str = ""  # systemd OnCalendar, leer = kein Zeitplan
     scope: str = "user"  # "user" | "system"
     require_ac: bool = False

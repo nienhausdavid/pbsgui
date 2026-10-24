@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import grp
 import json
+import tempfile
 import time
 import os
 import shutil
@@ -16,7 +17,8 @@ import sys
 from pathlib import Path
 
 from ..i18n import tr
-from .client import PbsClient
+from .client import PbsClient, client_binary
+from .masterkey import _ram_dir, check_public_pem, create_master_key, pem_fingerprint, recover_key
 from .dashboard import DatastoreUsage, Overview, build_overview, datastore_usage
 from .history import RunRecord, find_run, list_runs, load_restore_test, save_restore_test
 from .dbdump import Database, check_credentials, create_dump_user, dump_credentials, parse_credentials
@@ -175,6 +177,68 @@ class ProfileManager:
             raise SchedulerError(tr("Der Fingerprint stimmt, der Schlüsselinhalt aber nicht: Datei ist beschädigt"))
         profile.key_exported_at = time.strftime("%Y-%m-%d %H:%M:%S")
         self.save(profile)
+
+    # -- Master-Schlüssel ----------------------------------------------------------
+    def master_dir(self) -> Path:
+        return self.paths.config
+
+    def _apply_master(self, profile: Profile, public_pem: str, fingerprint: str) -> Path:
+        d = self.master_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"master-public-{fingerprint.replace(':', '')[:16]}.pem"
+        path.write_text(public_pem)
+        os.chmod(path, 0o644)
+        profile.master_pubkey, profile.master_fingerprint = str(path), fingerprint
+        return path
+
+    def setup_master_key(self, profile: Profile, passphrase: str, all_profiles: bool = True):
+        """Erzeugt ein Master-Schlüsselpaar und trägt den öffentlichen Teil ein (bei Wunsch in allen verschlüsselten Profilen).
+
+        Gibt das MasterKey-Ergebnis zurück: der PRIVATE Teil steht nur dort, pbsgui speichert ihn nicht. Der Aufrufer muss ihn dem Benutzer
+        zum Sichern anbieten und danach `confirm_master_key_backup` aufrufen.
+        """
+        key = create_master_key(passphrase, client_binary())
+        targets = [profile] + ([p for p in self.profiles() if p.slug != profile.slug and p.encrypt and not p.keyfile and not p.master_pubkey]
+                               if all_profiles else [])
+        for p in targets:
+            self._apply_master(p, key.public_pem, key.fingerprint)
+            p.master_key_ack_at = ""
+            self.save(p)
+        return key
+
+    def use_master_pubkey(self, profile: Profile, public_pem: str) -> str:
+        """Einen vorhandenen öffentlichen Master-Schlüssel (z. B. von einem anderen Gerät) verwenden. Gibt den Fingerprint zurück."""
+        pem = check_public_pem(public_pem)
+        fp = pem_fingerprint(pem)
+        self._apply_master(profile, pem, fp)
+        profile.master_key_ack_at = time.strftime("%Y-%m-%d %H:%M:%S")    # der private Teil gehört schon zu einem gesicherten Schlüsselpaar
+        self.save(profile)
+        return fp
+
+    def confirm_master_key_backup(self, profile: Profile) -> None:
+        profile.master_key_ack_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        for p in self.profiles():                        # gleicher öffentlicher Schlüssel = gleicher privater Teil
+            if p.master_fingerprint and p.master_fingerprint == profile.master_fingerprint:
+                p.master_key_ack_at = profile.master_key_ack_at
+                self.save(p)
+
+    def recover_key(self, profile: Profile, snapshot: Snapshot, master_private_pem: str, passphrase: str) -> str:
+        """Verschlüsselungs-Schlüssel (key.json als Text) mit dem privaten Master-Schlüssel aus einem Snapshot zurückholen."""
+        with tempfile.TemporaryDirectory(prefix="pbsgui-blob-", dir=_ram_dir()) as tmp:
+            blob = self.client(profile).restore_encrypted_key(snapshot, str(Path(tmp) / "rsa-encrypted.key"))
+        return recover_key(client_binary(), blob, master_private_pem, passphrase)
+
+    def install_recovered_key(self, profile: Profile, key_json: str) -> None:
+        """Zurückgeholten Schlüssel im Profil einsetzen. Nur erlaubt, wenn er zum Profil passt oder noch keiner da ist."""
+        import json as _json
+        data = _json.loads(key_json)
+        fp = data.get("fingerprint", "")
+        if profile.key_fingerprint and fp and fp != profile.key_fingerprint and self.secrets.exists(profile.slug, "key"):
+            raise SchedulerError(tr("Der zurückgeholte Schlüssel ({0}…) passt nicht zum vorhandenen Schlüssel des Profils ({1}…)", fp[:23], profile.key_fingerprint[:23]))
+        profile.key_fingerprint = fp or profile.key_fingerprint
+        profile.encrypt = True
+        self.save(profile, key=key_json)
+        self.mark_key_exported(profile)
 
     def key_text(self, profile: Profile) -> str:
         """Schlüssel (JSON) zum Kopieren, etwa in die Zwischenablage."""

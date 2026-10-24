@@ -354,3 +354,69 @@ def test_gui_backup_gate_offers_clipboard_instead_of_file_dialog(app, world, mon
     monkeypatch.setattr(w, "run_async", lambda *a, **k: started.append(1) or fake_worker)
     w.backup_now()
     assert started == [1] and not needs_key_export(mgr.profiles_store.load("Laptop"))      # Backup läuft nach dem Kopieren los
+
+
+# -- Master-Schlüssel ---------------------------------------------------------------------------------------------------
+def _encrypted_world(world, monkeypatch):
+    mgr, prof, *rest = world
+    monkeypatch.setattr(type(mgr), "_admin", lambda self, request: None)
+    prof.encrypt = True
+    mgr.enable_encryption(prof)
+    mgr.profiles_store.save(prof)
+    return mgr, prof
+
+
+def test_master_setup_dialog_forces_backup_of_the_private_key(app, world, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    from pbsgui.gui.master_dialogs import MasterKeySetupDialog
+    mgr, prof = _encrypted_world(world, monkeypatch)
+    d = MasterKeySetupDialog(mgr, prof)
+    d.pw.setText("passphrase-123"); d.pw2.setText("anders-eingegeben")
+    d._make()
+    assert "stimmen nicht überein" in d.status.text() and d.key is None
+    d.pw2.setText("passphrase-123")
+    d._make()
+    assert pump(app, lambda: d.key is not None, timeout=8)
+    assert "ENCRYPTED PRIVATE KEY" in d.out.toPlainText() and not d.finish_btn.isEnabled()
+    d.ack.setChecked(True)
+    assert not d.finish_btn.isEnabled()                                    # bestätigt, aber noch nicht kopiert oder gespeichert
+    d._copy()
+    assert d.finish_btn.isEnabled() and QApplication.clipboard().text() == d.key.private_pem
+    d._finish()
+    stored = mgr.profiles_store.load("Laptop")
+    assert stored.master_pubkey and stored.master_key_ack_at and stored.master_fingerprint == d.key.fingerprint
+
+
+def test_recover_dialog_lists_only_snapshots_with_key_copy_and_installs(app, world, monkeypatch, tmp_path):
+    from pbsgui.core.models import Snapshot
+    from pbsgui.gui.master_dialogs import RecoverKeyDialog
+    mgr, prof = _encrypted_world(world, monkeypatch)
+    key = mgr.setup_master_key(prof, "passphrase-123")
+    priv = tmp_path / "priv.pem"
+    priv.write_text(key.private_pem)
+    with_copy = Snapshot("host", "laptop", T0, files=["x.pxar.didx", "rsa-encrypted.key.blob"])
+    without = Snapshot("host", "laptop", T0 + 5, files=["x.pxar.didx"])
+    recovered = json.dumps({"kdf": None, "data": "eA==", "fingerprint": "77:88:99"})
+    monkeypatch.setenv("FAKE_PBS_RSA", recovered)
+    monkeypatch.setenv("FAKE_PBS_RSA_BLOBNAME", "1")
+    d = RecoverKeyDialog(mgr, prof, [without, with_copy])
+    assert d.snap.count() == 1                                       # nur der Snapshot mit Schlüsselkopie
+    d.priv.setText(str(priv)); d.pw.setText("falsch-falsch")
+    d._go()
+    assert pump(app, lambda: "Passphrase" in d.status.text(), timeout=8) and not d.install_btn.isVisible()
+    d.pw.setText("passphrase-123")
+    d._go()
+    assert pump(app, lambda: d.key_json != "", timeout=8) and json.loads(d.key_json)["fingerprint"] == "77:88:99"
+    mgr.secrets.delete(prof.slug)                                    # Schlüssel auf dem Gerät "verloren"
+    d._install()
+    assert mgr.secrets.get(prof.slug, "key") == recovered
+
+
+def test_window_master_buttons_follow_state(app, world, monkeypatch):
+    mgr, prof = _encrypted_world(world, monkeypatch)
+    w = window_mod.MainWindow(mgr)
+    assert w.master_btn.isEnabled() and w.recover_btn.isEnabled() and "Master-Schlüssel: nein" in w.key_info.text()
+    mgr.use_master_pubkey(prof, "-----BEGIN PUBLIC KEY-----\nQUJDREVGRw==\n-----END PUBLIC KEY-----\n")
+    w.reload(select="Laptop")
+    assert not w.master_btn.isEnabled() and "Master-Schlüssel: ja" in w.key_info.text()
+    assert w.minimumSizeHint().width() < 800                         # Fenster bleibt klein ziehbar

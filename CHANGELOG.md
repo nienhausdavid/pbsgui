@@ -9,6 +9,18 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Added
+- **Master key (insurance against losing the encryption key):** set up in the GUI (“Set up the master key …”), the TUI (`M`) or with
+  `pbsgui key master-create NAME --output FILE|--clipboard`. pbsgui creates a 4096-bit RSA pair with the client (the passphrase goes through a
+  pseudo terminal, never as an argument), enters the **public** part into the profiles (all encrypted profiles by default, so one private key
+  serves all devices) and hands out the **private** part once for you to back up (clipboard or a 0600 file; pbsgui never stores it). The dialog
+  only closes after you confirm that the private key and its passphrase are backed up. From then on every snapshot contains a copy of the key that only
+  the private master key opens. Existing public keys of other devices can be used (`key master-use`, GUI “Use a public master key …”).
+- **Recover the key:** `pbsgui key recover NAME --master-key FILE --output FILE` (GUI “Recover the key …”), and on the rescue ISO without a profile
+  `pbsgui rescue recover-key --server … --master-key FILE --output key.json`; use the result as `--keyfile`. Only snapshots created with a master key contain
+  the copy. `key recover --install` puts the key back into the profile if the old one is lost.
+- The dashboard, `pbsgui key info`, the GUI and the emergency sheet show whether a master key is set up and whether its private part is confirmed as backed up.
+
 ## [0.9.1] - 2026-10-24
 
 ### Added

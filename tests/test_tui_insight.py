@@ -199,3 +199,37 @@ async def test_server_screen_changes_datastore(mgr, snaps):
         scr._save()
         assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ != "ServerScreen")
         assert mgr.profiles()[0].datastore == "store9"
+
+
+async def test_tui_master_screen_creates_key_and_requires_backup(mgr, snaps, tmp_path, monkeypatch):
+    from textual.widgets import Button, Checkbox, Input
+    from pbsgui.core import clipboard
+    from pbsgui.core.manager import ProfileManager
+    monkeypatch.setattr(ProfileManager, "_admin", lambda self, request: None)
+    copied = []
+    monkeypatch.setattr(clipboard, "copy_text", lambda text, **kw: copied.append(text) or "wl-copy")
+    p = mgr.profiles()[0]
+    p.encrypt = True
+    mgr.enable_encryption(p)
+    async with PbsTui(mgr).run_test(size=(150, 60)) as pilot:
+        await pilot.pause()
+        await pilot.press("M")
+        await pilot.pause()
+        scr = pilot.app.screen
+        assert scr.__class__.__name__ == "MasterScreen"
+        scr.query_one("#mk-pw", Input).value = "passphrase-123"
+        scr.query_one("#mk-pw2", Input).value = "passphrase-123"
+        scr.query_one("#mk-make", Button).press()
+        assert await wait_for(pilot, lambda: scr.key is not None, timeout=10)
+        assert scr.query_one("#mk-done", Button).disabled
+        scr.query_one("#mk-ack", Checkbox).value = True
+        await pilot.pause()
+        assert scr.query_one("#mk-done", Button).disabled                        # noch nicht kopiert oder gespeichert
+        scr.query_one("#mk-copy", Button).press()
+        await pilot.pause()
+        assert copied and "ENCRYPTED PRIVATE KEY" in copied[0]
+        assert not scr.query_one("#mk-done", Button).disabled
+        scr.query_one("#mk-done", Button).press()
+        await pilot.pause()
+    stored = mgr.profiles()[0]
+    assert stored.master_pubkey and stored.master_key_ack_at

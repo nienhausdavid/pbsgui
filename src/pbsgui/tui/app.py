@@ -22,6 +22,7 @@ from ..core.recovery import needs_key_export, render_sheet
 from ..core.scheduler import SchedulerError, validate_calendar
 from .files import FilesScreen
 from .insight import DiffScreen, RestoreTestScreen, SearchAllScreen
+from .master import MasterScreen
 from .server import ServerScreen
 from .screens import AddServerScreen, ConfirmScreen, DbDumpScreen, DetectScreen, MountsScreen, PromptScreen
 
@@ -38,7 +39,7 @@ class PbsTui(App):
     """
     BINDINGS = [("a", "add", tr("Hinzufügen")), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
                 ("t", "restore", tr("Restore")), ("f", "files", tr("Dateien")), ("s", "schedule", tr("Zeitplan")), ("m", "scope", tr("Modus")),
-                ("v", "encrypt", tr("Verschl.")), ("k", "key", tr("Key sichern")), ("y", "copy_key", tr("Key kopieren")), ("n", "sheet", tr("Notfallblatt")), ("o", "sources", tr("Quellen")), ("u", "mounts", tr("Laufwerke")), ("p", "dbdump", "DB-Dumps"), ("c", "detect", tr("Änderungen")),
+                ("v", "encrypt", tr("Verschl.")), ("k", "key", tr("Key sichern")), ("y", "copy_key", tr("Key kopieren")), ("M", "master", tr("Master-Key")), ("n", "sheet", tr("Notfallblatt")), ("o", "sources", tr("Quellen")), ("u", "mounts", tr("Laufwerke")), ("p", "dbdump", "DB-Dumps"), ("c", "detect", tr("Änderungen")),
                 ("i", "server", tr("Server ändern")), ("x", "diff", tr("Vergleich")), ("w", "restore_test", "Restore-Test"), ("g", "find_all", tr("Suche alle")),
                 ("e", "dashboard", "Dashboard"), ("h", "history", tr("Verlauf")),
                 ("d", "delete", tr("Entfernen")), ("q", "quit", tr("Beenden"))]
@@ -143,6 +144,8 @@ class PbsTui(App):
             tr("Verschlüsselt: {0}  ({1})", tr("ja") if p.encrypt else tr("NEIN – Backups liegen unverschlüsselt auf dem Server"), key),
             *([(tr("Schlüssel-Export: ") + (tr("am {0}", p.key_exported_at) if p.key_exported_at else
                 tr("NOCH NICHT") + (tr(" – Vollbackup gesperrt! Mit [k] sichern") if needs_key_export(p) else "")))]
+              if p.encrypt and not p.keyfile else []),
+            *([tr("Master-Schlüssel: {0}  (mit [M] einrichten)", tr("ja, Fingerprint {0}; privater Teil gesichert: {1}", p.master_fingerprint[:23], p.master_key_ack_at or tr("NEIN")) if p.master_pubkey else tr("nein"))]
               if p.encrypt and not p.keyfile else []),
             tr("Lesen:        {0}  (mit [c] ändern)", 'nur Geändertes (Metadaten-Vergleich)' if p.change_detection == METADATA else 'alles jedes Mal (klassisch)'),
             *([tr("Prüflauf:     {0}", (tr("wöchentlich alles neu lesen: ") + p.data_schedule) if p.weekly_data else tr("aus"))
@@ -567,6 +570,18 @@ class PbsTui(App):
             self.show_overview()
         self.push_screen(PromptScreen(tr("Schlüssel exportieren nach:"), str(Path.home() / f"{p.slug}-key.json"),
                                       tr("Ohne Kopie sind verschlüsselte Backups bei Verlust nicht wiederherstellbar.")), got)
+
+    def action_master(self) -> None:
+        p = self._need()
+        if not p:
+            return
+        if not p.encrypt or p.keyfile:
+            self._notify(tr("Der Master-Schlüssel gehört zu Profilen mit automatisch erzeugtem Schlüssel"), severity="warning")
+            return
+        if p.master_pubkey:
+            self._notify(tr("Es ist schon ein Master-Schlüssel eingetragen (Fingerprint {0})", p.master_fingerprint), severity="warning")
+            return
+        self.push_screen(MasterScreen(self.mgr, p), lambda _done: self.reload(select=p.name))
 
     def action_copy_key(self) -> None:
         self.copy_what("kit")

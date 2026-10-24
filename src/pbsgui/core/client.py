@@ -182,6 +182,20 @@ class PbsClient:
             if p.returncode != 0:
                 raise ClientError((p.stderr or p.stdout).strip() or tr("Client-Exitcode {0}", p.returncode))
 
+    def restore_encrypted_key(self, snapshot: Snapshot, dest: str) -> bytes:
+        """Holt die mit dem Master-Schlüssel verschlüsselte Schlüsselkopie (`rsa-encrypted.key`) aus dem Snapshot."""
+        from .masterkey import ENCRYPTED_NAMES
+        if not any(n in snapshot.files for n in ENCRYPTED_NAMES):
+            raise ClientError(tr("Dieser Snapshot enthält keine Schlüsselkopie für den Master-Schlüssel (wurde ohne Master-Schlüssel erstellt)"))
+        last: ClientError | None = None
+        for name in ENCRYPTED_NAMES:
+            try:
+                self._run(["restore", snapshot.path, name, dest, *self._ns()], timeout=120)
+                return Path(dest).read_bytes()
+            except ClientError as e:
+                last = e
+        raise last or ClientError(tr("Schlüsselkopie nicht lesbar"))
+
     def restore_text(self, snapshot: Snapshot, archive: str) -> str:
         """Liest eine kleine Datei (z. B. qemu-server.conf) eines Snapshots und gibt den Inhalt zurück."""
         with self._keyfile() as kf:

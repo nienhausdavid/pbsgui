@@ -20,6 +20,8 @@ Please do not open public issues for security vulnerabilities. Write to the main
 - **Restore:** “overwrite” is limited to the home directory (symlinks are resolved), old versions are saved beforehand.
 - **Changing the server afterwards:** the new settings are checked with the client before anything is stored; a changed
   token ID needs its secret; a changed fingerprint must be confirmed explicitly.
+- **Master key:** the private master key and its passphrase are never stored by pbsgui; they are handed out once (clipboard or a 0600 file) and the setup dialog only
+  closes after the user confirms the backup. The passphrase reaches the client through a pseudo terminal, never as an argument or in the output.
 - **Catalog cache and restore test:** the cached file lists (`~/.cache/pbsgui/catalogs`) are readable only by the user (0600/0700);
   for encrypted backups they contain file names in plain text, like the files themselves on that computer. Restore-test samples are
   decrypted only in RAM (`XDG_RUNTIME_DIR` or `/dev/shm`) and removed right away. The file preview never follows symbolic links

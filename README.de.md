@@ -13,6 +13,7 @@ Die Oberfläche gibt es auf **Deutsch und Englisch**. Sie folgt der Systemsprach
 - Backup-Umfang beim Einrichten wählbar: **nur Home** (Standard, kein sudo, Benutzer-Modus) oder **ganzes System** (Dateiebene, braucht Administrator-Rechte, läuft im System-Modus über `pkexec`/systemd). Vollbackup sichert `/` plus die **gewählten Laufwerke** (`--include-dev`): interne lokale Dateisysteme (ext4, xfs, btrfs, vfat …) sind vorgewählt, **USB-Laufwerke** (auch hinter LUKS/LVM) und Mounts unter `/media`, `/mnt`, `/run` nur auf ausdrückliche Wahl, **Netzwerk-Mounts** (NFS, CIFS, sshfs …) und virtuelle Dateisysteme nie, **Bind-Mount-Duplikate** werden nicht doppelt gelesen. Ausgeschlossen sind `/proc`, `/sys`, `/dev`, `/run`, `/tmp` u. Ä.; keine Docker-/Container-Standardausschlüsse. Es ist **kein** Systemabbild
 - Server einrichten: Weg A (einmalig als root, legt Benutzer/Token/ACLs an) oder Weg B (vorhandener Token), mit Fingerprint-Pinning
 - **Server nachträglich ändern** (Server, Port, Fingerprint, Datastore, Namespace, Token): `pbsgui server NAME …`, GUI „Server ändern …“, TUI `i`; die neuen Angaben werden vor dem Speichern mit dem Client geprüft
+- **Master-Schlüssel** (RSA) als Versicherung gegen Schlüsselverlust: jeder Snapshot enthält dann eine Schlüsselkopie, die nur der private Master-Schlüssel öffnet; Einrichten und Zurückholen in GUI, TUI und Kommandozeile (auch in der Rettungs-ISO: `pbsgui rescue recover-key`)
 - Clientseitige Verschlüsselung standardmäßig an: Key wird automatisch erzeugt (ohne Passphrase, da der Client sie nur per TTY akzeptiert), verschlüsselt im Geheimnis-Speicher abgelegt und nur kurz als 0600-Datei im tmpfs bereitgestellt; Export-Dialog zur Sicherung
 - Beim Einrichten: Datastores laden, Namespaces live prüfen (vorhanden / wird angelegt / mit Weg B nicht anlegbar)
 - Backup starten mit Live-Log, Snapshots listen, Restore in einen frei gewählten Zielordner
@@ -31,7 +32,7 @@ bleibt dessen eigene ACL bestehen (die App entfernt sie vorher).
 ## Noch nicht / nicht verifiziert
 - Root-Login per Passwort und 2FA-Ablauf ungeprüft (getestet wurde mit API-Token)
 - System-Scope (pkexec-Helfer, System-Units) ist nur per Unit-Test mit Fake-Runner geprüft
-- Master-Key-Erzeugung (RSA) und Prune fehlen; Key-Rotation ebenso (ein Key wird nie überschrieben)
+- Prune fehlt; Key-Rotation ebenso (ein Key wird nie überschrieben)
 
 ## Installation
 Ein Befehl (Debian 13 / Ubuntu), Details in [docs/INSTALLATION.md](docs/INSTALLATION.md):
@@ -100,12 +101,14 @@ pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id us
 pbsgui server Laptop --server pbs2.example.org --fetch-fingerprint --datastore backup   # Server nachträglich ändern
 pbsgui key export Laptop ~/laptop-key.json                       # Schlüssel sichern!
 pbsgui key copy-kit Laptop                                       # oder: Schlüssel + Notfallblatt in die Zwischenablage (Passwortmanager)
+pbsgui key master-create Laptop --output ~/master-private.pem   # Master-Schlüssel: Versicherung gegen Schlüsselverlust (Datei + Passphrase sicher aufbewahren)
+pbsgui key recover Laptop --master-key ~/master-private.pem --output ~/key.json   # Schlüssel aus einem Snapshot zurückholen
 pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
 pbsgui language de                             # Sprache der Oberfläche wählen (de, en, auto)
 ```
 Geheimnisse werden nie als Argument akzeptiert: Prompt oder `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
-TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, f Dateien, x Vergleich, w Restore-Test, g Suche in allen Snapshots, e Dashboard, h Verlauf, i Server ändern, s Zeitplan, m Modus, v Verschlüsselung, k Key in Datei sichern, y Key + Notfallblatt in die Zwischenablage kopieren, o Quellen, u Laufwerke, p DB-Dumps, n Notfallblatt, d Entfernen, q Beenden. Im Dateibrowser: p Vorschau, v Fassungen.
+TUI-Tasten: M Master-Key, a Hinzufügen, b Backup, r Snapshots, t Restore, f Dateien, x Vergleich, w Restore-Test, g Suche in allen Snapshots, e Dashboard, h Verlauf, i Server ändern, s Zeitplan, m Modus, v Verschlüsselung, k Key in Datei sichern, y Key + Notfallblatt in die Zwischenablage kopieren, o Quellen, u Laufwerke, p DB-Dumps, n Notfallblatt, d Entfernen, q Beenden. Im Dateibrowser: p Vorschau, v Fassungen.
 
 ## Entwickeln
 ```bash

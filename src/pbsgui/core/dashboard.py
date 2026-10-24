@@ -43,6 +43,7 @@ class Overview:
     overdue: bool = False
     error: str = ""
     warnings: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)          # Hinweise, die den Status nicht verschlechtern
 
     @property
     def state(self) -> str:
@@ -93,6 +94,11 @@ def build_overview(profile: Profile, snapshots: list[Snapshot] | None, paths_lis
         ov.warnings.append(tr("{0} Läufe seit dem letzten Erfolg fehlgeschlagen", ov.failed_since_success))
     if profile.encrypt and not profile.keyfile and not profile.key_exported_at:
         ov.warnings.append(tr("Schlüssel noch nicht gesichert"))
+    if profile.encrypt and not profile.keyfile:
+        if not profile.master_pubkey:
+            ov.notes.append(tr("Kein Master-Schlüssel eingerichtet: geht der Schlüssel verloren, sind die Backups unlesbar (pbsgui key master-create)"))
+        elif not profile.master_key_ack_at:
+            ov.notes.append(tr("Der private Master-Schlüssel ist noch nicht als gesichert bestätigt"))
     return ov
 
 
