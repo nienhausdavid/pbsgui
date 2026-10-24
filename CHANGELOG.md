@@ -8,6 +8,16 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 ## [Unreleased]
 
 ### Hinzugefügt
+- **VM-Backups von Proxmox VE auf physische Platten (V2P)** mit der Rettungs-ISO: Snapshots `vm/<id>/…` mit Abbild-Archiven
+  (`drive-*.img`) lassen sich auf eine oder mehrere Platten zurückspielen (Kommandozeile `pbsgui rescue vm-snapshots|vm-run`,
+  Haken im Terminal-Assistenten, „Art der Wiederherstellung“ in der Web-Oberfläche). Zuordnung Quell- zu Ziel-Platte, Boot-Platte aus der
+  VM-Konfiguration, Bestätigung durch Eintippen aller Ziel-Platten. Danach automatische, einzeln abschaltbare Reparaturen für
+  Debian/Ubuntu-Gäste: Partition, LUKS, LVM und Dateisystem auf eine größere Platte vergrößern, Initramfs mit allen Treibern
+  (`MODULES=most`), GRUB (UEFI mit Fallback oder BIOS), Netzwerk-Schnittstellennamen, `qemu-guest-agent` und `cloud-init`. Geprüft in
+  QEMU/UEFI (VM mit LUKS, LVM, zwei Platten, größere Ziel-Platten: bootet, Daten stimmen) und mit echten Loop-Geräten.
+  Windows/Solaris-Gäste und kleinere Ziel-Platten werden abgelehnt.
+
+### Hinzugefügt
 - **Restore und Suche über alle Snapshots** (GUI, TUI, Kommandozeile):
   - **Dateiversionen:** `pbsgui versions NAME /Pfad/datei` zeigt alle Fassungen einer Datei aus allen Snapshots (gleiche Größe und
     Änderungszeit = dieselbe Fassung), `--restore NR --target ORDNER` holt eine davon. GUI: Dateibrowser → „Fassungen …“ mit Vorschau

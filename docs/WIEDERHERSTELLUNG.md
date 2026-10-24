@@ -159,6 +159,45 @@ Hardware bootet). Die Dauer hängt von Datenmenge und Netzwerk ab.
 Bei „Fertig“: Rettungsstick abziehen, **Neu starten**. Bei verschlüsselter Platte fragt der Start nach der
 LUKS-Passphrase.
 
+## VM-Backups von Proxmox VE (V2P)
+
+Neben pbsgui-Vollbackups kann die ISO auch **VM-Backups** von Proxmox VE (Snapshots `vm/<id>/…` mit Abbild-Archiven wie
+`drive-scsi0.img`) auf **physische Platten** zurückspielen (V2P, Virtual to Physical). Auswahl im Assistenten: Haken
+„VM-Abbild wiederherstellen“ im ersten Schritt; in der Web-Oberfläche „Art der Wiederherstellung“; auf der Kommandozeile
+`pbsgui rescue vm-snapshots` und `vm-run`.
+
+1. **Snapshot und Platten:** Jede Platte der VM (`scsi0`, `virtio1` …) bekommt eine Ziel-Platte; Platten ohne Ziel werden nicht
+   wiederhergestellt. Die Boot-Platte wird aus der VM-Konfiguration (`boot: order=…`) erkannt. EFI-Variablen (`efidisk0`) und
+   TPM-Zustand der VM werden nicht geschrieben. Die Ziel-Platte muss mindestens so groß sein wie das Abbild.
+2. **Schreiben:** Das Abbild geht per `proxmox-backup-client restore` Block für Block auf die Platte; die Anzeige zeigt den Stand.
+3. **Reparaturen** (alle im Plan sichtbar, einzeln abschaltbar; gelten für Debian und Ubuntu als Gast):
+   - **Größe:** Ist die Ziel-Platte größer, wird die GPT korrigiert und die letzte Partition samt LUKS, LVM und Dateisystem
+     (ext4, xfs, btrfs) auf den Rest der Platte vergrößert. Ein Dateisystem direkt auf der Platte (ohne Partitionstabelle)
+     wird nur bei ext vergrößert und nie mit einer Partitionstabelle überschrieben.
+   - **Initramfs und Bootloader:** `MODULES=most` (Treiber für echte Hardware wie NVMe und AHCI), `update-initramfs`, GRUB für UEFI mit
+     Fallback `EFI/BOOT/BOOTX64.EFI` oder für BIOS. Ein geöffneter LUKS-Container wird so benannt wie in der `crypttab` des Gastes,
+     damit das neue Initramfs nach der Passphrase fragt.
+   - **Netzwerk:** Eine nicht mehr vorhandene Schnittstelle (z. B. `ens3`) wird in `/etc/network/interfaces`, Netplan,
+     systemd-networkd und NetworkManager durch die einzige echte Netzwerkkarte ersetzt (Sicherung `*.pbsgui-orig`). Bei mehreren Karten
+     oder Mustern wie `Name=en*` ändert pbsgui nichts und warnt.
+   - **Gast-Dienste:** `qemu-guest-agent` wird abgeschaltet und `cloud-init` mit `/etc/cloud/cloud-init.disabled` stillgelegt (nichts wird
+     gelöscht); ein `console=ttyS0` in der GRUB-Konfiguration wird gemeldet.
+4. **Bestätigung:** Zum Starten **alle** Ziel-Platten eintippen. Ein Trockenlauf zeigt jeden Schritt ohne Änderung.
+
+```bash
+pbsgui rescue vm-snapshots --server pbs.example.org --datastore main --auth-id user@pbs!tok --vmid 100
+PBSGUI_TOKEN_SECRET=… PBSGUI_LUKS_PASSPHRASE=… pbsgui rescue vm-run --server pbs.example.org --datastore main \
+  --auth-id user@pbs!tok --vmid 100 --map scsi0=/dev/nvme0n1 --map scsi1=/dev/sdb \
+  --confirm-disk /dev/nvme0n1 --confirm-disk /dev/sdb --dry-run      # erst ansehen, dann ohne --dry-run
+# Reparaturen abschalten: --no-grow --no-initramfs --no-bootloader --no-network --no-services
+```
+
+**Grenzen:** Nur Linux-Gäste (Windows und Solaris werden abgelehnt). Kleinere Ziel-Platten als das Abbild gehen nicht (dafür das
+Dateimodus-Backup nehmen). Die Reparatur ist nur für Debian und Ubuntu eingebaut; bei anderen Systemen wird das Abbild geschrieben und
+auf die manuellen Schritte hingewiesen. **Getestet:** in QEMU mit UEFI: ein VM-Backup mit LUKS, LVM und zwei Platten auf größere Platten
+wiederhergestellt, bootet, Dateien stimmen, Root von 3,5 auf 7,1 GiB gewachsen. Nicht getestet: ein echtes, von Proxmox VE selbst
+erzeugtes Backup, BIOS-Gäste und Secure Boot.
+
 ## Ohne Assistent: Kommandozeile
 
 ```bash

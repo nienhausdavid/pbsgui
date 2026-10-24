@@ -33,3 +33,11 @@ oben genannten Eigenschaften ab.
 - Ein kompromittierter Benutzer mit sudo-Rechten kann naturgemäß alles.
 - Der Schlüssel im Geheimnis-Speicher ist an den Rechner gebunden; der Export ist Pflicht und liegt in der Verantwortung
   des Benutzers.
+
+## Rettungs-ISO: Web-Oberfläche und VM-Abbilder
+- Die Web-Oberfläche (`pbsgui web`) nutzt HTTPS mit selbstsigniertem Zertifikat (Fingerabdruck auf der Konsole), eine zufällige Passphrase
+  (4 Wörter und Zahlen), Rate Limiting, Sperren mit wachsender Dauer, Honeypot (verstecktes Formularfeld, Köder-Adressen), eine Sitzung
+  mit CSRF-Token und Content-Security-Policy; sie schaltet sich nach Leerlauf oder zu vielen Fehlversuchen ab.
+- VM-Abbilder: Zerstörende Schritte brauchen die getippte Bestätigung **aller** Ziel-Platten; die Auswahl ist auf zulässige Platten
+  beschränkt (keine eingehängten, nicht das Live-Medium); Werkzeuge laufen immer mit leerer Eingabe, damit nichts auf dem Terminal
+  nach Passwörtern fragt; Passphrasen gehen nur über stdin.
