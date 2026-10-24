@@ -28,6 +28,14 @@ if args[:1] != ["version"] and expect is not None and env["PBS_PASSWORD"] != exp
     print("Error: authentication failed - invalid credentials", file=sys.stderr)
     sys.exit(1)
 
+def tree_for(snapshot_path):
+    """Dateibaum für einen Snapshot: FAKE_PBS_TREES/<Snapshot-Pfad mit _ statt />, sonst FAKE_PBS_TREE."""
+    many = os.environ.get("FAKE_PBS_TREES")
+    if many and (Path(many) / snapshot_path.replace("/", "_")).is_dir():
+        return str(Path(many) / snapshot_path.replace("/", "_"))
+    return os.environ.get("FAKE_PBS_TREE")
+
+
 snaps_file = state / "snapshots.json"
 snaps = json.loads(snaps_file.read_text()) if snaps_file.exists() else []
 
@@ -56,7 +64,7 @@ elif args[:2] == ["key", "create"]:
     Path(args[2]).write_text(json.dumps({"kdf": None, "data": "ZmFrZQ==", "fingerprint": "aa:bb:cc:dd"}))
     os.chmod(args[2], 0o600)
 elif args[:2] == ["catalog", "dump"]:
-    tree = os.environ.get("FAKE_PBS_TREE")
+    tree = tree_for(args[2])
     if tree:  # echten Dateibaum im Format des Clients ausgeben (Rust-Debug-Quoting, oberste Ebene = Archivname.didx)
         def q(p):
             return '"' + p.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
@@ -77,7 +85,7 @@ elif args[:2] == ["catalog", "dump"]:
     else:
         print('d "./etc.pxar.didx"\nf "./etc.pxar.didx/hosts" 5 2026-10-18T12:00:00Z', file=sys.stderr)  # wie der echte Client: stderr
 elif args[:1] == ["mount"]:
-    tree = os.environ.get("FAKE_PBS_TREE")
+    tree = tree_for(args[1])
     if os.environ.get("FAKE_PBS_NO_MOUNT") or not tree:
         print("Error: mount not available", file=sys.stderr)
         sys.exit(1)
@@ -87,6 +95,14 @@ elif args[:1] == ["mount"]:
         sys.exit(1)
     target.rmdir()
     os.symlink(src, target)   # Testersatz für FUSE: der Einhängepunkt zeigt auf den Dateibaum
+elif args[:1] == ["restore"] and args[3] == "-" and args[2].endswith(".img"):     # Abbild auf stdout (der Aufrufer schreibt aufs Gerät)
+    src = Path(os.environ.get("FAKE_PBS_IMAGES", "")) / args[2]
+    if not src.is_file():
+        print(f"Error: archive {args[2]} not found", file=sys.stderr)
+        sys.exit(1)
+    print(f"restore image {args[2]}", file=sys.stderr)
+    sys.stdout.buffer.write(src.read_bytes())
+    sys.stdout.buffer.flush()
 elif args[:1] == ["restore"] and args[3] == "-":     # Konfiguration eines VM-Snapshots auf stdout (qemu-server.conf)
     conf = os.environ.get("FAKE_PBS_VMCONF")
     if not conf or args[2] != "qemu-server.conf":

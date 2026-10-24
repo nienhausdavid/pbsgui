@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 from contextlib import contextmanager
 from typing import Callable, Iterator
 
@@ -186,25 +187,58 @@ class PbsClient:
             return self._run(["restore", snapshot.path, archive, "-", *self._ns(), *(["--keyfile", kf] if kf else [])])
 
     def restore_image(self, snapshot: Snapshot, archive: str, target: str, on_line=None) -> None:
-        """Schreibt ein Abbild-Archiv (.img) auf ein Blockgerät oder in eine Datei; die Ausgabe des Clients geht zeilenweise an on_line."""
+        """Schreibt ein Abbild-Archiv (.img) auf ein Blockgerät oder in eine Datei.
+
+        Der Client legt sein Ziel selbst mit `create_new` an und scheitert deshalb bei einem vorhandenen Gerät ("File exists");
+        darum liest er auf die Standardausgabe und pbsgui schreibt in das Ziel (und synchronisiert am Ende).
+        Die Meldungen des Clients und alle 256 MiB der Stand gehen zeilenweise an on_line.
+        """
         if not target or target == "/" or target == "-":
             raise ClientError("Ungültiges Wiederherstellungsziel")
+        say = on_line or (lambda _l: None)
         with self._keyfile() as kf:
-            args = ["restore", snapshot.path, archive, target, *self._ns(), *(["--keyfile", kf] if kf else [])]
-            if on_line is None:
-                self._run(args, timeout=None)
-                return
-            proc = subprocess.Popen([self.binary, *args], env=self._env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    stdin=subprocess.DEVNULL, text=True, bufsize=1)
-            if proc.stdout is None:
+            args = ["restore", snapshot.path, archive, "-", *self._ns(), *(["--keyfile", kf] if kf else [])]
+            try:
+                proc = subprocess.Popen([self.binary, *args], env=self._env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        stdin=subprocess.DEVNULL)
+            except FileNotFoundError:
+                raise ClientError(f"Client nicht gefunden: {self.binary}") from None
+            if proc.stdout is None or proc.stderr is None:
                 raise ClientError("Kein Ausgabestrom vom Client")
             tail: list[str] = []
-            for line in proc.stdout:
-                line = line.rstrip("\n")
-                tail = (tail + [line])[-8:]
-                on_line(line)
-            if proc.wait() != 0:
-                raise ClientError(("\n".join(tail)).strip() or "restore fehlgeschlagen")
+
+            def read_err() -> None:
+                for raw in proc.stderr:           # type: ignore[union-attr]
+                    line = raw.decode("utf-8", "replace").rstrip()
+                    if line:
+                        tail.append(line)
+                        del tail[:-8]
+                        say(line)
+            t = threading.Thread(target=read_err, daemon=True)
+            t.start()
+            written, mark = 0, 0
+            try:
+                with open(target, "r+b" if os.path.exists(target) else "wb", buffering=0) as out:
+                    while True:
+                        chunk = proc.stdout.read(4 * 2**20)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        written += len(chunk)
+                        if written - mark >= 256 * 2**20:
+                            mark = written
+                            say(f"{written >> 20} MiB geschrieben")
+                    out.flush()
+                    os.fsync(out.fileno())
+            except OSError as e:
+                proc.kill()
+                raise ClientError(f"Schreiben auf {target} fehlgeschlagen: {e}") from None
+            finally:
+                code = proc.wait()
+                t.join(timeout=5)
+            if code != 0:
+                raise ClientError("\n".join(tail).strip() or f"restore fehlgeschlagen (Exitcode {code})")
+            say(f"{written >> 20} MiB auf {target} geschrieben")
 
     def restore(self, snapshot: Snapshot, archive: str, target: str) -> None:
         """Stellt in einen (neuen) Zielordner wieder her; überschreibt nie das Original."""
