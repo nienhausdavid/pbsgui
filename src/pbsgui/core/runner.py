@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from ..i18n import tr
 from .client import ClientError, PbsClient
 from .history import LogCapture, record_run
 from .dbdump import parse_credentials, run_dumps
@@ -59,8 +60,8 @@ def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None
             start = time.time()                    # Wartezeit auf ein vorheriges Backup zählt nicht zur Dauer
             code = _run_profile(profile, paths, store, on_line, binary, progress, mode)
     except LockTimeout as e:
-        on_line(f"Fehler: {e}")
-        write_status(paths, profile, False, 5, "vorheriges Backup läuft noch")
+        on_line(tr("Fehler: {0}", e))
+        write_status(paths, profile, False, 5, tr("vorheriges Backup läuft noch"))
         code = 5
     st = read_status(paths, profile) or {}
     record_run(paths, profile, start, time.time(), code, st.get("message", ""), on_line.lines, mode)
@@ -72,29 +73,29 @@ def _run_profile(profile: Profile, paths: Paths, store: SecretStore | None, on_l
     try:
         ensure_recoverable(profile)
     except RecoveryError as e:  # auch für Zeitplan-Läufe: kein Vollbackup ohne exportierten Schlüssel
-        on_line(f"Fehler: {e}")
-        write_status(paths, profile, False, 4, "Schlüssel nicht exportiert")
+        on_line(tr("Fehler: {0}", e))
+        write_status(paths, profile, False, 4, tr("Schlüssel nicht exportiert"))
         return 4
     if profile.backup_mode == FULL and os.geteuid() == 0:
         try:  # Datenträger-Metadaten landen unter /var/lib/pbsgui und damit im Backup selbst
             got = collect_recovery(paths.state / "recovery" / profile.slug, profile)
-            on_line(f"Wiederherstellungsdaten gesammelt ({len(got.files)} Dateien, {len(got.warnings)} Warnungen)")
+            on_line(tr("Wiederherstellungsdaten gesammelt ({0} Dateien, {1} Warnungen)", len(got.files), len(got.warnings)))
             for w in got.warnings:
-                on_line(f"  Warnung: {w}")
+                on_line(tr("  Warnung: {0}", w))
         except Exception as e:  # nie das Backup selbst verhindern
-            on_line(f"Warnung: Wiederherstellungsdaten nicht gesammelt: {e}")
+            on_line(tr("Warnung: Wiederherstellungsdaten nicht gesammelt: {0}", e))
     dump_dir = paths.state / "dumps" / profile.slug if profile.db_dump else None
     if dump_dir:
         try:  # Dumps sind ein Zusatz: Fehler werden gemeldet, verhindern aber nie das Backup
-            on_line("Datenbank-Dumps …")
+            on_line(tr("Datenbank-Dumps …"))
             creds = parse_credentials(_credential("dbdump") or (store.get(profile.slug, "dbdump") if store else None))
             run_dumps(dump_dir, creds, on_line)
         except Exception as e:
-            on_line(f"Warnung: Datenbank-Dumps nicht ausgeführt: {e}")
+            on_line(tr("Warnung: Datenbank-Dumps nicht ausgeführt: {0}", e))
     secret = _credential("token") or (store.get(profile.slug, "token") if store else None)
     if not secret:
-        on_line("Fehler: Kein API-Token-Secret gefunden")
-        write_status(paths, profile, False, 2, "Kein Token-Secret")
+        on_line(tr("Fehler: Kein API-Token-Secret gefunden"))
+        write_status(paths, profile, False, 2, tr("Kein Token-Secret"))
         return 2
     keypass = _credential("keypass") or (store.get(profile.slug, "keypass") if store else None) or ""
     key_path = _credential_path("key")  # System-Scope: systemd stellt den Key als Datei bereit
@@ -103,18 +104,18 @@ def _run_profile(profile: Profile, paths: Paths, store: SecretStore | None, on_l
     client.dump_dir = dump_dir
     client.mode_override = mode
     try:
-        on_line(f"Starte Backup '{profile.name}' -> {profile.repository}"
-                + (" (alles neu lesen, Modus data)" if mode == DATA else ""))
+        on_line(tr("Starte Backup '{0}' -> {1}", profile.name, profile.repository)
+                + (tr(" (alles neu lesen, Modus data)") if mode == DATA else ""))
         if progress is None:
             progress = bool(os.environ.get("PBSGUI_PROGRESS"))    # nur für interaktive Aufrufer (nicht im Journal)
         from .progress import encode
         code = client.backup(on_line, (lambda p: on_line(encode(p))) if progress else None)
     except ClientError as e:
-        on_line(f"Fehler: {e}")
+        on_line(tr("Fehler: {0}", e))
         write_status(paths, profile, False, 3, str(e))
         return 3
-    write_status(paths, profile, code == 0, code, "ok" if code == 0 else f"Client-Exitcode {code}")
-    on_line("Backup erfolgreich" if code == 0 else f"Backup fehlgeschlagen (Exitcode {code})")
+    write_status(paths, profile, code == 0, code, "ok" if code == 0 else tr("Client-Exitcode {0}", code))
+    on_line(tr("Backup erfolgreich") if code == 0 else tr("Backup fehlgeschlagen (Exitcode {0})", code))
     return code
 
 

@@ -38,6 +38,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
+from ..i18n import tr
 
 POSTGRES = "postgres"
 MARIADB = "mariadb"  # auch MySQL
@@ -111,7 +112,7 @@ class DumpResult:
     removed: list[str] = field(default_factory=list)  # Namen entfernter, veralteter Dump-Dateien
 
     def summary(self) -> str:
-        return f"{len(self.ok)} gesichert, {len(self.skipped)} übersprungen, {len(self.failed)} fehlgeschlagen"
+        return tr("{0} gesichert, {1} übersprungen, {2} fehlgeschlagen", len(self.ok), len(self.skipped), len(self.failed))
 
 
 # -- Erkennung -------------------------------------------------------------------------------------------------
@@ -165,13 +166,13 @@ def find_databases(sockets: Iterable[str] | None = None, on_line: Callable[[str]
             ps = subprocess.run(_docker(sock, "ps", "-q"), capture_output=True, text=True, timeout=30,
                                 stdin=subprocess.DEVNULL)
         except FileNotFoundError:
-            raise DumpError(f"Docker-Client nicht gefunden: {docker_binary()}") from None
+            raise DumpError(tr("Docker-Client nicht gefunden: {0}", docker_binary())) from None
         except subprocess.TimeoutExpired:
-            on_line(f"  {sock}: Zeitüberschreitung, übersprungen")
+            on_line(tr("  {0}: Zeitüberschreitung, übersprungen", sock))
             continue
         if ps.returncode != 0:
             why = (ps.stderr.strip().splitlines() or ["?"])[-1]
-            on_line(f"  {sock}: nicht erreichbar ({why})")
+            on_line(tr("  {0}: nicht erreichbar ({1})", sock, why))
             continue
         ids = ps.stdout.split()
         if not ids:
@@ -179,12 +180,12 @@ def find_databases(sockets: Iterable[str] | None = None, on_line: Callable[[str]
         ins = subprocess.run(_docker(sock, "inspect", *ids), capture_output=True, text=True, timeout=60,
                              stdin=subprocess.DEVNULL)
         if ins.returncode != 0:
-            on_line(f"  {sock}: inspect fehlgeschlagen")
+            on_line(tr("  {0}: inspect fehlgeschlagen", sock))
             continue
         try:
             containers = json.loads(ins.stdout or "[]")
         except ValueError:
-            on_line(f"  {sock}: ungültige inspect-Ausgabe")
+            on_line(tr("  {0}: ungültige inspect-Ausgabe", sock))
             continue
         owner = _owner(sock)
         for c in containers:
@@ -226,15 +227,15 @@ def _stream_to_file(cmd: list[str], dest: Path, stdin_data: str | None = None, t
             proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL,
                                     stdout=subprocess.PIPE, stderr=err)
         except FileNotFoundError:
-            raise DumpError(f"Docker-Client nicht gefunden: {docker_binary()}") from None
+            raise DumpError(tr("Docker-Client nicht gefunden: {0}", docker_binary())) from None
         if proc.stdout is None:
-            raise DumpError("Kein Ausgabestrom vom Docker-Client")
+            raise DumpError(tr("Kein Ausgabestrom vom Docker-Client"))
         timer = threading.Timer(timeout, proc.kill)
         timer.start()
         try:
             if stdin_data is not None:
                 if proc.stdin is None:
-                    raise DumpError("Kein Eingabestrom zum Docker-Client")
+                    raise DumpError(tr("Kein Eingabestrom zum Docker-Client"))
                 try:
                     proc.stdin.write(stdin_data.encode())
                     proc.stdin.close()
@@ -250,7 +251,7 @@ def _stream_to_file(cmd: list[str], dest: Path, stdin_data: str | None = None, t
         if code != 0:
             err.seek(0)
             msg = err.read().decode(errors="replace").strip().splitlines()
-            raise DumpError((msg[-1] if msg else f"Exitcode {code}")[:300])
+            raise DumpError((msg[-1] if msg else tr("Exitcode {0}", code))[:300])
         size = tmp.stat().st_size
         os.replace(tmp, dest)
         return size
@@ -272,7 +273,7 @@ def _dump_database(db: Database, dest_dir: Path, cred: dict | None, via_socket: 
     if via_socket:   # ohne Passwort: als Betriebssystem-Benutzer „mysql“ im Container
         return _stream_to_file(_docker(db.socket, "exec", "-u", SOCKET_USER, db.container, "sh", "-c", _SOCKET_DUMP), dest)
     if not cred:
-        raise DumpError("kein Datenbank-Zugang hinterlegt")
+        raise DumpError(tr("kein Datenbank-Zugang hinterlegt"))
     return _stream_to_file(_docker(db.socket, "exec", "-i", db.container, "sh", "-c", _MYSQL_DUMP, "sh",
                                    cred["user"]), dest, stdin_data=cred["password"] + "\n")
 
@@ -299,7 +300,7 @@ def remove_stale(dest_dir: Path, active: Iterable[Database], on_line: Callable[[
         except OSError:
             continue
         removed.append(f.name)
-        on_line(f"  Entfernt (Container nicht mehr erkannt, älter als {days:g} Tage): {f.name}")
+        on_line(tr("  Entfernt (Container nicht mehr erkannt, älter als {0:g} Tage): {1}", days, f.name))
     return removed
 
 
@@ -310,26 +311,25 @@ def run_dumps(dest_dir: Path, creds: dict[str, dict], on_line: Callable[[str], N
     dbs = find_databases(sockets, on_line)
     res.removed = remove_stale(dest_dir, dbs, on_line)
     if not dbs:
-        on_line("Datenbank-Dumps: keine laufenden Datenbank-Container gefunden")
+        on_line(tr("Datenbank-Dumps: keine laufenden Datenbank-Container gefunden"))
         return res
     for db in dbs:
         label = f"{db.key} ({db.engine})"
         via_socket = db.engine == MARIADB and socket_access_works(db)
         if db.engine == MARIADB and not via_socket and not creds.get(db.key):
-            res.skipped.append((db, "kein Zugang"))
-            on_line(f"  Übersprungen: {label}: kein Zugang (ohne Passwort einrichten: pbsgui dbdump NAME "
-                    f"--setup-access {db.container})")
+            res.skipped.append((db, tr("kein Zugang")))
+            on_line(tr("  Übersprungen: {0}: kein Zugang (ohne Passwort einrichten: pbsgui dbdump NAME --setup-access {1})", label, db.container))
             continue
         try:
             size = dump_database(db, dest_dir, creds.get(db.key), via_socket)
         except DumpError as e:
             res.failed.append((db, str(e)))
-            on_line(f"  Warnung: {label}: {e} (letzter Dump bleibt erhalten)")
+            on_line(tr("  Warnung: {0}: {1} (letzter Dump bleibt erhalten)", label, e))
             continue
         res.ok.append(db)
-        how = " ohne Passwort" if via_socket else (" mit hinterlegtem Zugang" if db.engine == MARIADB else "")
-        on_line(f"  Gesichert: {label}{how} -> {db.filename} ({size / 1048576:.1f} MiB)")
-    on_line(f"Datenbank-Dumps: {res.summary()}")
+        how = tr(" ohne Passwort") if via_socket else (tr(" mit hinterlegtem Zugang") if db.engine == MARIADB else "")
+        on_line(tr("  Gesichert: {0}{1} -> {2} ({3:.1f} MiB)", label, how, db.filename, size / 1048576))
+    on_line(tr("Datenbank-Dumps: {0}", res.summary()))
     return res
 
 
@@ -339,11 +339,11 @@ def _docker_run(db: Database, *args: str, check: bool = True, timeout: float = 3
         p = subprocess.run(_docker(db.socket, *args), capture_output=True, text=True, timeout=timeout,
                            stdin=subprocess.DEVNULL)
     except FileNotFoundError:
-        raise DumpError(f"Docker-Client nicht gefunden: {docker_binary()}") from None
+        raise DumpError(tr("Docker-Client nicht gefunden: {0}", docker_binary())) from None
     except subprocess.TimeoutExpired:
-        raise DumpError(f"Zeitüberschreitung bei docker {args[0]}") from None
+        raise DumpError(tr("Zeitüberschreitung bei docker {0}", args[0])) from None
     if check and p.returncode != 0:
-        raise DumpError(((p.stderr or p.stdout).strip().splitlines() or [f"Exitcode {p.returncode}"])[-1][:300])
+        raise DumpError(((p.stderr or p.stdout).strip().splitlines() or [tr("Exitcode {0}", p.returncode)])[-1][:300])
     return p
 
 
@@ -385,24 +385,24 @@ def setup_socket_access(db: Database, on_line: Callable[[str], None] = lambda _l
     danach läuft der Original-Container wieder. Der Original-Container wird in jedem Fall wieder gestartet.
     """
     if db.engine != MARIADB:
-        raise DumpError("Nur für MariaDB-Container nötig (Postgres braucht keinen Zugang)")
+        raise DumpError(tr("Nur für MariaDB-Container nötig (Postgres braucht keinen Zugang)"))
     if socket_access_works(db):
-        on_line(f"  {db.container}: passwortloser Zugang ist schon eingerichtet")
+        on_line(tr("  {0}: passwortloser Zugang ist schon eingerichtet", db.container))
         return False
     info = json.loads(_docker_run(db, "inspect", db.container).stdout or "[]")
     if not info:
-        raise DumpError(f"Container nicht gefunden: {db.container}")
+        raise DumpError(tr("Container nicht gefunden: {0}", db.container))
     info = info[0]
     flavor = _docker_run(db, "exec", db.container, "sh", "-c", "command -v mariadbd", check=False, timeout=30)
     if flavor.returncode != 0 or not flavor.stdout.strip():
-        raise DumpError("Nur für MariaDB-Images möglich (kein mariadbd im Container gefunden)")
+        raise DumpError(tr("Nur für MariaDB-Images möglich (kein mariadbd im Container gefunden)"))
     mount = next((m for m in info.get("Mounts") or [] if m.get("Destination") == "/var/lib/mysql"), None)
     if not mount:
-        raise DumpError("Das Datenverzeichnis /var/lib/mysql ist nicht eingehängt")
+        raise DumpError(tr("Das Datenverzeichnis /var/lib/mysql ist nicht eingehängt"))
     source = mount.get("Name") if mount.get("Type") == "volume" else mount.get("Source")
     image = info.get("Image") or (info.get("Config") or {}).get("Image")
     if not source or not image:
-        raise DumpError("Image oder Datenverzeichnis des Containers nicht ermittelbar")
+        raise DumpError(tr("Image oder Datenverzeichnis des Containers nicht ermittelbar"))
 
     tmp = Path(tempfile.mkdtemp(prefix="pbsgui-init-"))
     name = f"pbsgui-init-{_safe(db.container)}-{os.getpid()}"
@@ -412,10 +412,10 @@ def setup_socket_access(db: Database, on_line: Callable[[str], None] = lambda _l
         sql = tmp / "init.sql"
         sql.write_text(_INIT_SQL)
         os.chmod(sql, 0o644)
-        on_line(f"  Stoppe {db.container} (sauber, bis zu 2 Minuten) …")
+        on_line(tr("  Stoppe {0} (sauber, bis zu 2 Minuten) …", db.container))
         _docker_run(db, "stop", "-t", "120", db.container, timeout=200)
         try:
-            on_line("  Einmaliger Start mit --init-file …")
+            on_line(tr("  Einmaliger Start mit --init-file …"))
             _docker_run(db, "run", "-d", "--rm", "--name", name, "--user", SOCKET_USER, "--entrypoint", "mariadbd",
                         "--mount", f"type={mount.get('Type', 'bind')},source={source},destination=/var/lib/mysql",
                         "-v", f"{sql}:/pbsgui-init.sql:ro", image, "--skip-networking",
@@ -424,27 +424,25 @@ def setup_socket_access(db: Database, on_line: Callable[[str], None] = lambda _l
             try:
                 if not _wait(lambda: socket_access_works(probe), timeout, poll):
                     logs = _docker_run(db, "logs", "--tail", "5", name, check=False, timeout=30)
-                    raise DumpError("Der einmalige Start hat den Zugang nicht angelegt: "
-                                    + ((logs.stderr or logs.stdout).strip().splitlines() or ["keine Ausgabe"])[-1][:200])
+                    raise DumpError(tr("Der einmalige Start hat den Zugang nicht angelegt: ")
+                                    + ((logs.stderr or logs.stdout).strip().splitlines() or [tr("keine Ausgabe")])[-1][:200])
             finally:
                 _docker_run(db, "stop", "-t", "120", name, check=False, timeout=200)   # --rm räumt den Container auf
         except Exception as e:
             problem = e
         finally:
-            on_line(f"  Starte {db.container} wieder …")
+            on_line(tr("  Starte {0} wieder …", db.container))
             try:
                 _docker_run(db, "start", db.container, timeout=120)
             except DumpError as e:
-                problem = DumpError(f"{db.container} konnte nicht wieder gestartet werden, bitte von Hand starten "
-                                    f"(docker start {db.container}): {e}")
+                problem = DumpError(tr("{0} konnte nicht wieder gestartet werden, bitte von Hand starten (docker start {1}): {2}", db.container, db.container, e))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if problem:
         raise problem if isinstance(problem, DumpError) else DumpError(str(problem))
     if not _wait(lambda: socket_access_works(db), timeout, poll):
-        raise DumpError(f"{db.container} läuft wieder, der passwortlose Zugang ist aber nicht verfügbar "
-                        "(existiert der Benutzer 'mysql' schon mit anderer Anmeldeart?)")
-    on_line(f"  {db.container}: passwortloser Lesezugang eingerichtet")
+        raise DumpError(tr("{0} läuft wieder, der passwortlose Zugang ist aber nicht verfügbar (existiert der Benutzer 'mysql' schon mit anderer Anmeldeart?)", db.container))
+    on_line(tr("  {0}: passwortloser Lesezugang eingerichtet", db.container))
     return True
 
 
@@ -456,11 +454,11 @@ def _mysql_session(db: Database, user: str, password: str, sql: str = "", script
         p = subprocess.run(_docker(db.socket, "exec", "-i", db.container, "sh", "-c", script, "sh", user),
                            input=password + "\n" + sql, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
-        raise DumpError(f"Docker-Client nicht gefunden: {docker_binary()}") from None
+        raise DumpError(tr("Docker-Client nicht gefunden: {0}", docker_binary())) from None
     except subprocess.TimeoutExpired:
-        raise DumpError("Zeitüberschreitung") from None
+        raise DumpError(tr("Zeitüberschreitung")) from None
     if p.returncode != 0:
-        raise DumpError(((p.stderr or p.stdout).strip().splitlines() or [f"Exitcode {p.returncode}"])[-1][:300])
+        raise DumpError(((p.stderr or p.stdout).strip().splitlines() or [tr("Exitcode {0}", p.returncode)])[-1][:300])
     return p.stdout
 
 

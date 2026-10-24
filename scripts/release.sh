@@ -18,31 +18,33 @@ old=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
 [ "$new" != "$old" ] || { echo "Version ist schon $new (pyproject.toml); für ein Re-Release neue Nummer wählen." >&2; exit 1; }
 # CHANGELOG: es muss etwas unter [Unreleased] stehen
 python3 - "$new" <<'PY'
-import re, sys, datetime
+import re, sys, datetime, os
 new = sys.argv[1]
-text = open("CHANGELOG.md", encoding="utf-8").read()
-m = re.search(r"## \[Unreleased\]\n(.*?)(?=\n## \[)", text, re.S)
-if not m or not m.group(1).strip():
-    sys.exit("CHANGELOG.md: unter [Unreleased] steht nichts. Erst die Änderungen eintragen.")
-today = datetime.date.today().isoformat()
-text = text.replace("## [Unreleased]\n", f"## [Unreleased]\n\n## [{new}] - {today}\n", 1)
-text = re.sub(r"\[Unreleased\]: (\S+)/compare/v\S+\.\.\.HEAD",
-              lambda mm: f"[Unreleased]: {mm.group(1)}/compare/v{new}...HEAD", text)
-text = text.replace("[Unreleased]: ", f"[Unreleased]: ", 1)
-link = re.search(r"\[Unreleased\]: (\S+)/compare", text).group(1)
-text = re.sub(r"(\[Unreleased\]: [^\n]*\n)", lambda mm: mm.group(1) + f"[{new}]: {link}/releases/tag/v{new}\n", text, count=1)
-open("CHANGELOG.md", "w", encoding="utf-8").write(text)
+for name in ("CHANGELOG.md", "CHANGELOG.en.md"):     # deutsch und englisch gemeinsam fortschreiben
+    if not os.path.exists(name):
+        continue
+    text = open(name, encoding="utf-8").read()
+    m = re.search(r"## \[Unreleased\]\n(.*?)(?=\n## \[)", text, re.S)
+    if not m or not m.group(1).strip():
+        sys.exit(f"{name}: unter [Unreleased] steht nichts. Erst die Änderungen eintragen.")
+    today = datetime.date.today().isoformat()
+    text = text.replace("## [Unreleased]\n", f"## [Unreleased]\n\n## [{new}] - {today}\n", 1)
+    text = re.sub(r"\[Unreleased\]: (\S+)/compare/v\S+\.\.\.HEAD",
+                  lambda mm: f"[Unreleased]: {mm.group(1)}/compare/v{new}...HEAD", text)
+    link = re.search(r"\[Unreleased\]: (\S+)/compare", text).group(1)
+    text = re.sub(r"(\[Unreleased\]: [^\n]*\n)", lambda mm: mm.group(1) + f"[{new}]: {link}/releases/tag/v{new}\n", text, count=1)
+    open(name, "w", encoding="utf-8").write(text)
 PY
 sed -i "s/^version = \"$old\"/version = \"$new\"/" pyproject.toml
 echo "Tests laufen …"
 py=${PYTHON:-python3}
 [ -z "${PYTHON:-}" ] && [ -x .venv/bin/python ] && py=.venv/bin/python
 if ! PYTHONPATH="$root/src" "$py" -m pytest -q; then
-  git checkout -q -- pyproject.toml CHANGELOG.md      # saubere Ausgangslage wiederherstellen
+  git checkout -q -- pyproject.toml CHANGELOG.md CHANGELOG.en.md      # saubere Ausgangslage wiederherstellen
   echo "Tests fehlgeschlagen: Release abgebrochen, nichts wurde committet oder getaggt." >&2
   exit 1
 fi
-git add pyproject.toml CHANGELOG.md
+git add pyproject.toml CHANGELOG.md CHANGELOG.en.md
 git commit -q -m "Release v$new"
 git tag -a "v$new" -m "pbsgui $new"
 echo "Lokal bereit: Commit und Tag v$new."

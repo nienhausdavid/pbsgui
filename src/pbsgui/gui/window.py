@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGroupBox, QHeaderView
                                QApplication, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
+from .. import i18n
+from ..i18n import tr
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.modes import DEFAULT_FULL_EXCLUDES, FULL
 from ..core.recovery import needs_key_export, render_sheet
@@ -20,6 +22,7 @@ from ..core.runner import read_status
 from ..core.scheduler import enable_linger, linger_enabled
 from .add_server import AddServerDialog
 from .db_dialog import DbDumpDialog
+from .edit_server import EditServerDialog
 from .files_dialog import FilesDialog
 from .insight import DashboardTab, DiffDialog, HistoryTab, RestoreTestDialog, SearchAllDialog
 from .mounts_widget import MountList
@@ -27,8 +30,8 @@ from . import style
 from .titlebar import Shell, TitleBar
 from .workers import Worker
 
-PRESETS = [("Vorlage wählen …", ""), ("Täglich 02:00", "*-*-* 02:00:00"), ("Stündlich", "hourly"), ("Wöchentlich (Mo 03:00)", "Mon *-*-* 03:00:00"),
-           ("Beim Start + täglich", "daily"), ("Eigener Ausdruck", "")]
+PRESETS = [(tr("Vorlage wählen …"), ""), (tr("Täglich 02:00"), "*-*-* 02:00:00"), (tr("Stündlich"), "hourly"), (tr("Wöchentlich (Mo 03:00)"), "Mon *-*-* 03:00:00"),
+           (tr("Beim Start + täglich"), "daily"), (tr("Eigener Ausdruck"), "")]
 
 
 def fmt_size(n: int) -> str:
@@ -43,7 +46,7 @@ class MainWindow(QMainWindow):
     def __init__(self, manager: ProfileManager | None = None):
         super().__init__()
         from .. import __version__
-        self.setWindowTitle(f"pbsgui {__version__} – Proxmox Backup")
+        self.setWindowTitle(tr("pbsgui {0} – Proxmox Backup", __version__))
         self.setMinimumSize(640, 440)             # klein genug zum bequemen Verkleinern (Inhalt scrollt)
         self.resize(1080, 720)
         self.mgr = manager or ProfileManager()
@@ -55,23 +58,32 @@ class MainWindow(QMainWindow):
         self.tray = None                              # TrayController, gesetzt von gui.main
 
         self.plist = QListWidget(); self.plist.setObjectName("profiles")
-        add = QPushButton("＋  Server hinzufügen"); add.setObjectName("primary"); add.clicked.connect(self.add_server)
-        rem = QPushButton("Entfernen"); rem.clicked.connect(self.remove_profile)
+        add = QPushButton(tr("＋  Server hinzufügen")); add.setObjectName("primary"); add.clicked.connect(self.add_server)
+        rem = QPushButton(tr("Entfernen")); rem.clicked.connect(self.remove_profile)
         left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(12, 12, 6, 12); ll.setSpacing(8)
-        title = QLabel("Profile"); title.setObjectName("sectionTitle")
+        title = QLabel(tr("Profile")); title.setObjectName("sectionTitle")
         ll.addWidget(title); ll.addWidget(self.plist, 1); ll.addWidget(add); ll.addWidget(rem)
+        self.lang_box = QComboBox()
+        self.lang_box.setToolTip(tr("Sprache der Oberfläche; gilt ab dem nächsten Start von pbsgui."))
+        for label, code in (("Auto", "auto"), ("Deutsch", "de"), ("English", "en")):
+            self.lang_box.addItem(label, code)
+        saved = i18n.config_file().read_text().strip() if i18n.config_file().exists() else "auto"
+        self.lang_box.setCurrentIndex(max(self.lang_box.findData(saved), 0))
+        self.lang_box.currentIndexChanged.connect(self._language_changed)
+        lrow = QHBoxLayout(); lrow.addWidget(QLabel(tr("Sprache"))); lrow.addWidget(self.lang_box, 1)
+        ll.addLayout(lrow)
         left.setMinimumWidth(180)
 
         self.head = QLabel(""); self.head.setObjectName("pageTitle")
         self.subhead = QLabel(""); self.subhead.setObjectName("muted"); self.subhead.setWordWrap(True)
         self.tabs = QTabWidget(); self.tabs.setDocumentMode(True)
         self.tabs.addTab(self._build_backup_tab(), "Backup")
-        self.tabs.addTab(self._build_snapshots_tab(), "Snapshots")
-        self.tabs.addTab(self._build_schedule_tab(), "Zeitplan")
+        self.tabs.addTab(self._build_snapshots_tab(), tr("Snapshots"))
+        self.tabs.addTab(self._build_schedule_tab(), tr("Zeitplan"))
         self.dashboard = DashboardTab(self.mgr); self.history = HistoryTab(self.mgr)
         self.dashboard.profileChosen.connect(self.choose_profile)
         self.tabs.addTab(self.dashboard, "Dashboard")
-        self.tabs.addTab(self.history, "Verlauf")
+        self.tabs.addTab(self.history, tr("Verlauf"))
         right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(6, 12, 12, 8); rl.setSpacing(2)
         rl.addWidget(self.head); rl.addWidget(self.subhead); rl.addSpacing(6); rl.addWidget(self.tabs, 1)
 
@@ -91,7 +103,7 @@ class MainWindow(QMainWindow):
             sl.addWidget(frame); self._shell = shell
             shell.set_margins(False)
             self.setCentralWidget(shell)
-        self.statusBar().showMessage("Bereit")
+        self.statusBar().showMessage(tr("Bereit"))
         self.plist.currentRowChanged.connect(self._select)
         self.reload()
         geo = QSettings("pbsgui", "pbsgui").value("geometry")   # Fenstergröße und -lage merken
@@ -125,10 +137,14 @@ class MainWindow(QMainWindow):
         if not self.allow_close and self.tray is not None and self.tray.available and background_enabled():
             ev.ignore()                                         # im Hintergrund weiterlaufen: nur das Fenster verstecken
             self.hide()
-            self.tray.tray.showMessage("pbsgui läuft im Hintergrund", "Über das Symbol im Systembereich geht es weiter oder zu Ende.")
+            self.tray.tray.showMessage(tr("pbsgui läuft im Hintergrund"), tr("Über das Symbol im Systembereich geht es weiter oder zu Ende."))
             return
         super().closeEvent(ev)
         QApplication.quit()
+
+    def _language_changed(self) -> None:
+        i18n.save_language(self.lang_box.currentData())
+        self.statusBar().showMessage(tr("Die Sprache gilt ab dem nächsten Start von pbsgui."))
 
     def choose_profile(self, name: str) -> None:
         names = [p.name for p in self.mgr.profiles()]
@@ -159,8 +175,8 @@ class MainWindow(QMainWindow):
             w.done.connect(on_done)
         if on_line:
             w.line.connect(on_line)
-        w.failed.connect(lambda m: (self.statusBar().showMessage(f"Fehler: {m}"),
-                                    QMessageBox.warning(self, "Fehler", m)))
+        w.failed.connect(lambda m: (self.statusBar().showMessage(tr("Fehler: {0}", m)),
+                                    QMessageBox.warning(self, tr("Fehler"), m)))
         w.start()
         return w
 
@@ -184,19 +200,17 @@ class MainWindow(QMainWindow):
                 w.setEnabled(self.current is not None)
         p = self.current
         if not p:
-            self.head.setText("Kein Profil"); self.subhead.setText("Mit „Server hinzufügen“ ein Backup-Ziel einrichten.")
+            self.head.setText(tr("Kein Profil")); self.subhead.setText(tr("Mit „Server hinzufügen“ ein Backup-Ziel einrichten."))
             return
         full = p.backup_mode == FULL
         self.head.setText(p.name)
         self.subhead.setText(f"{p.server} · {p.datastore}{'/' + p.namespace if p.namespace else ''} · "
                              f"{'Ganzes System' if full else 'Nur Home'}")
         self.f_id.setText(p.backup_id); self.f_ns.setText(p.namespace)
+        self.f_server.setText(f"{p.server}:{p.port} · {p.datastore} · {p.auth_id}")
         self.sources.clear(); self.sources.addItems(p.effective_sources)
         self.sources.setEnabled(not full); self.src_add.setEnabled(not full); self.src_rm.setEnabled(not full)
-        self.mode_info.setText(("Vollständiges System (Dateiebene): Quelle `/` plus lokale Dateisysteme wie /boot. "
-                                f"Standard-Ausschlüsse: {', '.join(DEFAULT_FULL_EXCLUDES)}. Läuft mit "
-                                "Administrator-Rechten.") if full else "Nur das eigene Home-Verzeichnis (und weitere "
-                                "gewählte Ordner).")
+        self.mode_info.setText((tr("Vollständiges System (Dateiebene): Quelle `/` plus lokale Dateisysteme wie /boot. Standard-Ausschlüsse: {0}. Läuft mit Administrator-Rechten.", ', '.join(DEFAULT_FULL_EXCLUDES))) if full else tr("Nur das eigene Home-Verzeichnis (und weitere gewählte Ordner)."))
         self.f_scope.setEnabled(not full)
         self.mount_label.setVisible(full); self.mount_list.setVisible(full)
         if full:
@@ -218,64 +232,65 @@ class MainWindow(QMainWindow):
         w = QWidget(); outer = QVBoxLayout(w); outer.setContentsMargins(0, 8, 0, 0); outer.setSpacing(8)
 
         # Aktionsleiste: immer sichtbar, unabhängig vom Scrollen
-        save = QPushButton("Speichern"); save.clicked.connect(self.save_profile)
-        self.backup_btn = QPushButton("Jetzt sichern"); self.backup_btn.setObjectName("primary")
+        save = QPushButton(tr("Speichern")); save.clicked.connect(self.save_profile)
+        self.backup_btn = QPushButton(tr("Jetzt sichern")); self.backup_btn.setObjectName("primary")
         self.backup_btn.clicked.connect(self.backup_now)
         bar = QHBoxLayout(); bar.addWidget(self.backup_btn); bar.addWidget(save); bar.addStretch()
         outer.addLayout(bar)
 
         # Einstellungen (scrollbar, damit das Fenster klein werden darf)
         self.f_id = QLineEdit(); self.f_ns = QLineEdit()
-        self.f_enc = QCheckBox("Clientseitig verschlüsseln (empfohlen)"); self.f_key = QLineEdit()
-        self.f_key.setPlaceholderText("optional – leer = automatisch erzeugter Schlüssel")
-        self.f_master = QLineEdit(); self.f_master.setPlaceholderText("optional – RSA-Master-Public-Key (.pem)")
+        self.f_enc = QCheckBox(tr("Clientseitig verschlüsseln (empfohlen)")); self.f_key = QLineEdit()
+        self.f_key.setPlaceholderText(tr("optional – leer = automatisch erzeugter Schlüssel"))
+        self.f_master = QLineEdit(); self.f_master.setPlaceholderText(tr("optional – RSA-Master-Public-Key (.pem)"))
         self.key_info = QLabel(""); self.key_info.setWordWrap(True)
         self.key_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.key_btn = QPushButton("Schlüssel exportieren …"); self.key_btn.clicked.connect(self.export_key_dialog)
-        self.sheet_btn = QPushButton("Notfallblatt speichern …"); self.sheet_btn.clicked.connect(self.save_sheet)
-        self.f_changed = QCheckBox("Nur geänderte Dateien lesen (schneller)")
-        self.f_changed.setToolTip("Metadaten-Vergleich. Nach dem Umstellen liest das nächste Backup einmal alles, danach nur "
-                                  "noch Geändertes. Der PBS-Server muss Version 3.3 oder neuer sein.")
-        self.f_weekly = QCheckBox("Zusätzlich wöchentlich alles neu lesen (Modus data)")
-        self.f_weekly.setToolTip("Prüft auch Dateien, deren Metadaten unverändert sind, und meldet Lesefehler. "
-                                 "Gilt nur mit einem Zeitplan.")
-        self.f_data_sched = QLineEdit(); self.f_data_sched.setPlaceholderText("Zeitpunkt, z. B. Sun *-*-* 03:00:00")
+        self.key_btn = QPushButton(tr("Schlüssel exportieren …")); self.key_btn.clicked.connect(self.export_key_dialog)
+        self.sheet_btn = QPushButton(tr("Notfallblatt speichern …")); self.sheet_btn.clicked.connect(self.save_sheet)
+        self.f_changed = QCheckBox(tr("Nur geänderte Dateien lesen (schneller)"))
+        self.f_changed.setToolTip(tr("Metadaten-Vergleich. Nach dem Umstellen liest das nächste Backup einmal alles, danach nur noch Geändertes. Der PBS-Server muss Version 3.3 oder neuer sein."))
+        self.f_weekly = QCheckBox(tr("Zusätzlich wöchentlich alles neu lesen (Modus data)"))
+        self.f_weekly.setToolTip(tr("Prüft auch Dateien, deren Metadaten unverändert sind, und meldet Lesefehler. Gilt nur mit einem Zeitplan."))
+        self.f_data_sched = QLineEdit(); self.f_data_sched.setPlaceholderText(tr("Zeitpunkt, z. B. Sun *-*-* 03:00:00"))
         self.f_changed.toggled.connect(self.f_weekly.setEnabled)
-        self.f_dbdump = QCheckBox("Datenbank-Dumps vor dem Backup anlegen")
-        self.db_btn = QPushButton("Datenbanken und Zugänge …"); self.db_btn.clicked.connect(self.db_dialog)
+        self.f_dbdump = QCheckBox(tr("Datenbank-Dumps vor dem Backup anlegen"))
+        self.db_btn = QPushButton(tr("Datenbanken und Zugänge …")); self.db_btn.clicked.connect(self.db_dialog)
 
-        g_id = QGroupBox("Ziel"); f = QFormLayout(g_id)
-        f.addRow("Backup-ID", self.f_id); f.addRow("Namespace", self.f_ns)
+        g_id = QGroupBox(tr("Ziel")); f = QFormLayout(g_id)
+        self.f_server = QLabel(""); self.f_server.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.server_btn = QPushButton(tr("Server ändern …")); self.server_btn.clicked.connect(self.edit_server)
+        f.addRow("Server", self.f_server); f.addRow("", self.server_btn)
+        f.addRow("Backup-ID", self.f_id); f.addRow(tr("Namespace"), self.f_ns)
 
-        g_chg = QGroupBox("Geschwindigkeit"); cl = QVBoxLayout(g_chg)
+        g_chg = QGroupBox(tr("Geschwindigkeit")); cl = QVBoxLayout(g_chg)
         cl.addWidget(self.f_changed); cl.addWidget(self.f_weekly)
-        cf = QFormLayout(); cf.addRow("Prüflauf", self.f_data_sched); cl.addLayout(cf)
+        cf = QFormLayout(); cf.addRow(tr("Prüflauf"), self.f_data_sched); cl.addLayout(cf)
 
         self.sources = QListWidget()
         self.sources.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.sources.setMinimumHeight(60); self.sources.setMaximumHeight(110)
-        self.src_add = QPushButton("Ordner hinzufügen …"); self.src_add.clicked.connect(self.add_source)
-        self.src_rm = QPushButton("Entfernen"); self.src_rm.clicked.connect(self.remove_source)
+        self.src_add = QPushButton(tr("Ordner hinzufügen …")); self.src_add.clicked.connect(self.add_source)
+        self.src_rm = QPushButton(tr("Entfernen")); self.src_rm.clicked.connect(self.remove_source)
         self.mode_info = QLabel(""); self.mode_info.setWordWrap(True); self.mode_info.setObjectName("muted")
-        self.mount_label = QLabel("Laufwerke mitsichern (Haken = ja):")
+        self.mount_label = QLabel(tr("Laufwerke mitsichern (Haken = ja):"))
         self.mount_list = MountList(); self.mount_list.setMaximumHeight(110)
         self.excludes = QPlainTextEdit(); self.excludes.setMaximumHeight(80)
-        self.excludes.setPlaceholderText("Ein Muster pro Zeile, z. B. *.tmp")
-        g_src = QGroupBox("Was wird gesichert?"); sl = QVBoxLayout(g_src)
+        self.excludes.setPlaceholderText(tr("Ein Muster pro Zeile, z. B. *.tmp"))
+        g_src = QGroupBox(tr("Was wird gesichert?")); sl = QVBoxLayout(g_src)
         srow = QHBoxLayout(); srow.addWidget(self.src_add); srow.addWidget(self.src_rm); srow.addStretch()
         sl.addWidget(self.mode_info); sl.addWidget(self.sources); sl.addLayout(srow)
         sl.addWidget(self.mount_label); sl.addWidget(self.mount_list)
-        sl.addWidget(QLabel("Ausschlüsse")); sl.addWidget(self.excludes)
+        sl.addWidget(QLabel(tr("Ausschlüsse"))); sl.addWidget(self.excludes)
 
-        g_enc = QGroupBox("Verschlüsselung"); el = QVBoxLayout(g_enc)
+        g_enc = QGroupBox(tr("Verschlüsselung")); el = QVBoxLayout(g_enc)
         el.addWidget(self.f_enc); el.addWidget(self.key_info)
         krow = QHBoxLayout(); krow.addWidget(self.key_btn); krow.addWidget(self.sheet_btn); krow.addStretch()
         el.addLayout(krow)
-        kf = QFormLayout(); kf.addRow("Eigene Schlüsseldatei", self.f_key); kf.addRow("Master-Public-Key", self.f_master)
+        kf = QFormLayout(); kf.addRow(tr("Eigene Schlüsseldatei"), self.f_key); kf.addRow("Master-Public-Key", self.f_master)
         el.addLayout(kf)
 
-        g_db = QGroupBox("Datenbanken"); dl = QVBoxLayout(g_db)
-        hint = QLabel("Postgres- und MariaDB/MySQL-Container werden vor dem Backup gedumpt."); hint.setObjectName("muted")
+        g_db = QGroupBox(tr("Datenbanken")); dl = QVBoxLayout(g_db)
+        hint = QLabel(tr("Postgres- und MariaDB/MySQL-Container werden vor dem Backup gedumpt.")); hint.setObjectName("muted")
         hint.setWordWrap(True)
         dl.addWidget(self.f_dbdump); dl.addWidget(hint)
         drow = QHBoxLayout(); drow.addWidget(self.db_btn); drow.addStretch(); dl.addLayout(drow)
@@ -292,7 +307,7 @@ class MainWindow(QMainWindow):
         self.bar = QProgressBar(); self.bar.setRange(0, 100); self.bar.setVisible(False)
         self.bar_text = QLabel(""); self.bar_text.setVisible(False); self.bar_text.setObjectName("muted")
         self.log = QPlainTextEdit(); self.log.setReadOnly(True); self.log.setObjectName("log")
-        self.log.setPlaceholderText("Hier erscheint das Protokoll des Backups.")
+        self.log.setPlaceholderText(tr("Hier erscheint das Protokoll des Backups."))
         lp = QWidget(); ll = QVBoxLayout(lp); ll.setContentsMargins(0, 0, 0, 0); ll.setSpacing(4)
         ll.addWidget(self.bar); ll.addWidget(self.bar_text); ll.addWidget(self.log, 1)
 
@@ -302,8 +317,17 @@ class MainWindow(QMainWindow):
         outer.addWidget(split, 1)
         return w
 
+    def edit_server(self) -> None:
+        p = self.current
+        if not p:
+            return
+        dlg = EditServerDialog(self.mgr, p, self)
+        if dlg.exec():
+            self.statusBar().showMessage(tr("Verbindung geändert"))
+            self.reload(select=p.name)
+
     def add_source(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "Quellordner wählen", str(Path.home()))
+        d = QFileDialog.getExistingDirectory(self, tr("Quellordner wählen"), str(Path.home()))
         if d and d not in [self.sources.item(i).text() for i in range(self.sources.count())]:
             self.sources.addItem(d)
 
@@ -347,16 +371,16 @@ class MainWindow(QMainWindow):
                     self.refresh_key_info()
             self.mgr.save(p, schedule=schedule if isinstance(schedule, str) else "keep")
         except Exception as e:
-            QMessageBox.warning(self, "Speichern fehlgeschlagen", str(e))
+            QMessageBox.warning(self, tr("Speichern fehlgeschlagen"), str(e))
             return False
-        self.statusBar().showMessage("Gespeichert")
+        self.statusBar().showMessage(tr("Gespeichert"))
         return True
 
     def db_dialog(self) -> None:
         p = self._collect()
         if p and DbDumpDialog(self.mgr, p, self).exec():
             self.f_dbdump.setChecked(p.db_dump)
-            self.statusBar().showMessage("Datenbank-Dumps gespeichert")
+            self.statusBar().showMessage(tr("Datenbank-Dumps gespeichert"))
 
     # -- Schlüssel ----------------------------------------------------------
     def refresh_key_info(self) -> None:
@@ -364,16 +388,16 @@ class MainWindow(QMainWindow):
         if not p:
             return
         if p.keyfile:
-            text, can_export = f"Eigene Schlüsseldatei: {p.keyfile}", False
+            text, can_export = tr("Eigene Schlüsseldatei: {0}", p.keyfile), False
         elif self.mgr.secrets.exists(p.slug, "key"):
-            text, can_export = f"Automatisch erzeugter Schlüssel, Fingerprint: {p.key_fingerprint}", True
-            text += (f"\nExtern gesichert am {p.key_exported_at}." if p.key_exported_at else
-                     "\nNOCH NICHT exportiert" + (" – das Vollbackup ist bis dahin gesperrt!" if needs_key_export(p)
+            text, can_export = tr("Automatisch erzeugter Schlüssel, Fingerprint: {0}", p.key_fingerprint), True
+            text += (tr("\nExtern gesichert am {0}.", p.key_exported_at) if p.key_exported_at else
+                     tr("\nNOCH NICHT exportiert") + (tr(" – das Vollbackup ist bis dahin gesperrt!") if needs_key_export(p)
                                                     else "."))
         elif p.encrypt:
-            text, can_export = "Der Schlüssel wird beim Speichern automatisch erzeugt.", False
+            text, can_export = tr("Der Schlüssel wird beim Speichern automatisch erzeugt."), False
         else:
-            text, can_export = "Verschlüsselung ist aus: Backups liegen unverschlüsselt auf dem Server.", False
+            text, can_export = tr("Verschlüsselung ist aus: Backups liegen unverschlüsselt auf dem Server."), False
         self.key_info.setText(text)
         self.key_btn.setEnabled(can_export)
         self.sheet_btn.setVisible(p.backup_mode == FULL)
@@ -381,35 +405,33 @@ class MainWindow(QMainWindow):
     def _offer_key_export(self, p: Profile) -> None:
         """Ohne Schlüssel sind verschlüsselte Backups unwiederbringlich verloren: Kopie anbieten."""
         QMessageBox.information(
-            self, "Schlüssel sichern",
-            f"Für '{p.name}' wurde ein Verschlüsselungs-Schlüssel erzeugt (Fingerprint {p.key_fingerprint}).\n\n"
-            "Geht er verloren (z. B. Festplattendefekt), sind alle Backups UNWIDERRUFLICH unlesbar. "
-            "Bitte jetzt eine Kopie an einem sicheren Ort ablegen (Passwortmanager, USB-Stick).")
+            self, tr("Schlüssel sichern"),
+            tr("Für '{0}' wurde ein Verschlüsselungs-Schlüssel erzeugt (Fingerprint {1}).\n\nGeht er verloren (z. B. Festplattendefekt), sind alle Backups UNWIDERRUFLICH unlesbar. Bitte jetzt eine Kopie an einem sicheren Ort ablegen (Passwortmanager, USB-Stick).", p.name, p.key_fingerprint))
         self.export_key_dialog()
 
     def save_sheet(self) -> None:
         p = self.current
         if not p:
             return
-        dest, _ = QFileDialog.getSaveFileName(self, "Notfallblatt speichern", str(Path.home() / f"notfallblatt-{p.slug}.txt"))
+        dest, _ = QFileDialog.getSaveFileName(self, tr("Notfallblatt speichern"), str(Path.home() / f"notfallblatt-{p.slug}.txt"))
         if dest:
             Path(dest).write_text(render_sheet(p))
-            self.statusBar().showMessage(f"Notfallblatt gespeichert: {dest} (enthält keine Geheimnisse)")
+            self.statusBar().showMessage(tr("Notfallblatt gespeichert: {0} (enthält keine Geheimnisse)", dest))
 
     def export_key_dialog(self) -> None:
         p = self.current
         if not p:
             return
-        dest, _ = QFileDialog.getSaveFileName(self, "Schlüssel exportieren", str(Path.home() / f"{p.slug}-key.json"))
+        dest, _ = QFileDialog.getSaveFileName(self, tr("Schlüssel exportieren"), str(Path.home() / f"{p.slug}-key.json"))
         if not dest:
-            self.statusBar().showMessage("Schlüssel NICHT exportiert – bitte später nachholen")
+            self.statusBar().showMessage(tr("Schlüssel NICHT exportiert – bitte später nachholen"))
             return
         try:
             self.mgr.export_key(p, dest)
-            self.statusBar().showMessage(f"Schlüssel exportiert nach {dest}")
+            self.statusBar().showMessage(tr("Schlüssel exportiert nach {0}", dest))
             self.refresh_key_info()
         except Exception as e:
-            QMessageBox.warning(self, "Export fehlgeschlagen", str(e))
+            QMessageBox.warning(self, tr("Export fehlgeschlagen"), str(e))
 
     def backup_now(self) -> None:
         p = self._collect()
@@ -417,11 +439,8 @@ class MainWindow(QMainWindow):
             return
         if needs_key_export(p):   # Vollbackup ist gesperrt, bis der Schlüssel exportiert ist: erklären und Export anbieten
             QMessageBox.information(
-                self, "Schlüssel zuerst sichern",
-                "Dieses verschlüsselte Vollbackup startet erst, wenn der Verschlüsselungs-Schlüssel exportiert wurde. "
-                "Ohne Kopie ließe sich das System auf einem neuen PC nicht wiederherstellen.\n\n"
-                "Im nächsten Schritt wählst du, wohin die Schlüsseldatei gespeichert wird (sicherer Ort, nicht nur "
-                "dieser Rechner).")
+                self, tr("Schlüssel zuerst sichern"),
+                tr("Dieses verschlüsselte Vollbackup startet erst, wenn der Verschlüsselungs-Schlüssel exportiert wurde. Ohne Kopie ließe sich das System auf einem neuen PC nicht wiederherstellen.\n\nIm nächsten Schritt wählst du, wohin die Schlüsseldatei gespeichert wird (sicherer Ort, nicht nur dieser Rechner)."))
             self.export_key_dialog()
             if needs_key_export(self.mgr.profiles_store.load(p.name)):
                 return                                       # Export abgebrochen: nichts starten
@@ -434,10 +453,10 @@ class MainWindow(QMainWindow):
         self.backup_btn.setEnabled(False)
         self.bar.setVisible(True); self.bar_text.setVisible(True)
         self.bar.setRange(0, 0)                       # unbestimmt, bis die erste Messung da ist
-        self.bar_text.setText("Starte …")
+        self.bar_text.setText(tr("Starte …"))
 
         def work(on_line):
-            on_line(f"Starte Backup '{p.name}' …")
+            on_line(tr("Starte Backup '{0}' …", p.name))
             return self.mgr.run_backup(p, on_line)
 
         def done(code):
@@ -446,9 +465,9 @@ class MainWindow(QMainWindow):
                 self.tray.poll()
             self.backup_btn.setEnabled(True)
             self.bar.setRange(0, 100); self.bar.setValue(100 if code == 0 else self.bar.value())
-            self.bar_text.setText("Fertig." if code == 0 else "Fehlgeschlagen.")
-            self.log.appendPlainText("Backup erfolgreich" if code == 0 else f"Backup fehlgeschlagen (Exitcode {code})")
-            self.statusBar().showMessage("Backup fertig" if code == 0 else "Backup fehlgeschlagen")
+            self.bar_text.setText(tr("Fertig.") if code == 0 else tr("Fehlgeschlagen."))
+            self.log.appendPlainText(tr("Backup erfolgreich") if code == 0 else tr("Backup fehlgeschlagen (Exitcode {0})", code))
+            self.statusBar().showMessage(tr("Backup fertig") if code == 0 else tr("Backup fehlgeschlagen"))
             self.refresh_snapshots()
 
         w = self.run_async(work, done, self.backup_line)
@@ -473,12 +492,12 @@ class MainWindow(QMainWindow):
     def _build_snapshots_tab(self) -> QWidget:
         w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 10, 0, 0)
         row = QHBoxLayout()
-        r = QPushButton("Aktualisieren"); r.clicked.connect(self.refresh_snapshots)
-        rs = QPushButton("Wiederherstellen …"); rs.clicked.connect(self.restore_selected)
-        rf = QPushButton("Dateien durchsuchen …"); rf.clicked.connect(self.browse_files)
-        rd = QPushButton("Vergleichen …"); rd.setToolTip("Gewählten Snapshot mit dem vorherigen vergleichen"); rd.clicked.connect(self.compare_snapshots)
-        rt = QPushButton("Restore-Test …"); rt.setToolTip("Zufällige Dateien wiederherstellen und prüfen"); rt.clicked.connect(self.restore_test)
-        ra = QPushButton("Suche in allen Snapshots …"); ra.clicked.connect(self.search_all)
+        r = QPushButton(tr("Aktualisieren")); r.clicked.connect(self.refresh_snapshots)
+        rs = QPushButton(tr("Wiederherstellen …")); rs.clicked.connect(self.restore_selected)
+        rf = QPushButton(tr("Dateien durchsuchen …")); rf.clicked.connect(self.browse_files)
+        rd = QPushButton(tr("Vergleichen …")); rd.setToolTip(tr("Gewählten Snapshot mit dem vorherigen vergleichen")); rd.clicked.connect(self.compare_snapshots)
+        rt = QPushButton(tr("Restore-Test …")); rt.setToolTip(tr("Zufällige Dateien wiederherstellen und prüfen")); rt.clicked.connect(self.restore_test)
+        ra = QPushButton(tr("Suche in allen Snapshots …")); ra.clicked.connect(self.search_all)
         for b in (r, rs, rf):
             row.addWidget(b)
         row.addStretch()
@@ -487,7 +506,7 @@ class MainWindow(QMainWindow):
             row2.addWidget(b)
         row2.addStretch()
         self.snap_table = QTableWidget(0, 4)
-        self.snap_table.setHorizontalHeaderLabels(["Zeit", "ID", "Größe", "Archive"])
+        self.snap_table.setHorizontalHeaderLabels([tr("Zeit"), "ID", tr("Größe"), tr("Archive")])
         hh = self.snap_table.horizontalHeader(); hh.setStretchLastSection(True)
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -504,7 +523,7 @@ class MainWindow(QMainWindow):
         p = self.current
         if not p:
             return
-        self.statusBar().showMessage("Lade Snapshots …")
+        self.statusBar().showMessage(tr("Lade Snapshots …"))
 
         def done(snaps):
             self._snaps = snaps
@@ -514,26 +533,26 @@ class MainWindow(QMainWindow):
                         fmt_size(s.size), ", ".join(s.files)]
                 for j, v in enumerate(vals):
                     self.snap_table.setItem(i, j, QTableWidgetItem(v))
-            self.statusBar().showMessage(f"{len(snaps)} Snapshots")
+            self.statusBar().showMessage(tr("{0} Snapshots", len(snaps)))
 
         self.run_async(lambda _l: self.mgr.snapshots(p), done)
 
     def browse_files(self) -> None:
         row = self.snap_table.currentRow()
         if not self.current or not (0 <= row < len(self._snaps)):
-            QMessageBox.information(self, "Dateien durchsuchen", "Bitte einen Snapshot auswählen.")
+            QMessageBox.information(self, tr("Dateien durchsuchen"), tr("Bitte einen Snapshot auswählen."))
             return
         FilesDialog(self.mgr, self.current, self._snaps[row], self).exec()
 
     def _selected_snapshot(self, title: str) -> int | None:
         row = self.snap_table.currentRow()
         if not self.current or not (0 <= row < len(self._snaps)):
-            QMessageBox.information(self, title, "Bitte einen Snapshot auswählen (erst „Aktualisieren“).")
+            QMessageBox.information(self, title, tr("Bitte einen Snapshot auswählen (erst „Aktualisieren“)."))
             return None
         return row
 
     def compare_snapshots(self) -> None:
-        row = self._selected_snapshot("Vergleichen")
+        row = self._selected_snapshot(tr("Vergleichen"))
         if row is not None:
             DiffDialog(self.mgr, self.current, self._snaps, row, self).exec()
 
@@ -549,31 +568,31 @@ class MainWindow(QMainWindow):
     def restore_selected(self) -> None:
         row = self.snap_table.currentRow()
         if not self.current or not (0 <= row < len(self._snaps)):
-            QMessageBox.information(self, "Wiederherstellen", "Bitte einen Snapshot auswählen.")
+            QMessageBox.information(self, tr("Wiederherstellen"), tr("Bitte einen Snapshot auswählen."))
             return
         snap = self._snaps[row]
         archives = snap.archives or snap.files
-        archive, ok = QInputDialog.getItem(self, "Archiv wählen", "Archiv:", archives, 0, False)
+        archive, ok = QInputDialog.getItem(self, tr("Archiv wählen"), tr("Archiv:"), archives, 0, False)
         if not ok:
             return
-        target = QFileDialog.getExistingDirectory(self, "Zielordner (leer / neu empfohlen)", str(Path.home()))
+        target = QFileDialog.getExistingDirectory(self, tr("Zielordner (leer / neu empfohlen)"), str(Path.home()))
         if not target:
             return
         p = self.current
-        self.statusBar().showMessage("Stelle wieder her …")
+        self.statusBar().showMessage(tr("Stelle wieder her …"))
         self.run_async(lambda _l: self.mgr.client(p).restore(snap, archive, target),
-                       lambda _r: (self.statusBar().showMessage("Wiederherstellung fertig"),
-                                   QMessageBox.information(self, "Fertig", f"Wiederhergestellt nach:\n{target}")))
+                       lambda _r: (self.statusBar().showMessage(tr("Wiederherstellung fertig")),
+                                   QMessageBox.information(self, tr("Fertig"), tr("Wiederhergestellt nach:\n{0}", target))))
 
     # -- Tab Zeitplan -------------------------------------------------------
     def _build_schedule_tab(self) -> QWidget:
         w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 10, 0, 0); lay.setSpacing(10)
         self.f_scope = QComboBox()
-        self.f_scope.addItems(["Benutzer – sichert nur deine Daten, kein sudo nötig",
-                               "System – ganzes System, braucht Administrator-Rechte"])
+        self.f_scope.addItems([tr("Benutzer – sichert nur deine Daten, kein sudo nötig"),
+                               tr("System – ganzes System, braucht Administrator-Rechte")])
         if not self.admin_ok:
             self.f_scope.model().item(1).setEnabled(False)  # ausgegraut ohne Admin-Rechte
-            self.f_scope.setItemData(1, "Keine Administrator-Rechte erkannt", Qt.ItemDataRole.ToolTipRole)
+            self.f_scope.setItemData(1, tr("Keine Administrator-Rechte erkannt"), Qt.ItemDataRole.ToolTipRole)
         self.f_preset = QComboBox()
         for cb in (self.f_scope, self.f_preset):   # lange Einträge dürfen das Fenster nicht aufweiten
             cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -581,21 +600,21 @@ class MainWindow(QMainWindow):
         for label, _v in PRESETS:
             self.f_preset.addItem(label)
         self.f_preset.activated.connect(lambda i: PRESETS[i][1] and self.f_sched.setText(PRESETS[i][1]))
-        self.f_sched = QLineEdit(); self.f_sched.setPlaceholderText("systemd OnCalendar, z. B. *-*-* 02:00:00")
-        self.f_ac = QCheckBox("Nur bei Netzbetrieb (ConditionACPower)")
-        g = QGroupBox("Zeitplan"); form = QFormLayout(g)
-        form.addRow("Modus", self.f_scope); form.addRow("Vorlage", self.f_preset)
-        form.addRow("Zeitplan", self.f_sched); form.addRow(self.f_ac)
+        self.f_sched = QLineEdit(); self.f_sched.setPlaceholderText(tr("systemd OnCalendar, z. B. *-*-* 02:00:00"))
+        self.f_ac = QCheckBox(tr("Nur bei Netzbetrieb (ConditionACPower)"))
+        g = QGroupBox(tr("Zeitplan")); form = QFormLayout(g)
+        form.addRow(tr("Modus"), self.f_scope); form.addRow(tr("Vorlage"), self.f_preset)
+        form.addRow(tr("Zeitplan"), self.f_sched); form.addRow(self.f_ac)
         lay.addWidget(g)
         row = QHBoxLayout()
-        inst = QPushButton("Zeitplan aktivieren"); inst.setObjectName("primary"); inst.clicked.connect(self.install_schedule)
-        rm = QPushButton("Zeitplan entfernen"); rm.clicked.connect(self.remove_schedule)
+        inst = QPushButton(tr("Zeitplan aktivieren")); inst.setObjectName("primary"); inst.clicked.connect(self.install_schedule)
+        rm = QPushButton(tr("Zeitplan entfernen")); rm.clicked.connect(self.remove_schedule)
         row.addWidget(inst); row.addWidget(rm); row.addStretch()
         lay.addLayout(row)
         self.sched_status = QLabel(); self.sched_status.setWordWrap(True)
         self.sched_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         gs = QGroupBox("Status"); sl = QVBoxLayout(gs); sl.addWidget(self.sched_status)
-        self.linger_box = QPushButton("Timer auch ohne Login erlauben (linger)")
+        self.linger_box = QPushButton(tr("Timer auch ohne Login erlauben (linger)"))
         self.linger_box.clicked.connect(self.do_linger)
         sl.addWidget(self.linger_box, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addWidget(gs); lay.addStretch()
@@ -609,14 +628,14 @@ class MainWindow(QMainWindow):
             st = self.mgr.schedule_status(p)
             last = read_status(Paths.for_scope(p.scope), p)
         except Exception as e:
-            self.sched_status.setText(f"Status nicht lesbar: {e}")
+            self.sched_status.setText(tr("Status nicht lesbar: {0}", e))
             return
-        parts = [f"Zeitplan: {'aktiv' if st['active'] else ('installiert, inaktiv' if st['installed'] else 'nicht eingerichtet')}"]
+        parts = [tr("Zeitplan: {0}", 'aktiv' if st['active'] else (tr("installiert, inaktiv") if st['installed'] else tr("nicht eingerichtet")))]
         if st["next"] and st["next"] != "n/a":
-            parts.append(f"Nächster Lauf: {st['next']}")
+            parts.append(tr("Nächster Lauf: {0}", st['next']))
         if last:
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(last["time"]))
-            parts.append(f"Letzter Lauf: {when} – {'OK' if last['ok'] else 'FEHLER: ' + last['message']}")
+            parts.append(tr("Letzter Lauf: {0} – {1}", when, 'OK' if last['ok'] else 'FEHLER: ' + last['message']))
         self.sched_status.setText("\n".join(parts))
         self.linger_box.setVisible(p.scope == "user" and not linger_enabled())
 
@@ -631,7 +650,7 @@ class MainWindow(QMainWindow):
                 old = Profile.from_dict({**p.to_dict(), "scope": old_scope})
                 self.mgr.save(old, schedule="remove")
             except Exception as e:
-                QMessageBox.warning(self, "Moduswechsel", f"Alten Zeitplan nicht entfernt: {e}")
+                QMessageBox.warning(self, tr("Moduswechsel"), tr("Alten Zeitplan nicht entfernt: {0}", e))
         return p
 
     def install_schedule(self) -> None:
@@ -639,16 +658,16 @@ class MainWindow(QMainWindow):
         if not p:
             return
         if not p.schedule:
-            QMessageBox.warning(self, "Zeitplan", "Bitte einen Zeitplan angeben.")
+            QMessageBox.warning(self, tr("Zeitplan"), tr("Bitte einen Zeitplan angeben."))
             return
         self.run_async(lambda _l: self.mgr.save(p, schedule="install"),
-                       lambda _r: (self.statusBar().showMessage("Zeitplan aktiviert"), self.refresh_status()))
+                       lambda _r: (self.statusBar().showMessage(tr("Zeitplan aktiviert")), self.refresh_status()))
 
     def remove_schedule(self) -> None:
         p = self._apply_scope()
         if p:
             self.run_async(lambda _l: self.mgr.save(p, schedule="remove"),
-                           lambda _r: (self.statusBar().showMessage("Zeitplan entfernt"), self.refresh_status()))
+                           lambda _r: (self.statusBar().showMessage(tr("Zeitplan entfernt")), self.refresh_status()))
 
     def do_linger(self) -> None:
         try:
@@ -666,7 +685,7 @@ class MainWindow(QMainWindow):
                 self.mgr.save(p, token=dlg.token)  # Vollbackup: System-Kopie per pkexec (Passwortabfrage)
                 created = self.mgr.enable_encryption(p)  # Verschlüsselung ist Standard: Key automatisch erzeugen
             except Exception as e:
-                QMessageBox.warning(self, "Speichern fehlgeschlagen", str(e))
+                QMessageBox.warning(self, tr("Speichern fehlgeschlagen"), str(e))
                 return
             self.reload(select=p.name)
             if created:
@@ -679,14 +698,13 @@ class MainWindow(QMainWindow):
         if p.schedule:
             try:
                 if self.mgr.activate_pending_schedule(p):
-                    self.statusBar().showMessage(f"Zeitplan aktiv: {p.schedule}")
+                    self.statusBar().showMessage(tr("Zeitplan aktiv: {0}", p.schedule))
                 elif self.mgr.schedule_pending(p):
                     QMessageBox.information(
-                        self, "Zeitplan wartet",
-                        f"Der Zeitplan '{p.schedule}' ist vermerkt und startet, sobald der Verschlüsselungs-Schlüssel "
-                        "exportiert wurde (Backup-Tab: „Schlüssel exportieren …“).")
+                        self, tr("Zeitplan wartet"),
+                        tr("Der Zeitplan '{0}' ist vermerkt und startet, sobald der Verschlüsselungs-Schlüssel exportiert wurde (Backup-Tab: „Schlüssel exportieren …“).", p.schedule))
             except Exception as e:
-                QMessageBox.warning(self, "Zeitplan nicht eingerichtet", str(e))
+                QMessageBox.warning(self, tr("Zeitplan nicht eingerichtet"), str(e))
             self.refresh_status()
         if p.db_dump:   # erst Datenbanken und Zugänge, das erste Backup startet danach
             self.db_dialog()
@@ -697,11 +715,10 @@ class MainWindow(QMainWindow):
         p = self.current
         if not p:
             return
-        if QMessageBox.question(self, "Entfernen", f"Profil '{p.name}' samt Zeitplan und gespeichertem Token entfernen?\n"
-                                "(Der Zugang auf dem PBS-Server bleibt bestehen.)") != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, tr("Entfernen"), tr("Profil '{0}' samt Zeitplan und gespeichertem Token entfernen?\n(Der Zugang auf dem PBS-Server bleibt bestehen.)", p.name)) != QMessageBox.StandardButton.Yes:
             return
         try:
             self.mgr.delete(p)
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", str(e))
+            QMessageBox.warning(self, tr("Fehler"), str(e))
         self.reload()

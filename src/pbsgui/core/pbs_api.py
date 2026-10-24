@@ -14,6 +14,7 @@ import ssl
 import time
 import urllib.parse
 from dataclasses import dataclass
+from ..i18n import tr
 
 
 class ApiError(RuntimeError):
@@ -58,7 +59,7 @@ def fetch_fingerprint(host: str, port: int = 8007, timeout: float = 10) -> str:
             with _ctx().wrap_socket(s, server_hostname=host) as t:
                 return _fmt(t.getpeercert(binary_form=True))
     except OSError as e:
-        raise ApiError(f"Keine Verbindung zu {host}:{port}: {e}") from None
+        raise ApiError(tr("Keine Verbindung zu {0}:{1}: {2}", host, port, e)) from None
 
 
 @dataclass
@@ -83,7 +84,7 @@ class PbsApi:
             conn.connect()
             seen = normalize_fp(_fmt(conn.sock.getpeercert(binary_form=True)))  # type: ignore[union-attr]
             if seen != self.fingerprint:
-                raise ApiError("Zertifikat-Fingerprint stimmt nicht mit dem gespeicherten überein")
+                raise ApiError(tr("Zertifikat-Fingerprint stimmt nicht mit dem gespeicherten überein"))
             headers = {"Accept": "application/json"}
             body = None
             query = ""
@@ -103,7 +104,7 @@ class PbsApi:
             resp = conn.getresponse()
             raw = resp.read().decode("utf-8", "replace")
         except (OSError, ssl.SSLError) as e:
-            raise ApiError(f"Verbindungsfehler: {e}") from None
+            raise ApiError(tr("Verbindungsfehler: {0}", e)) from None
         finally:
             conn.close()
         if resp.status >= 400:
@@ -116,7 +117,7 @@ class PbsApi:
         try:
             return json.loads(raw).get("data")
         except ValueError:
-            raise ApiError("Ungültige Antwort des Servers") from None
+            raise ApiError(tr("Ungültige Antwort des Servers")) from None
 
     # -- Anmeldung ----------------------------------------------------------
     def login(self, username: str, password: str, tfa_code: str = "") -> None:
@@ -124,12 +125,12 @@ class PbsApi:
         ticket = (data or {}).get("ticket", "")  # type: ignore[union-attr]
         if "!tfa!" in ticket:  # zweiter Faktor nötig
             if not tfa_code:
-                raise ApiError("Zwei-Faktor-Code erforderlich")
+                raise ApiError(tr("Zwei-Faktor-Code erforderlich"))
             data = self._request("POST", "/access/ticket", {
                 "username": username, "password": f"totp:{tfa_code}", "tfa-challenge": ticket})
         d = data or {}
         if not d.get("ticket"):  # type: ignore[union-attr]
-            raise ApiError("Anmeldung fehlgeschlagen")
+            raise ApiError(tr("Anmeldung fehlgeschlagen"))
         self._ticket, self._csrf = d["ticket"], d.get("CSRFPreventionToken", "")  # type: ignore[index]
 
     def use_token(self, auth_id: str, secret: str) -> None:
@@ -173,14 +174,14 @@ class PbsApi:
             if not e.already_exists:
                 raise
             if not replace_token:
-                raise TokenExistsError(f"Token '{userid}!{token_name}' existiert bereits", e.status) from None
+                raise TokenExistsError(tr("Token '{0}!{1}' existiert bereits", userid, token_name), e.status) from None
             self._request("DELETE", tok_path)
             tok = self._request("POST", tok_path, {"comment": "pbsgui"})
         tok = tok or {}
         auth_id = tok.get("tokenid") or f"{userid}!{token_name}"  # type: ignore[union-attr]
         secret = tok.get("value", "")  # type: ignore[union-attr]
         if not secret:
-            raise ApiError("Server lieferte kein Token-Secret")
+            raise ApiError(tr("Server lieferte kein Token-Secret"))
         acl_path = f"/datastore/{datastore}"
         if namespace.strip("/"):
             namespace = namespace.strip("/")

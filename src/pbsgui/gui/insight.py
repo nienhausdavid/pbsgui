@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                                QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QSplitter,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
+from ..i18n import tr
 from ..cli.insight import OVERVIEW_HEADER, overview_details, overview_row, restore_test_lines, usage_text
 from ..core.history import RunRecord, fmt_duration
 from ..core.manager import ProfileManager
@@ -81,7 +82,7 @@ class PreviewPane(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.info = QLabel("Datei wählen, um den Inhalt zu sehen."); self.info.setObjectName("muted"); self.info.setWordWrap(True)
+        self.info = QLabel(tr("Datei wählen, um den Inhalt zu sehen.")); self.info.setObjectName("muted"); self.info.setWordWrap(True)
         self.text = QPlainTextEdit(); self.text.setReadOnly(True)
         mono = QFont("monospace"); mono.setStyleHint(QFont.StyleHint.Monospace); self.text.setFont(mono)
         self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -91,7 +92,7 @@ class PreviewPane(QWidget):
         lay.addWidget(self.info); lay.addWidget(self.stack, 1)
         self._pixmap: QPixmap | None = None
 
-    def clear(self, message: str = "Datei wählen, um den Inhalt zu sehen.") -> None:
+    def clear(self, message: str = tr("Datei wählen, um den Inhalt zu sehen.")) -> None:
         self.info.setText(message); self.text.clear(); self._pixmap = None; self.image.clear()
         self.stack.setCurrentWidget(self.text)
 
@@ -101,20 +102,20 @@ class PreviewPane(QWidget):
             pm = QPixmap()
             if pm.loadFromData(pv.data):
                 self._pixmap = pm
-                self.info.setText(f"Bild {pm.width()}×{pm.height()}, {fmt_size(pv.size)}")
+                self.info.setText(tr("Bild {0}×{1}, {2}", pm.width(), pm.height(), fmt_size(pv.size)))
                 self.stack.setCurrentWidget(self.image)
                 self._fit()
                 return
-            pv = Preview("binary", note="Bild nicht lesbar", size=pv.size)
+            pv = Preview("binary", note=tr("Bild nicht lesbar"), size=pv.size)
         self.stack.setCurrentWidget(self.text)
         if pv.kind in ("text", "binary"):
             self.text.setPlainText(pv.text)
-            more = f" – gekürzt, Datei hat {fmt_size(pv.size)}" if pv.truncated else ""
-            self.info.setText((pv.note or f"Text, {fmt_size(pv.size)}") + (more if pv.kind == "text" else ""))
+            more = tr(" – gekürzt, Datei hat {0}", fmt_size(pv.size)) if pv.truncated else ""
+            self.info.setText((pv.note or tr("Text, {0}", fmt_size(pv.size))) + (more if pv.kind == "text" else ""))
         elif pv.kind == "link":
-            self.text.setPlainText(pv.text); self.info.setText("Symbolischer Link auf:")
+            self.text.setPlainText(pv.text); self.info.setText(tr("Symbolischer Link auf:"))
         else:
-            self.text.clear(); self.info.setText(pv.note or "Keine Vorschau möglich.")
+            self.text.clear(); self.info.setText(pv.note or tr("Keine Vorschau möglich."))
 
     def _fit(self) -> None:
         if self._pixmap is not None:
@@ -132,20 +133,20 @@ class VersionsDialog(QDialog):
         super().__init__(parent)
         self.mgr, self.profile, self.path, self.archive = mgr, profile, path, archive
         self.result = None
-        self.setWindowTitle(f"Fassungen von {path}")
+        self.setWindowTitle(tr("Fassungen von {0}", path))
         self.resize(900, 560)
-        self.info = QLabel("Suche in allen Snapshots …"); self.info.setWordWrap(True)
+        self.info = QLabel(tr("Suche in allen Snapshots …")); self.info.setWordWrap(True)
         self.bar = QProgressBar(); self.bar.setRange(0, 0)
-        self.table = make_table(["Nr.", "Geändert", "Größe", "Snapshots", "Neuester Snapshot"])
+        self.table = make_table(["Nr.", tr("Geändert"), tr("Größe"), tr("Snapshots"), tr("Neuester Snapshot")])
         self.preview = PreviewPane()
-        self.btn_restore = QPushButton("Diese Fassung wiederherstellen …"); self.btn_restore.setEnabled(False)
-        close = QPushButton("Schließen")
+        self.btn_restore = QPushButton(tr("Diese Fassung wiederherstellen …")); self.btn_restore.setEnabled(False)
+        close = QPushButton(tr("Schließen"))
         split = QSplitter(Qt.Orientation.Vertical); split.addWidget(self.table); split.addWidget(self.preview)
         split.setSizes([260, 240])
         bot = QHBoxLayout(); bot.addWidget(self.btn_restore); bot.addStretch(); bot.addWidget(close)
         lay = QVBoxLayout(self); lay.addWidget(self.info); lay.addWidget(self.bar); lay.addWidget(split, 1); lay.addLayout(bot)
-        self.runner = Runner(self, lambda m: (self.info.setText(f"Fehler: {m}"), self.bar.setRange(0, 1)))
-        self.prev_runner = Runner(self, lambda m: self.preview.clear(f"Vorschau nicht möglich: {m}"))
+        self.runner = Runner(self, lambda m: (self.info.setText(tr("Fehler: {0}", m)), self.bar.setRange(0, 1)))
+        self.prev_runner = Runner(self, lambda m: self.preview.clear(tr("Vorschau nicht möglich: {0}", m)))
         close.clicked.connect(self.accept)
         self.btn_restore.clicked.connect(self._restore)
         self.table.itemSelectionChanged.connect(self._selected)
@@ -155,11 +156,10 @@ class VersionsDialog(QDialog):
         self.result = res
         self.bar.setRange(0, 1); self.bar.setValue(1)
         if not res.versions:
-            self.info.setText(f"{res.path} kommt in keinem der {res.checked} Snapshots vor.")
+            self.info.setText(tr("{0} kommt in keinem der {1} Snapshots vor.", res.path, res.checked))
             return
-        self.info.setText(f"{res.path} in {res.archive}: {len(res.versions)} Fassung(en) in {res.checked} Snapshots. "
-                          "Gleiche Größe und Änderungszeit gelten als dieselbe Fassung."
-                          + (f" {len(res.errors)} Snapshot(s) nicht lesbar." if res.errors else ""))
+        self.info.setText(tr("{0} in {1}: {2} Fassung(en) in {3} Snapshots. Gleiche Größe und Änderungszeit gelten als dieselbe Fassung.", res.path, res.archive, len(res.versions), res.checked)
+                          + (tr(" {0} Snapshot(s) nicht lesbar.", len(res.errors)) if res.errors else ""))
         fill_table(self.table, [[str(i + 1), v.entry.mtime or "-", fmt_size(v.entry.size or 0), str(len(v.snapshots)),
                                  fmt_time(v.newest.backup_time)] for i, v in enumerate(res.versions)])
         self.table.selectRow(0)
@@ -173,7 +173,7 @@ class VersionsDialog(QDialog):
         self.btn_restore.setEnabled(v is not None)
         if v is None:
             return
-        self.preview.clear("Lade Vorschau …")
+        self.preview.clear(tr("Lade Vorschau …"))
 
         def work(_l):
             with self.mgr.preview_session(self.profile, v.newest, self.result.archive) as ps:
@@ -184,14 +184,14 @@ class VersionsDialog(QDialog):
         v = self._current()
         if v is None or not self.result:
             return
-        target = QFileDialog.getExistingDirectory(self, "Zielordner (nichts wird überschrieben)", str(Path.home()))
+        target = QFileDialog.getExistingDirectory(self, tr("Zielordner (nichts wird überschrieben)"), str(Path.home()))
         if not target:
             return
         arch, path = self.result.archive, self.result.path
-        self.info.setText("Stelle wieder her …")
+        self.info.setText(tr("Stelle wieder her …"))
         self.runner.run(lambda _l: self.mgr.restore_files(self.profile, v.newest, arch, [path], target=target),
-                        lambda r: (self.info.setText(f"Fertig: {r.copied} Datei(en) nach {target}"),
-                                   QMessageBox.information(self, "Wiederhergestellt", f"{r.copied} Datei(en) nach\n{target}"
+                        lambda r: (self.info.setText(tr("Fertig: {0} Datei(en) nach {1}", r.copied, target)),
+                                   QMessageBox.information(self, tr("Wiederhergestellt"), tr("{0} Datei(en) nach\n{1}", r.copied, target)
                                                            + ("\n\nÜbersprungen: " + ", ".join(r.skipped) if r.skipped else ""))))
 
 
@@ -201,21 +201,21 @@ class SearchAllDialog(QDialog):
         super().__init__(parent)
         self.mgr, self.profile = mgr, profile
         self.result = None
-        self.setWindowTitle(f"Suche in allen Snapshots – {profile.name}")
+        self.setWindowTitle(tr("Suche in allen Snapshots – {0}", profile.name))
         self.resize(900, 520)
-        self.edit = QLineEdit(pattern); self.edit.setPlaceholderText("Name oder Muster (* und ?), Enter")
-        go = QPushButton("Suchen"); go.setObjectName("primary")
-        self.info = QLabel("Sucht in allen Snapshots, auch nach gelöschten Dateien. Der erste Durchlauf lädt die Dateilisten und dauert länger.")
+        self.edit = QLineEdit(pattern); self.edit.setPlaceholderText(tr("Name oder Muster (* und ?), Enter"))
+        go = QPushButton(tr("Suchen")); go.setObjectName("primary")
+        self.info = QLabel(tr("Sucht in allen Snapshots, auch nach gelöschten Dateien. Der erste Durchlauf lädt die Dateilisten und dauert länger."))
         self.info.setWordWrap(True)
         self.bar = QProgressBar(); self.bar.setRange(0, 1); self.bar.setValue(1)
-        self.table = make_table(["Pfad", "Archiv", "Snapshots", "Fassungen", "Zuletzt gesehen", "Im neuesten"], stretch_last=False)
+        self.table = make_table([tr("Pfad"), tr("Archiv"), tr("Snapshots"), tr("Fassungen"), tr("Zuletzt gesehen"), tr("Im neuesten")], stretch_last=False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.btn_versions = QPushButton("Fassungen …"); self.btn_versions.setEnabled(False)
-        close = QPushButton("Schließen")
+        self.btn_versions = QPushButton(tr("Fassungen …")); self.btn_versions.setEnabled(False)
+        close = QPushButton(tr("Schließen"))
         top = QHBoxLayout(); top.addWidget(self.edit, 1); top.addWidget(go)
         bot = QHBoxLayout(); bot.addWidget(self.btn_versions); bot.addStretch(); bot.addWidget(close)
         lay = QVBoxLayout(self); lay.addLayout(top); lay.addWidget(self.info); lay.addWidget(self.bar); lay.addWidget(self.table, 1); lay.addLayout(bot)
-        self.runner = Runner(self, lambda m: (self.info.setText(f"Fehler: {m}"), self.bar.setRange(0, 1)))
+        self.runner = Runner(self, lambda m: (self.info.setText(tr("Fehler: {0}", m)), self.bar.setRange(0, 1)))
         go.clicked.connect(self.search); self.edit.returnPressed.connect(self.search)
         close.clicked.connect(self.accept)
         self.btn_versions.clicked.connect(self._versions)
@@ -228,17 +228,17 @@ class SearchAllDialog(QDialog):
         text = self.edit.text().strip()
         if not text:
             return
-        self.info.setText("Suche …"); self.bar.setRange(0, 0)
+        self.info.setText(tr("Suche …")); self.bar.setRange(0, 0)
         self.table.setRowCount(0)
         self.runner.run(lambda _l: self.mgr.search_all(self.profile, text), self._done)
 
     def _done(self, res) -> None:
         self.result = res
         self.bar.setRange(0, 1); self.bar.setValue(1)
-        self.info.setText(f"{len(res.hits)} Treffer in {res.checked} Snapshots" + (" (Anzeige begrenzt)" if res.truncated else "")
-                          + (f" – {len(res.errors)} Snapshot(s) nicht lesbar" if res.errors else ""))
+        self.info.setText(tr("{0} Treffer in {1} Snapshots", len(res.hits), res.checked) + (tr(" (Anzeige begrenzt)") if res.truncated else "")
+                          + (tr(" – {0} Snapshot(s) nicht lesbar", len(res.errors)) if res.errors else ""))
         fill_table(self.table, [[h.path + ("/" if h.kind == "d" else ""), h.archive, str(len(h.snapshots)), str(h.versions),
-                                 fmt_time(h.snapshots[0].backup_time), "ja" if h.in_newest else "nein (gelöscht)"] for h in res.hits])
+                                 fmt_time(h.snapshots[0].backup_time), tr("ja") if h.in_newest else tr("nein (gelöscht)")] for h in res.hits])
 
     def _hit(self):
         rows = self.table.selectionModel().selectedRows()
@@ -255,39 +255,39 @@ class DiffDialog(QDialog):
     def __init__(self, mgr: ProfileManager, profile: Profile, snapshots: list[Snapshot], new_index: int, parent=None):
         super().__init__(parent)
         self.mgr, self.profile, self.snaps = mgr, profile, snapshots
-        self.setWindowTitle(f"Snapshots vergleichen – {profile.name}")
+        self.setWindowTitle(tr("Snapshots vergleichen – {0}", profile.name))
         self.resize(900, 560)
         labels = [fmt_time(s.backup_time) for s in snapshots]
         self.old = QComboBox(); self.old.addItems(labels)
         self.new = QComboBox(); self.new.addItems(labels)
         self.new.setCurrentIndex(new_index)
         self.old.setCurrentIndex(min(new_index + 1, len(snapshots) - 1))        # Snapshots sind neueste zuerst
-        go = QPushButton("Vergleichen"); go.setObjectName("primary")
+        go = QPushButton(tr("Vergleichen")); go.setObjectName("primary")
         self.info = QLabel(""); self.info.setWordWrap(True)
-        self.table = make_table(["", "Pfad", "Archiv", "Dateien", "Größe"], stretch_last=False)
+        self.table = make_table(["", tr("Pfad"), tr("Archiv"), tr("Dateien"), tr("Größe")], stretch_last=False)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        close = QPushButton("Schließen")
+        close = QPushButton(tr("Schließen"))
         top = QHBoxLayout()
-        for w in (QLabel("Älter:"), self.old, QLabel("Neuer:"), self.new, go):
+        for w in (QLabel(tr("Älter:")), self.old, QLabel(tr("Neuer:")), self.new, go):
             top.addWidget(w)
         top.addStretch()
         bot = QHBoxLayout(); bot.addStretch(); bot.addWidget(close)
         lay = QVBoxLayout(self); lay.addLayout(top); lay.addWidget(self.info); lay.addWidget(self.table, 1); lay.addLayout(bot)
-        self.runner = Runner(self, lambda m: self.info.setText(f"Fehler: {m}"))
+        self.runner = Runner(self, lambda m: self.info.setText(tr("Fehler: {0}", m)))
         go.clicked.connect(self.compare); close.clicked.connect(self.accept)
         if len(snapshots) >= 2 and self.old.currentIndex() != self.new.currentIndex():
             QTimer.singleShot(0, self.compare)
         else:
-            self.info.setText("Zum Vergleichen werden mindestens zwei Snapshots gebraucht.")
+            self.info.setText(tr("Zum Vergleichen werden mindestens zwei Snapshots gebraucht."))
 
     def compare(self) -> None:
         a, b = self.snaps[self.old.currentIndex()], self.snaps[self.new.currentIndex()]
         if a is b:
-            self.info.setText("Bitte zwei verschiedene Snapshots wählen.")
+            self.info.setText(tr("Bitte zwei verschiedene Snapshots wählen."))
             return
         if a.backup_time > b.backup_time:
             a, b = b, a
-        self.info.setText("Vergleiche …")
+        self.info.setText(tr("Vergleiche …"))
         self.runner.run(lambda _l: self.mgr.diff(self.profile, a, b), self._done)
 
     def _done(self, results) -> None:
@@ -308,8 +308,8 @@ class DiffDialog(QDialog):
         for i, c in enumerate(colors):
             for j in range(self.table.columnCount()):
                 self.table.item(i, j).setForeground(QBrush(theme_color(c)))
-        self.info.setText(f"{total['added']} neu, {total['changed']} geändert, {total['removed']} gelöscht"
-                          + (" (Anzeige auf 2000 Zeilen begrenzt)" if len(rows) >= 2000 else ""))
+        self.info.setText(tr("{0} neu, {1} geändert, {2} gelöscht", total['added'], total['changed'], total['removed'])
+                          + (tr(" (Anzeige auf 2000 Zeilen begrenzt)") if len(rows) >= 2000 else ""))
 
 
 # -- Restore-Test ------------------------------------------------------------------------------------------------
@@ -317,18 +317,17 @@ class RestoreTestDialog(QDialog):
     def __init__(self, mgr: ProfileManager, profile: Profile, snapshot: Snapshot, parent=None):
         super().__init__(parent)
         self.mgr, self.profile, self.snapshot = mgr, profile, snapshot
-        self.setWindowTitle(f"Restore-Test – {snapshot.path}")
+        self.setWindowTitle(tr("Restore-Test – {0}", snapshot.path))
         self.resize(760, 460)
         self.archive = QComboBox(); self.archive.addItems([a for a in snapshot.archives if a != "recovery.pxar"])
         self.count = QSpinBox(); self.count.setRange(1, 50); self.count.setValue(5)
-        self.go = QPushButton("Test starten"); self.go.setObjectName("primary")
-        self.info = QLabel("Holt zufällige Dateien aus dem Snapshot in einen Wegwerf-Ordner und prüft sie: lesbar, Größe, und "
-                           "SHA-256 gegen das Original, sofern dieses unverändert ist."); self.info.setWordWrap(True)
+        self.go = QPushButton(tr("Test starten")); self.go.setObjectName("primary")
+        self.info = QLabel(tr("Holt zufällige Dateien aus dem Snapshot in einen Wegwerf-Ordner und prüft sie: lesbar, Größe, und SHA-256 gegen das Original, sofern dieses unverändert ist.")); self.info.setWordWrap(True)
         self.bar = QProgressBar(); self.bar.setRange(0, 1); self.bar.setValue(0)
         self.out = QPlainTextEdit(); self.out.setReadOnly(True)
-        close = QPushButton("Schließen")
+        close = QPushButton(tr("Schließen"))
         top = QHBoxLayout()
-        for w in (QLabel("Archiv:"), self.archive, QLabel("Dateien:"), self.count, self.go):
+        for w in (QLabel(tr("Archiv:")), self.archive, QLabel(tr("Dateien:")), self.count, self.go):
             top.addWidget(w)
         top.addStretch()
         bot = QHBoxLayout(); bot.addStretch(); bot.addWidget(close)
@@ -338,15 +337,15 @@ class RestoreTestDialog(QDialog):
         self.result = None
         self.go.setEnabled(self.archive.count() > 0)
         if not self.archive.count():
-            self.info.setText("Dieser Snapshot enthält keine Datei-Archive.")
+            self.info.setText(tr("Dieser Snapshot enthält keine Datei-Archive."))
 
     def _failed(self, m: str) -> None:
         self.bar.setRange(0, 1); self.go.setEnabled(True)
-        self.info.setText(f"Fehler: {m}")
+        self.info.setText(tr("Fehler: {0}", m))
 
     def start(self) -> None:
         self.go.setEnabled(False); self.bar.setRange(0, 0); self.out.clear()
-        self.info.setText("Teste …")
+        self.info.setText(tr("Teste …"))
         archive, count = self.archive.currentText(), self.count.value()
         self.runner.run(lambda line: self.mgr.run_restore_test(self.profile, self.snapshot, archive, count), self._done)
 
@@ -368,15 +367,15 @@ class DashboardTab(QWidget):
         self.mgr = mgr
         self._loaded_at = 0.0
         self.ovs = []
-        refresh = QPushButton("Aktualisieren"); refresh.clicked.connect(self.refresh)
-        self.info = QLabel("Status aller Profile. Doppelklick wählt ein Profil."); self.info.setObjectName("muted")
+        refresh = QPushButton(tr("Aktualisieren")); refresh.clicked.connect(self.refresh)
+        self.info = QLabel(tr("Status aller Profile. Doppelklick wählt ein Profil.")); self.info.setObjectName("muted")
         self.table = make_table(OVERVIEW_HEADER)
         self.details = QPlainTextEdit(); self.details.setReadOnly(True); self.details.setMaximumHeight(170)
         self.usage_box = QVBoxLayout()
         top = QHBoxLayout(); top.addWidget(refresh); top.addWidget(self.info, 1)
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 10, 0, 0)
         lay.addLayout(top); lay.addWidget(self.table, 1); lay.addLayout(self.usage_box); lay.addWidget(self.details)
-        self.runner = Runner(self, lambda m: self.info.setText(f"Fehler: {m}"))
+        self.runner = Runner(self, lambda m: self.info.setText(tr("Fehler: {0}", m)))
         self.table.itemDoubleClicked.connect(lambda i: self._choose(i.row()))
 
     def _choose(self, row: int) -> None:
@@ -389,7 +388,7 @@ class DashboardTab(QWidget):
             self.refresh()
 
     def refresh(self) -> None:
-        self.info.setText("Lade …")
+        self.info.setText(tr("Lade …"))
         self._loaded_at = time.time()
 
         def work(_l):
@@ -420,16 +419,16 @@ class DashboardTab(QWidget):
             label = QLabel(usage_text(p, u)); label.setWordWrap(True)
             self.usage_box.addWidget(label)
             if u:
-                bar = QProgressBar(); bar.setRange(0, 100); bar.setValue(int(u.percent)); bar.setFormat(f"{u.percent:.0f} % belegt")
+                bar = QProgressBar(); bar.setRange(0, 100); bar.setValue(int(u.percent)); bar.setFormat(tr("{0:.0f} % belegt", u.percent))
                 self.usage_box.addWidget(bar)
         lines = []
         for o in self.ovs:
             lines += overview_details(o)
             t = tests.get(o.profile.slug)
-            lines.append(f"{o.profile.name}: " + (f"letzter Restore-Test {fmt_time(t['time'])}: {t['summary']}" if t
-                                                   else "noch kein Restore-Test (Snapshots → „Restore-Test …“)"))
+            lines.append(f"{o.profile.name}: " + (tr("letzter Restore-Test {0}: {1}", fmt_time(t['time']), t['summary']) if t
+                                                   else tr("noch kein Restore-Test (Snapshots → „Restore-Test …“)")))
         self.details.setPlainText("\n".join(lines))
-        self.info.setText(f"Stand {time.strftime('%H:%M:%S')} – Doppelklick wählt ein Profil.")
+        self.info.setText(tr("Stand {0} – Doppelklick wählt ein Profil.", time.strftime('%H:%M:%S')))
 
 
 # -- Verlauf -------------------------------------------------------------------------------------------------------
@@ -440,11 +439,11 @@ class HistoryTab(QWidget):
         self.runs: list[RunRecord] = []
         self.names: dict[str, str] = {}
         self.profile_box = QComboBox()
-        self.text = QLineEdit(); self.text.setPlaceholderText("Text in Meldung oder Ausgabe suchen …")
-        self.failed = QCheckBox("Nur Fehler")
-        self.period = QComboBox(); self.period.addItems(["Alle", "7 Tage", "30 Tage"])
-        refresh = QPushButton("Aktualisieren")
-        self.table = make_table(["Start", "Profil", "Ergebnis", "Dauer", "Meldung"])
+        self.text = QLineEdit(); self.text.setPlaceholderText(tr("Text in Meldung oder Ausgabe suchen …"))
+        self.failed = QCheckBox(tr("Nur Fehler"))
+        self.period = QComboBox(); self.period.addItems([tr("Alle"), tr("7 Tage"), tr("30 Tage")])
+        refresh = QPushButton(tr("Aktualisieren"))
+        self.table = make_table(["Start", tr("Profil"), tr("Ergebnis"), tr("Dauer"), tr("Meldung")])
         self.log = QPlainTextEdit(); self.log.setReadOnly(True)
         mono = QFont("monospace"); mono.setStyleHint(QFont.StyleHint.Monospace); self.log.setFont(mono)
         self.info = QLabel(""); self.info.setObjectName("muted")
@@ -455,7 +454,7 @@ class HistoryTab(QWidget):
         split = QSplitter(Qt.Orientation.Vertical); split.addWidget(self.table); split.addWidget(self.log); split.setSizes([260, 260])
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 10, 0, 0)
         lay.addLayout(top); lay.addWidget(self.info); lay.addWidget(split, 1)
-        self.runner = Runner(self, lambda m: self.info.setText(f"Fehler: {m}"))
+        self.runner = Runner(self, lambda m: self.info.setText(tr("Fehler: {0}", m)))
         refresh.clicked.connect(self.refresh)
         self.text.returnPressed.connect(self.refresh)
         self.failed.toggled.connect(self.refresh)
@@ -468,7 +467,7 @@ class HistoryTab(QWidget):
         self.profile_box.blockSignals(True)
         cur = select or self.profile_box.currentText()
         self.profile_box.clear()
-        self.profile_box.addItem("Alle Profile")
+        self.profile_box.addItem(tr("Alle Profile"))
         profiles = self.mgr.profiles()
         self.names = {p.slug: p.name for p in profiles}
         self.profile_box.addItems([p.name for p in profiles])
@@ -477,7 +476,7 @@ class HistoryTab(QWidget):
         self.profile_box.blockSignals(False)
 
     def show_profile(self, name: str | None) -> None:
-        self._reload_profiles(name or "Alle Profile")
+        self._reload_profiles(name or tr("Alle Profile"))
         self.refresh()
 
     def showEvent(self, ev) -> None:
@@ -490,19 +489,19 @@ class HistoryTab(QWidget):
         days = {1: 7, 2: 30}.get(self.period.currentIndex())
         since = time.time() - days * 86400 if days else None
         kw = dict(failed_only=self.failed.isChecked(), text=self.text.text().strip(), since=since, limit=200, with_log=True)
-        self.info.setText("Lade …")
+        self.info.setText(tr("Lade …"))
         self.runner.run(lambda _l: self.mgr.history(prof, **kw), self._show)
 
     def _show(self, runs) -> None:
         self.runs = runs
-        fill_table(self.table, [[fmt_time(r.start), self.names.get(r.profile, r.profile), "OK" if r.ok else "FEHLER",
+        fill_table(self.table, [[fmt_time(r.start), self.names.get(r.profile, r.profile), "OK" if r.ok else tr("FEHLER"),
                                  fmt_duration(r.duration) + (" (data)" if r.mode == "data" else ""), r.message] for r in runs])
         for i, r in enumerate(runs):
             if not r.ok:
                 for j in range(self.table.columnCount()):
                     self.table.item(i, j).setForeground(QBrush(theme_color("danger")))
         self.log.clear()
-        self.info.setText(f"{len(runs)} Läufe" + (" (die neuesten 200)" if len(runs) >= 200 else ""))
+        self.info.setText(tr("{0} Läufe", len(runs)) + (tr(" (die neuesten 200)") if len(runs) >= 200 else ""))
         if runs:
             self.table.selectRow(0)
 

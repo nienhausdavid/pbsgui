@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from ..i18n import tr
 from ..core.paths import Paths
 from ..core.runner import run_profile
 from ..core.secrets import best_store
@@ -14,13 +15,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="pbsgui-run")
     ap.add_argument("profile")
     ap.add_argument("--scope", choices=["user", "system"], default="user")
-    ap.add_argument("--mode", choices=["data"], help="data: alles neu lesen (wöchentlicher Prüflauf)")
+    ap.add_argument("--mode", choices=["data"], help=tr("data: alles neu lesen (wöchentlicher Prüflauf)"))
     args = ap.parse_args(argv)
     paths = Paths.for_scope(args.scope)
     try:
         profile = ProfileStore(paths.profiles).load(args.profile)
     except (OSError, ValueError):
-        print(f"Profil nicht gefunden: {args.profile}", file=sys.stderr)
+        print(tr("Profil nicht gefunden: {0}", args.profile), file=sys.stderr)
         return 1
     return run_profile(profile, paths, best_store(args.scope, paths.creds), on_line=lambda l: print(l, flush=True),
                        mode=args.mode)

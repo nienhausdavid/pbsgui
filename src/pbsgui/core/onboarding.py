@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import socket
 
+from ..i18n import tr
 from .client import PbsClient
 from .models import Profile
 from .pbs_api import ApiError, PbsApi, ProvisionResult
@@ -20,12 +21,11 @@ def namespace_state(known: list[str] | None, ns: str) -> str:
 
 def namespace_message(state: str, weg_a: bool) -> str:
     return {
-        "root": "Wurzel des Datastores (kein eigener Namespace).",
-        "exists": "✔ Namespace existiert.",
-        "unknown": "Namespace noch nicht geprüft (erst Verbindung prüfen und Datastore wählen).",
-        "new": ("ℹ Namespace existiert nicht und wird beim Einrichten neu angelegt." if weg_a else
-                "⚠ Namespace existiert nicht. Mit Weg B nicht anlegbar: bitte zuerst in PBS anlegen "
-                "oder Weg A verwenden."),
+        "root": tr("Wurzel des Datastores (kein eigener Namespace)."),
+        "exists": tr("✔ Namespace existiert."),
+        "unknown": tr("Namespace noch nicht geprüft (erst Verbindung prüfen und Datastore wählen)."),
+        "new": (tr("ℹ Namespace existiert nicht und wird beim Einrichten neu angelegt.") if weg_a else
+                tr("⚠ Namespace existiert nicht. Mit Weg B nicht anlegbar: bitte zuerst in PBS anlegen oder Weg A verwenden.")),
     }[state]
 
 
@@ -50,8 +50,7 @@ def provision_and_verify(api: PbsApi, host: str, port: int, fingerprint: str, da
     res = api.provision(datastore, hostname or socket.gethostname(), namespace, replace_token=replace_token)
     check = connect_token(host, port, fingerprint, res.auth_id, res.secret)
     if not check.wait_for_backup_permission(datastore, namespace):
-        raise ApiError("Zugang wurde angelegt, die Rechte sind auf dem Server aber nach 30 s noch nicht wirksam. "
-                       "Bitte in PBS prüfen und es später erneut versuchen.")
+        raise ApiError(tr("Zugang wurde angelegt, die Rechte sind auf dem Server aber nach 30 s noch nicht wirksam. Bitte in PBS prüfen und es später erneut versuchen."))
     return res
 
 

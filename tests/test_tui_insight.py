@@ -186,3 +186,16 @@ async def test_actions_need_snapshot(mgr, snaps):
             await pilot.press(key)
             await pilot.pause()
             assert pilot.app.screen.__class__.__name__ not in ("DiffScreen", "RestoreTestScreen")
+
+
+async def test_server_screen_changes_datastore(mgr, snaps):
+    from textual.widgets import Input
+    async with PbsTui(mgr).run_test(size=(150, 60)) as pilot:
+        await pilot.pause()
+        await pilot.press("i")
+        await pilot.pause()
+        scr = pilot.app.screen
+        scr.query_one("#srv-datastore", Input).value = "store9"
+        scr._save()
+        assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ != "ServerScreen")
+        assert mgr.profiles()[0].datastore == "store9"

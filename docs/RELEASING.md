@@ -19,7 +19,7 @@
 
 Versionsnummern nach [Semantic Versioning](https://semver.org/lang/de/): `MAJOR.MINOR.PATCH`. Einzige Quelle ist
 `version` in `pyproject.toml`; daraus entstehen `pbsgui --version`, die beiden `.deb` (`pbstui_<version>_all.deb`, `pbsgui_<version>_all.deb`) und die ISO
-(`pbsgui-rescue-<version>-amd64.iso`). Änderungen werden laufend in `CHANGELOG.md` unter `[Unreleased]` eingetragen.
+(`pbsgui-rescue-<version>-amd64.iso`). Änderungen werden laufend in `CHANGELOG.md` (deutsch) **und** `CHANGELOG.en.md` (englisch) unter `[Unreleased]` eingetragen; `scripts/release.sh` schreibt beide fort, die GitHub-Release-Notizen kommen aus `CHANGELOG.en.md`.
 
 ## Neue Version veröffentlichen
 

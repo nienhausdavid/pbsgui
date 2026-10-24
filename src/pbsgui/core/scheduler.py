@@ -6,6 +6,7 @@ import subprocess
 import sys
 from typing import Callable
 
+from ..i18n import tr
 from .models import Profile
 from .paths import Paths
 from .privilege import PrivilegeError, require_trusted_code
@@ -37,7 +38,7 @@ def unit_text(s: str) -> str:
 def check_calendar_text(expr: str) -> str:
     """OnCalendar-Ausdrücke bestehen nur aus druckbaren Zeichen ohne Zeilenumbruch; sonst Fehler."""
     if not expr or any(not ch.isprintable() for ch in expr) or "%" in expr:
-        raise SchedulerError("Ungültiger Zeitplan: Steuerzeichen oder % sind nicht erlaubt")
+        raise SchedulerError(tr("Ungültiger Zeitplan: Steuerzeichen oder % sind nicht erlaubt"))
     return expr.strip()
 
 
@@ -68,14 +69,14 @@ def render_timer(profile: Profile, data: bool = False) -> str:
 
 # Auswahl beim Anlegen eines Jobs: (Anzeigetext, OnCalendar-Ausdruck). "" = kein Zeitplan.
 SCHEDULE_PRESETS: list[tuple[str, str]] = [
-    ("Kein Zeitplan (nur manuell starten)", ""),
-    ("Stündlich", "hourly"),
-    ("Alle 4 Stunden (00, 04, 08 … Uhr)", "00/4:00"),
-    ("Alle 6 Stunden (00, 06, 12, 18 Uhr)", "00/6:00"),
-    ("Alle 8 Stunden (00, 08, 16 Uhr)", "00/8:00"),
-    ("Alle 12 Stunden (00, 12 Uhr)", "00/12:00"),
-    ("Täglich um 02:00 Uhr", "*-*-* 02:00:00"),
-    ("Wöchentlich, sonntags 03:00 Uhr", "Sun *-*-* 03:00:00"),
+    (tr("Kein Zeitplan (nur manuell starten)"), ""),
+    (tr("Stündlich"), "hourly"),
+    (tr("Alle 4 Stunden (00, 04, 08 … Uhr)"), "00/4:00"),
+    (tr("Alle 6 Stunden (00, 06, 12, 18 Uhr)"), "00/6:00"),
+    (tr("Alle 8 Stunden (00, 08, 16 Uhr)"), "00/8:00"),
+    (tr("Alle 12 Stunden (00, 12 Uhr)"), "00/12:00"),
+    (tr("Täglich um 02:00 Uhr"), "*-*-* 02:00:00"),
+    (tr("Wöchentlich, sonntags 03:00 Uhr"), "Sun *-*-* 03:00:00"),
 ]
 CUSTOM_SCHEDULE = "__custom__"
 
@@ -89,11 +90,11 @@ def _default_run(*args, **kwargs) -> subprocess.CompletedProcess:
 def validate_calendar(expr: str, run: Runner | None = None) -> str:
     """Prüft einen OnCalendar-Ausdruck mit systemd-analyze; liefert die Normalform."""
     if not expr.strip():
-        raise SchedulerError("Zeitplan ist leer")
+        raise SchedulerError(tr("Zeitplan ist leer"))
     check_calendar_text(expr)
     r = (run or _default_run)(["systemd-analyze", "calendar", expr], capture_output=True, text=True)
     if r.returncode != 0:
-        raise SchedulerError((r.stderr or r.stdout).strip() or "Ungültiger Zeitplan")
+        raise SchedulerError((r.stderr or r.stdout).strip() or tr("Ungültiger Zeitplan"))
     return r.stdout
 
 
@@ -116,7 +117,7 @@ class SystemdScheduler:
     def _ctl(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         r = self._run([*self.paths.systemctl, *args], capture_output=True, text=True)
         if check and r.returncode != 0:
-            raise SchedulerError((r.stderr or r.stdout).strip() or f"systemctl {args[0]} fehlgeschlagen")
+            raise SchedulerError((r.stderr or r.stdout).strip() or tr("systemctl {0} fehlgeschlagen", args[0]))
         return r
 
     def _write_units(self, profile: Profile, data: bool) -> str:
@@ -180,4 +181,4 @@ def linger_enabled() -> bool:
 def enable_linger() -> None:
     r = subprocess.run(["loginctl", "enable-linger", getpass.getuser()], capture_output=True, text=True)
     if r.returncode != 0:
-        raise SchedulerError(r.stderr.strip() or "enable-linger fehlgeschlagen")
+        raise SchedulerError(r.stderr.strip() or tr("enable-linger fehlgeschlagen"))

@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
+from ..i18n import tr
 
 HOME = "home"
 FULL = "full"
@@ -44,7 +45,7 @@ class MountInfo:
 
     @property
     def kind(self) -> str:
-        return "Bind-Mount (Duplikat)" if self.bind else ("USB-Laufwerk" if self.usb else "internes Laufwerk")
+        return tr("Bind-Mount (Duplikat)") if self.bind else ("USB-Laufwerk" if self.usb else tr("internes Laufwerk"))
 
 
 def _unescape(path: str) -> str:
@@ -129,4 +130,4 @@ def mount_choices(selected: list[str] | None, detected: list[MountInfo] | None =
 
 
 def describe(mode: str) -> str:
-    return "Vollständiges System (Dateiebene)" if mode == FULL else "Nur das eigene Home-Verzeichnis"
+    return tr("Vollständiges System (Dateiebene)") if mode == FULL else tr("Nur das eigene Home-Verzeichnis")

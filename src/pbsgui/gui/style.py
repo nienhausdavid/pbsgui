@@ -12,9 +12,10 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QSettings, Qt
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QApplication
+from ..i18n import tr
 
 MODES = ("system", "light", "dark")
-MODE_LABELS = {"system": "System", "light": "Hell", "dark": "Dunkel"}
+MODE_LABELS = {"system": tr("System"), "light": tr("Hell"), "dark": tr("Dunkel")}
 
 THEMES = {
     "light": {

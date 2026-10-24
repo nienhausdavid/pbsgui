@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
+from ..i18n import tr
 from .history import RunRecord, list_runs
 from .models import Profile, Snapshot
 from .paths import Paths
@@ -87,11 +88,11 @@ def build_overview(profile: Profile, snapshots: list[Snapshot] | None, paths_lis
         ov.growth_30d = _growth(snaps, 30)
     if profile.schedule and ov.last_backup is not None and now - ov.last_backup > STALE_AFTER:
         ov.overdue = True
-        ov.warnings.append(f"Letztes Backup vor {int((now - ov.last_backup) // DAY)} Tagen, obwohl ein Zeitplan eingerichtet ist")
+        ov.warnings.append(tr("Letztes Backup vor {0} Tagen, obwohl ein Zeitplan eingerichtet ist", int((now - ov.last_backup) // DAY)))
     if ov.failed_since_success:
-        ov.warnings.append(f"{ov.failed_since_success} Läufe seit dem letzten Erfolg fehlgeschlagen")
+        ov.warnings.append(tr("{0} Läufe seit dem letzten Erfolg fehlgeschlagen", ov.failed_since_success))
     if profile.encrypt and not profile.keyfile and not profile.key_exported_at:
-        ov.warnings.append("Schlüssel noch nicht gesichert")
+        ov.warnings.append(tr("Schlüssel noch nicht gesichert"))
     return ov
 
 

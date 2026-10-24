@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
+from ..i18n import tr
 
 MIB = 2 ** 20
 GIB = 2 ** 30
@@ -94,7 +95,7 @@ def _tokens(text: str) -> list:
             break
         m = _TOKEN.match(text, pos)
         if not m:
-            raise _err("LVM-Metadaten nicht lesbar")
+            raise _err(tr("LVM-Metadaten nicht lesbar"))
         pos = m.end()
         comment, string, num, ident, punct = m.groups()
         if comment:
@@ -142,7 +143,7 @@ def parse_lvm(text: str) -> dict:
                 pos[0] += 1
                 d[v] = block(False)
             else:
-                raise _err("LVM-Metadaten nicht lesbar")
+                raise _err(tr("LVM-Metadaten nicht lesbar"))
         return d
     return block(True)
 
@@ -177,12 +178,11 @@ class VgGeometry:
 def read_vg(text: str, vg: str) -> VgGeometry:
     data = parse_lvm(text)
     if vg not in data or not isinstance(data[vg], dict):
-        raise _err(f"Volume Group {vg} fehlt in den LVM-Metadaten")
+        raise _err(tr("Volume Group {0} fehlt in den LVM-Metadaten", vg))
     v = data[vg]
     pvs = v.get("physical_volumes") or {}
     if len(pvs) != 1:
-        raise _err(f"Volume Group {vg} erstreckt sich über mehrere Platten: 'Größe anpassen' unterstützt nur "
-                   "Volume Groups mit einem einzigen Physical Volume")
+        raise _err(tr("Volume Group {0} erstreckt sich über mehrere Platten: 'Größe anpassen' unterstützt nur Volume Groups mit einem einzigen Physical Volume", vg))
     pv = next(iter(pvs.values()))
     ext = int(v["extent_size"]) * 512
     lvs: dict[str, int] = {}
@@ -190,8 +190,7 @@ def read_vg(text: str, vg: str) -> VgGeometry:
         seg = lv.get("segment1") if isinstance(lv, dict) else None
         if int(lv.get("segment_count", 0)) != 1 or not seg or seg.get("type") != "striped" \
                 or int(seg.get("stripe_count", 1)) != 1:
-            raise _err(f"Logical Volume {vg}/{name} ist nicht linear (Thin-Pool, Snapshot, RAID …): "
-                       "'Größe anpassen' unterstützt nur einfache LVs")
+            raise _err(tr("Logical Volume {0}/{1} ist nicht linear (Thin-Pool, Snapshot, RAID …): 'Größe anpassen' unterstützt nur einfache LVs", vg, name))
         lvs[name] = int(seg["extent_count"]) * ext
     return VgGeometry(vg, ext, int(pv["pe_start"]) * 512, int(pv["pe_count"]), int(pv["dev_size"]) * 512, lvs, data)
 
@@ -213,7 +212,7 @@ def rewrite_vg(geo: VgGeometry, new_dev_size: int, new_lvs: dict[str, int]) -> s
         seg["stripes"] = [pv_name, pos]
         pos += n
     if pos > pe_count:
-        raise _err(f"Interner Fehler: LVs ({pos} Extents) passen nicht in das Physical Volume ({pe_count})")
+        raise _err(tr("Interner Fehler: LVs ({0} Extents) passen nicht in das Physical Volume ({1})", pos, pe_count))
     return dump_lvm(geo.data)
 
 
@@ -228,7 +227,7 @@ class Resize:
     note: str = ""  # "fest", "Minimum", "Swap" …
 
     def line(self) -> str:
-        arrow = "unverändert" if self.old == self.new else f"{fmt(self.old)} -> {fmt(self.new)}"
+        arrow = tr("unverändert") if self.old == self.new else f"{fmt(self.old)} -> {fmt(self.new)}"
         note = f"  [{self.note}]" if self.note else ""
         return f"{self.name:<16} {self.desc:<18} {arrow}{note}"
 
@@ -253,7 +252,7 @@ def _parse_dump(dump: str):
             f = m.group(2)
             start, size = re.search(r"start=\s*(\d+)", f), re.search(r"size=\s*(\d+)", f)
             if not start or not size:
-                raise _err(f"Partitionszeile nicht lesbar: {line}")
+                raise _err(tr("Partitionszeile nicht lesbar: {0}", line))
             tm = re.search(r"type=([0-9A-Fa-f-]+)", f)
             parts.append({"path": m.group(1), "fields": f, "start": int(start.group(1)), "size": int(size.group(1)),
                           "type": (tm.group(1).lower() if tm else "")})
@@ -280,7 +279,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
         if m:
             ss = int(m.group(1))
     if any(p["type"] in ("5", "f", "85") for p in parts):
-        raise _err("Erweiterte MBR-Partitionen werden bei 'Größe anpassen' nicht unterstützt")
+        raise _err(tr("Erweiterte MBR-Partitionen werden bei 'Größe anpassen' nicht unterstützt"))
     unit = ALIGN_SECTORS * ss
     nodes = {_part_number(n.path): n for n in src.children if n.type == "part"}
     for p in parts:
@@ -289,7 +288,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
         p["bytes"] = p["size"] * ss
     parts_sorted = sorted(parts, key=lambda p: p["start"])
     if not parts_sorted:
-        raise _err("Die Partitionstabelle enthält keine Partitionen")
+        raise _err(tr("Die Partitionstabelle enthält keine Partitionen"))
 
     # belegter Platz je Dateisystem
     def mp_of(n):
@@ -328,12 +327,11 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
             tot = sum(x.size for x in unknown) or 1
             for x in unknown:
                 used[x.path] = int(rest * x.size / tot)
-            res.warnings.append("Belegter Platz je Dateisystem unbekannt (Backup ohne fsusage.json): aus der "
-                                f"Snapshot-Größe ({fmt(snapshot_size)}) geschätzt")
+            res.warnings.append(tr("Belegter Platz je Dateisystem unbekannt (Backup ohne fsusage.json): aus der Snapshot-Größe ({0}) geschätzt", fmt(snapshot_size)))
         else:
             for x in unknown:
                 used[x.path] = 0
-            res.warnings.append("Belegter Platz unbekannt: nur das Minimum von 2 GiB je Dateisystem wird berücksichtigt")
+            res.warnings.append(tr("Belegter Platz unbekannt: nur das Minimum von 2 GiB je Dateisystem wird berücksichtigt"))
 
     # Größen der Partitionsinhalte
     lvm_info: dict[int, dict] = {}   # Partitionsnummer -> {geo, lvs: dict(neu), lv_min}
@@ -359,7 +357,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
             if lvm is not None:
                 vg, _ = rec.pvs.get(lvm.path, ("", ""))
                 if vg not in rec.vg_files:
-                    raise _err(f"LVM-Metadaten für {lvm.path} fehlen in den Wiederherstellungsdaten")
+                    raise _err(tr("LVM-Metadaten für {0} fehlen in den Wiederherstellungsdaten", lvm.path))
                 geo = read_vg(rec.vg_files[vg].read_text(), vg)
                 lv_nodes = {_lv_name(vg, x.name): x for x in lvm.walk() if x.type == "lvm"}
                 lv_items, fixed_lv = [], {}
@@ -392,9 +390,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
     except TooSmall as e:
         needed = first_start * ss + fixed_total + e.needed + GPT_BACKUP_SECTORS * ss + unit
         res.min_disk = needed
-        raise _err(f"Ziel-Platte zu klein, auch mit 'Größe anpassen': {fmt(target_size)} vorhanden, mindestens "
-                   f"{fmt(math.ceil(needed / GIB) * GIB)} nötig (belegter Platz plus 20 % Reserve, mindestens 2 GiB je "
-                   "Dateisystem; EFI, /boot und Swap-Minimum eingerechnet)") from None
+        raise _err(tr("Ziel-Platte zu klein, auch mit 'Größe anpassen': {0} vorhanden, mindestens {1} nötig (belegter Platz plus 20 % Reserve, mindestens 2 GiB je Dateisystem; EFI, /boot und Swap-Minimum eingerechnet)", fmt(target_size), fmt(math.ceil(needed / GIB) * GIB))) from None
     for num, size in new_sizes.items():
         plan_rows[num] = ("" if size == next(p["bytes"] for p in parts if p["num"] == num) else "angepasst", size)
 
@@ -426,7 +422,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
         try:
             new_lvs = dict(distribute(info["items"], pool, geo.extent)) if info["items"] else {}
         except TooSmall as e:
-            raise _err(f"Volume Group {geo.vg} ist zu klein ({fmt(pool)} für die LVs, mindestens {fmt(e.needed)})") from None
+            raise _err(tr("Volume Group {0} ist zu klein ({1} für die LVs, mindestens {2})", geo.vg, fmt(pool), fmt(e.needed))) from None
         new_lvs.update({k: v[0] for k, v in info["fixed"].items()})
         rows = []
         for name, old in geo.lvs.items():

@@ -158,7 +158,7 @@ $("loginform").onsubmit = async ev => {
   } catch (e) { msg("loginmsg", e.message, "bad"); }
 };
 function chips() {
-  const v = info.vpn || {}; const on = Object.entries(v).filter(([k, x]) => x && x !== "aus" && x !== "nicht verbunden" && x !== "nicht installiert").map(([k]) => k);
+  const v = info.vpn || {}; const on = Object.entries(v).filter(([k, x]) => x && x !== "aus" && x !== "off" && x !== "nicht verbunden" && x !== "not connected" && x !== "nicht installiert" && x !== "not installed").map(([k]) => k);
   $("chips").textContent = (info.root ? "root" : "ohne root (nur Trockenlauf)") + " · " + (info.uefi ? "UEFI" : "BIOS") + (on.length ? " · VPN: " + on.join(", ") : "");
 }
 $("logout").onclick = async () => { try { await api("/api/logout", {}); } catch (e) {} location.reload(); };

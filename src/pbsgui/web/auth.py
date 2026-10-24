@@ -19,6 +19,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+from ..i18n import tr
 
 WORDS_FILE = Path(__file__).with_name("words.txt")
 Clock = Callable[[], float]
@@ -28,7 +29,7 @@ Clock = Callable[[], float]
 def load_words() -> list[str]:
     words = [w.strip() for w in WORDS_FILE.read_text().splitlines() if w.strip() and not w.startswith("#")]
     if len(words) < 7000:
-        raise RuntimeError("Wortliste unvollständig")
+        raise RuntimeError(tr("Wortliste unvollständig"))
     return words
 
 
@@ -158,7 +159,7 @@ class Guard:
     def allow_request(self, key: str) -> bool:
         if self.requests.allow(key):
             return True
-        self.log("rate", key, "zu viele Anfragen")
+        self.log("rate", key, tr("zu viele Anfragen"))
         return False
 
     # -- Honeypot
@@ -170,7 +171,7 @@ class Guard:
             dur = self.honeypot_ban_seconds * min(8, 2 ** (lk.strikes - 1))
             self._bans[key] = self.clock() + dur
         self.log("honeypot", key, what)
-        self.log("ban", key, f"{dur / 3600:.0f} h gesperrt")
+        self.log("ban", key, tr("{0:.0f} h gesperrt", dur / 3600))
         return dur
 
     # -- Anmeldung
@@ -200,14 +201,14 @@ class Guard:
                 lk.strikes += 1
                 lk.until = now + self.lock_seconds * min(16, 2 ** (lk.strikes - 1))
                 q.clear()
-        self.log("login-fail", key, f"{gf} Fehlversuche insgesamt")
+        self.log("login-fail", key, tr("{0} Fehlversuche insgesamt", gf))
         if lock_now:
             self.log("lock", key, "gesperrt")
         if gf >= self.GLOBAL_FAIL_LIMIT and not self.shut_down:
             self.shut_down = True
-            self.log("shutdown", "-", "zu viele Fehlversuche: Web-Oberfläche abgeschaltet")
+            self.log("shutdown", "-", tr("zu viele Fehlversuche: Web-Oberfläche abgeschaltet"))
             if self.on_shutdown:
-                self.on_shutdown("zu viele Fehlversuche")
+                self.on_shutdown(tr("zu viele Fehlversuche"))
         return False, "wrong"
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from ..i18n import tr
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,7 @@ class Paths:
             return cls("system", Path("/etc/pbsgui"), Path("/etc/systemd/system"),
                        Path("/etc/pbsgui/creds"), Path("/var/lib/pbsgui"))
         if scope != "user":
-            raise ValueError(f"unbekannter Scope: {scope}")
+            raise ValueError(tr("unbekannter Scope: {0}", scope))
         home = Path.home()
         cfg = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
         state = Path(os.environ.get("XDG_STATE_HOME", home / ".local/state"))

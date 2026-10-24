@@ -34,8 +34,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           ver="${GITHUB_REF_NAME#v}"
-          awk -v v="$ver" '/^## \[/{p=($0 ~ "^## \\[" v "\\]")} p' CHANGELOG.md > notes.md
-          [ -s notes.md ] || { echo "CHANGELOG.md hat keinen Abschnitt für $ver" >&2; exit 1; }
+          log=CHANGELOG.en.md; [ -f "$log" ] || log=CHANGELOG.md      # Release-Notizen auf Englisch, sonst deutsch
+          awk -v v="$ver" '/^## \[/{p=($0 ~ "^## \\[" v "\\]")} p' "$log" > notes.md
+          [ -s notes.md ] || { echo "$log hat keinen Abschnitt für $ver" >&2; exit 1; }
           cat notes.md
       - name: GitHub-Release anlegen
         if: startsWith(github.ref, 'refs/tags/v')

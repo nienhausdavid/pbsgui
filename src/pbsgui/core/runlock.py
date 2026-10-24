@@ -11,6 +11,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator
+from ..i18n import tr
 
 WAIT_SECONDS = 4 * 3600   # so lange wartet ein Lauf maximal auf den vorherigen
 
@@ -34,14 +35,13 @@ def run_lock(path: Path, on_line: Callable[[str], None] = lambda _l: None, wait:
                 break
             except BlockingIOError:
                 if not told:
-                    on_line("Ein anderes Backup dieses Profils läuft noch, warte darauf …")
+                    on_line(tr("Ein anderes Backup dieses Profils läuft noch, warte darauf …"))
                     told = True
                 if time.monotonic() >= deadline:
-                    raise LockTimeout("Das vorherige Backup dieses Profils läuft seit über "
-                                      f"{wait / 3600:.0f} h noch; dieser Lauf wurde nicht gestartet.") from None
+                    raise LockTimeout(tr("Das vorherige Backup dieses Profils läuft seit über {0:.0f} h noch; dieser Lauf wurde nicht gestartet.", wait / 3600)) from None
                 time.sleep(poll)
         if told:
-            on_line("Weiter: das vorherige Backup ist fertig.")
+            on_line(tr("Weiter: das vorherige Backup ist fertig."))
         yield
     finally:
         os.close(fd)   # schließt auch die Sperre

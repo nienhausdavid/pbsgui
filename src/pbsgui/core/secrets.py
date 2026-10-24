@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from ..i18n import tr
 
 CRED_NAMES = ("token", "keypass", "key", "dbdump")  # feste Namen, auf die LoadCredential* in den Units zeigen
 
@@ -56,7 +57,7 @@ class SecretStore:
 
 
 class FileStore(SecretStore):
-    label = "Datei (0600, nicht verschlüsselt)"
+    label = tr("Datei (0600, nicht verschlüsselt)")
     suffix = ".secret"
 
     def put(self, profile_slug, kind, value):
@@ -83,7 +84,7 @@ class SystemdCredsStore(SecretStore):
     def __init__(self, directory: Path, user: bool):
         super().__init__(directory)
         self.user = user
-        self.label = "systemd-creds (verschlüsselt)" + (" [Benutzer]" if user else " [System]")
+        self.label = tr("systemd-creds (verschlüsselt)") + (" [Benutzer]" if user else " [System]")
 
     def _cmd(self, *args: str) -> list[str]:
         return ["systemd-creds", *(["--user"] if self.user else []), *args]
@@ -97,7 +98,7 @@ class SystemdCredsStore(SecretStore):
         r = subprocess.run(self._cmd("encrypt", "--with-key=host", f"--name={kind}", "-", str(p)), input=value.encode(),
                            capture_output=True)
         if r.returncode != 0:
-            raise SecretError(r.stderr.decode().strip() or "systemd-creds encrypt fehlgeschlagen")
+            raise SecretError(r.stderr.decode().strip() or tr("systemd-creds encrypt fehlgeschlagen"))
         os.chmod(p, 0o600)
 
     def get(self, profile_slug, kind):
@@ -106,7 +107,7 @@ class SystemdCredsStore(SecretStore):
             return None
         r = subprocess.run(self._cmd("decrypt", f"--name={kind}", str(p), "-"), capture_output=True)
         if r.returncode != 0:
-            raise SecretError(r.stderr.decode().strip() or "systemd-creds decrypt fehlgeschlagen")
+            raise SecretError(r.stderr.decode().strip() or tr("systemd-creds decrypt fehlgeschlagen"))
         return r.stdout.decode()
 
     def unit_directive(self, profile_slug, kind):

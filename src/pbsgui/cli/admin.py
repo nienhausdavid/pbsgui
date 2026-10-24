@@ -9,6 +9,7 @@ import json
 import os
 import sys
 
+from ..i18n import tr
 from ..core.models import Profile
 from ..core.paths import Paths
 from ..core.scheduler import SystemdScheduler
@@ -23,9 +24,9 @@ def apply(request: dict, paths: Paths | None = None, store=None, run=None) -> No
     secrets = request.get("secrets") or {}
     bad = [k for k in secrets if k not in CRED_NAMES]
     if bad:   # sonst könnte ein Name wie "../../x" als root beliebige Dateien anlegen
-        raise ValueError(f"Unbekannte Geheimnis-Art: {bad[0]!r}")
+        raise ValueError(tr("Unbekannte Geheimnis-Art: {0!r}", bad[0]))
     if request.get("schedule", "keep") not in ("install", "remove", "keep"):
-        raise ValueError("Unbekannte Zeitplan-Aktion")
+        raise ValueError(tr("Unbekannte Zeitplan-Aktion"))
     sched = SystemdScheduler(paths, store, **({"run": run} if run else {}))
     if request.get("delete"):
         sched.remove(profile)
@@ -45,7 +46,7 @@ def apply(request: dict, paths: Paths | None = None, store=None, run=None) -> No
 
 def main() -> int:
     if os.geteuid() != 0:
-        print("Muss als root laufen (pkexec).", file=sys.stderr)
+        print(tr("Muss als root laufen (pkexec)."), file=sys.stderr)
         return 1
     try:
         apply(json.load(sys.stdin))

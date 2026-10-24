@@ -9,6 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QWidget
+from ..i18n import tr
 
 EDGE = 6          # Breite des Greifbereichs zum Vergrößern in Pixeln
 
@@ -59,13 +60,13 @@ class TitleBar(QWidget):
         lay = QHBoxLayout(self); lay.setContentsMargins(12, 2, 4, 2); lay.setSpacing(2)
         self.title = QLabel(title); self.title.setObjectName("apptitle")
         lay.addWidget(self.title); lay.addStretch()
-        self.theme_btn = self._button("", "Farbmodus: System, Hell oder Dunkel")
+        self.theme_btn = self._button("", tr("Farbmodus: System, Hell oder Dunkel"))
         menu = QMenu(self)
         for key, label in modes.items():
             menu.addAction(label, lambda k=key: self.modeChosen.emit(k))
         self.theme_btn.setMenu(menu); self.theme_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.min_btn = self._button("min", "Minimieren"); self.max_btn = self._button("max", "Maximieren")
-        self.close_btn = self._button("close", "Schließen"); self.close_btn.setObjectName("tbtnClose")
+        self.min_btn = self._button("min", tr("Minimieren")); self.max_btn = self._button("max", tr("Maximieren"))
+        self.close_btn = self._button("close", tr("Schließen")); self.close_btn.setObjectName("tbtnClose")
         self.min_btn.clicked.connect(window.showMinimized)
         self.max_btn.clicked.connect(self.toggle_max)
         self.close_btn.clicked.connect(window.close)
@@ -85,7 +86,7 @@ class TitleBar(QWidget):
         col = QColor("#f1f5f9" if theme == "dark" else "#0f172a")
         self.min_btn.setIcon(_icon("min", col))
         self.max_btn.setIcon(_icon("restore" if self._win.isMaximized() else "max", col))
-        self.max_btn.setToolTip("Wiederherstellen" if self._win.isMaximized() else "Maximieren")
+        self.max_btn.setToolTip(tr("Wiederherstellen") if self._win.isMaximized() else tr("Maximieren"))
         self.close_btn.setIcon(_icon("close", col))
         self.theme_btn.setIcon(_icon({"system": "auto", "light": "sun", "dark": "moon"}[mode], col))
 

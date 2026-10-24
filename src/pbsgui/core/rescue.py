@@ -16,6 +16,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+from ..i18n import tr
 
 
 class RescueError(RuntimeError):
@@ -71,8 +72,7 @@ class RecoveryData:
         try:
             lsblk = json.loads((d / "lsblk.json").read_text())
         except (OSError, ValueError):
-            raise RescueError("lsblk.json fehlt oder ist ungültig: das Backup enthält keine Wiederherstellungsdaten "
-                              "(wurde es als Vollbackup mit pbsgui ≥ 0.2 erstellt?)") from None
+            raise RescueError(tr("lsblk.json fehlt oder ist ungültig: das Backup enthält keine Wiederherstellungsdaten (wurde es als Vollbackup mit pbsgui ≥ 0.2 erstellt?)")) from None
         disks = [Node.from_json(n) for n in lsblk.get("blockdevices", [])
                  if n.get("type") == "disk" or (source_disk and (n.get("kname") or n.get("name")) == source_disk)]
         manifest = json.loads((d / "MANIFEST.json").read_text()) if (d / "MANIFEST.json").exists() else {}
@@ -118,11 +118,11 @@ class RecoveryData:
             for disk in self.disks:
                 if disk.kname == self.source_disk:
                     return disk
-            raise RescueError(f"Quell-Platte {self.source_disk} nicht in den Wiederherstellungsdaten")
+            raise RescueError(tr("Quell-Platte {0} nicht in den Wiederherstellungsdaten", self.source_disk))
         for disk in self.disks:
             if any(self.real_mp(mp) == "/" for n in disk.walk() for mp in n.mountpoints):
                 return disk
-        raise RescueError("Keine Platte mit dem Root-Dateisystem (/) in den Wiederherstellungsdaten gefunden")
+        raise RescueError(tr("Keine Platte mit dem Root-Dateisystem (/) in den Wiederherstellungsdaten gefunden"))
 
 
 # -- Plan ----------------------------------------------------------------------------
@@ -156,7 +156,7 @@ def partition_path(disk: str, n: int) -> str:
 def _part_number(path: str) -> int:
     m = re.search(r"(\d+)$", path)
     if not m:
-        raise RescueError(f"Partitionsnummer nicht erkennbar: {path}")
+        raise RescueError(tr("Partitionsnummer nicht erkennbar: {0}", path))
     return int(m.group(1))
 
 
@@ -189,19 +189,19 @@ def _mkfs(node: Node, dev: str) -> Step | None:
         argv = ["mkswap", *(["-U", uuid] if uuid else []), *lab("-L", 15), dev]
     else:
         return None
-    return Step(f"Dateisystem {fs} anlegen auf {dev}" + (f" (UUID {uuid})" if uuid else ""), argv, destructive=True)
+    return Step(tr("Dateisystem {0} anlegen auf {1}", fs, dev) + (tr(" (UUID {0})", uuid) if uuid else ""), argv, destructive=True)
 
 
 def _luks_format(dev: str, name: str, new_passphrase: str, plan: "Plan") -> str:
     """Neuer LUKS2-Container mit frischer UUID; liefert die UUID (für crypttab)."""
     import uuid as _uuid
     luks_uuid = str(_uuid.uuid4())
-    plan.steps.append(Step(f"Neuen LUKS-Container auf {dev} anlegen (UUID {luks_uuid})",
+    plan.steps.append(Step(tr("Neuen LUKS-Container auf {0} anlegen (UUID {1})", dev, luks_uuid),
                            ["cryptsetup", "luksFormat", "--batch-mode", "--type", "luks2", "--uuid", luks_uuid,
                             "--key-file=-", dev], stdin=new_passphrase, destructive=True))
-    plan.steps.append(Step(f"LUKS {dev} öffnen als {name}",
+    plan.steps.append(Step(tr("LUKS {0} öffnen als {1}", dev, name),
                            ["cryptsetup", "open", "--type", "luks", "--key-file=-", dev, name], stdin=new_passphrase))
-    plan.cleanup.append(Step(f"LUKS {name} schließen",
+    plan.cleanup.append(Step(tr("LUKS {0} schließen", name),
                              ["sh", "-c", 'for i in 1 2 3 4 5; do cryptsetup close "$1" && exit 0; sleep 2; done; exit 5',
                               "luks-close", name], ok_codes=(0, 4, 5)))
     return luks_uuid
@@ -228,18 +228,16 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
     snapshot_size: Snapshot-Größe als Schätzung des belegten Platzes, falls das Backup keine fsusage.json enthält.
     """
     if encryption not in ENCRYPTION_MODES:
-        raise RescueError(f"Unbekannte Verschlüsselungs-Option: {encryption}")
+        raise RescueError(tr("Unbekannte Verschlüsselungs-Option: {0}", encryption))
     if encryption == "new" and not new_passphrase:
-        raise RescueError("Für die neue Verschlüsselung wird eine neue Passphrase benötigt")
+        raise RescueError(tr("Für die neue Verschlüsselung wird eine neue Passphrase benötigt"))
     src = rec.root_disk()
     smaller = target_size is not None and target_size < src.size
     if smaller and not shrink:
-        raise RescueError(f"Ziel-Platte zu klein: {target_size / 2**30:.1f} GiB, die Original-Platte hatte "
-                          f"{src.size / 2**30:.1f} GiB. Mit 'Größe anpassen' (--shrink) werden Partitionen und "
-                          "Volumes verkleinert, sofern die belegten Daten passen.")
+        raise RescueError(tr("Ziel-Platte zu klein: {0:.1f} GiB, die Original-Platte hatte {1:.1f} GiB. Mit 'Größe anpassen' (--shrink) werden Partitionen und Volumes verkleinert, sofern die belegten Daten passen.", target_size / 2**30, src.size / 2**30))
     dump = rec.sfdisk.get(src.kname)
     if not dump:
-        raise RescueError(f"Partitionstabelle der Platte {src.kname} fehlt in den Wiederherstellungsdaten")
+        raise RescueError(tr("Partitionstabelle der Platte {0} fehlt in den Wiederherstellungsdaten", src.kname))
     plan = Plan(mount_root=mount_root)
     vg_files = dict(rec.vg_files)
     if smaller:
@@ -254,14 +252,13 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
             for vg, text in sr.vg_texts.items():
                 vg_files[vg] = wd / f"lvm-{vg}.vg"
                 vg_files[vg].write_text(text)
-    plan.summary.append(f"Ziel-Platte {target_disk} wird komplett überschrieben (Original: {src.path}, "
-                        f"{src.size / 2**30:.1f} GiB)")
+    plan.summary.append(tr("Ziel-Platte {0} wird komplett überschrieben (Original: {1}, {2:.1f} GiB)", target_disk, src.path, src.size / 2**30))
     plan.steps += [
-        Step(f"Ziel-Platte {target_disk} leeren", ["wipefs", "-a", "-f", target_disk], destructive=True),
-        Step("Partitionstabelle anlegen", ["sfdisk", "--no-reread", target_disk], destructive=True,
+        Step(tr("Ziel-Platte {0} leeren", target_disk), ["wipefs", "-a", "-f", target_disk], destructive=True),
+        Step(tr("Partitionstabelle anlegen"), ["sfdisk", "--no-reread", target_disk], destructive=True,
              stdin=retarget_sfdisk(dump, src.path, target_disk)),
-        Step("Partitionen erkennen", ["partprobe", target_disk]),
-        Step("Auf Geräte warten", ["udevadm", "settle"]),
+        Step(tr("Partitionen erkennen"), ["partprobe", target_disk]),
+        Step(tr("Auf Geräte warten"), ["udevadm", "settle"]),
     ]
     fs_jobs: list[tuple[Node, str]] = []     # (Knoten, neues Gerät)
     vg_pvs: dict[str, list[str]] = {}
@@ -270,7 +267,7 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
         if node.fstype == "crypto_LUKS":
             child = next((c for c in node.children if c.type == "crypt"), None)
             if not child:
-                raise RescueError(f"Entschlüsselter Knoten zu {node.path} fehlt in den Wiederherstellungsdaten")
+                raise RescueError(tr("Entschlüsselter Knoten zu {0} fehlt in den Wiederherstellungsdaten", node.path))
             if encryption == "none":      # Inhalt direkt auf die Partition, alter crypttab-Eintrag entfällt
                 plan.crypttab[child.name] = None
                 visit(child, dev)
@@ -281,18 +278,16 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
                 return
             hdr = rec.luks_headers.get(node.kname)
             if not hdr:
-                raise RescueError(f"LUKS-Header von {node.path} fehlt im Backup (das Backup war unverschlüsselt). "
-                                  "Verschlüsselte Datenträger lassen sich nur mit dem gesicherten Header nachbauen "
-                                  "(oder mit der Option 'neu verschlüsseln' bzw. 'ohne Verschlüsselung').")
+                raise RescueError(tr("LUKS-Header von {0} fehlt im Backup (das Backup war unverschlüsselt). Verschlüsselte Datenträger lassen sich nur mit dem gesicherten Header nachbauen (oder mit der Option 'neu verschlüsseln' bzw. 'ohne Verschlüsselung').", node.path))
             if not passphrase:
-                raise RescueError("Für den LUKS-Datenträger wird die Passphrase benötigt")
-            plan.steps.append(Step(f"LUKS-Header auf {dev} wiederherstellen",
+                raise RescueError(tr("Für den LUKS-Datenträger wird die Passphrase benötigt"))
+            plan.steps.append(Step(tr("LUKS-Header auf {0} wiederherstellen", dev),
                                    ["cryptsetup", "luksHeaderRestore", "--batch-mode", dev,
                                     "--header-backup-file", str(hdr)], destructive=True))
-            plan.steps.append(Step(f"LUKS {dev} öffnen als {child.name}",
+            plan.steps.append(Step(tr("LUKS {0} öffnen als {1}", dev, child.name),
                                    ["cryptsetup", "open", "--type", "luks", "--key-file=-", dev, child.name],
                                    stdin=passphrase))
-            plan.cleanup.append(Step(f"LUKS {child.name} schließen",
+            plan.cleanup.append(Step(tr("LUKS {0} schließen", child.name),
                                      ["sh", "-c", 'for i in 1 2 3 4 5; do cryptsetup close "$1" && exit 0; sleep 2; done; exit 5',
                                       "luks-close", child.name], ok_codes=(0, 4, 5)))
             visit(child, f"/dev/mapper/{child.name}")
@@ -300,8 +295,8 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
         if node.fstype == "LVM2_member":
             vg, uuid = rec.pvs.get(node.path, ("", ""))
             if not vg or not uuid or vg not in vg_files:
-                raise RescueError(f"LVM-Metadaten für {node.path} fehlen in den Wiederherstellungsdaten")
-            plan.steps.append(Step(f"LVM-Volume {dev} anlegen (PV-UUID {uuid})",
+                raise RescueError(tr("LVM-Metadaten für {0} fehlen in den Wiederherstellungsdaten", node.path))
+            plan.steps.append(Step(tr("LVM-Volume {0} anlegen (PV-UUID {1})", dev, uuid),
                                    ["pvcreate", "-ff", "-y", "--uuid", uuid, "--restorefile", str(vg_files[vg]),
                                     dev], destructive=True))
             vg_pvs.setdefault(vg, []).append(dev)
@@ -321,26 +316,26 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
             name = f"{part.kname}_crypt"
             plan.crypttab[name] = _luks_format(pdev, name, new_passphrase or "", plan)
             plan.needs_cryptsetup = True
-            plan.summary.append(f"{pdev} wird neu mit LUKS verschlüsselt ({name})")
+            plan.summary.append(tr("{0} wird neu mit LUKS verschlüsselt ({1})", pdev, name))
             visit(part, f"/dev/mapper/{name}")
         else:
             visit(part, pdev)
 
     for vg in vg_pvs:
-        plan.steps.append(Step(f"Volume Group {vg} wiederherstellen",
+        plan.steps.append(Step(tr("Volume Group {0} wiederherstellen", vg),
                                ["vgcfgrestore", "-f", str(vg_files[vg]), "--force", vg], destructive=True))
-        plan.steps.append(Step(f"Volume Group {vg} aktivieren", ["vgchange", "-ay", vg]))
-        plan.cleanup.append(Step(f"Volume Group {vg} deaktivieren",
+        plan.steps.append(Step(tr("Volume Group {0} aktivieren", vg), ["vgchange", "-ay", vg]))
+        plan.cleanup.append(Step(tr("Volume Group {0} deaktivieren", vg),
                                  ["sh", "-c", 'for i in 1 2 3 4 5; do vgchange -an "$1" && exit 0; sleep 2; done; exit 5',
                                   "vg-deactivate", vg], ok_codes=(0, 5)))
     if vg_pvs:
-        plan.steps.append(Step("Auf Geräte warten", ["udevadm", "settle"]))
+        plan.steps.append(Step(tr("Auf Geräte warten"), ["udevadm", "settle"]))
 
     mounts: list[tuple[str, str, Node]] = []
     for node, dev in fs_jobs:
         step = _mkfs(node, dev)
         if step is None:
-            plan.warnings.append(f"Dateisystem {node.fstype} auf {node.path} wird nicht unterstützt: übersprungen")
+            plan.warnings.append(tr("Dateisystem {0} auf {1} wird nicht unterstützt: übersprungen", node.fstype, node.path))
             continue
         plan.steps.append(step)
         for mp in node.mountpoints:
@@ -349,25 +344,23 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
                 mounts.append((real, dev, node))
                 break
     if not any(mp == "/" for mp, _, _ in mounts):
-        raise RescueError("Das Root-Dateisystem (/) konnte nicht zugeordnet werden")
+        raise RescueError(tr("Das Root-Dateisystem (/) konnte nicht zugeordnet werden"))
     if encryption == "new" and not any(mp == "/boot" for mp, _, _ in mounts):
-        raise RescueError("Neue Verschlüsselung braucht eine getrennte /boot-Partition (GRUB kann das verschlüsselte "
-                          "Root-Dateisystem sonst nicht lesen). Bitte 'wie im Original' oder 'ohne' wählen.")
-    plan.summary.insert(1, {"keep": "Verschlüsselung: wie im Original", "new": "Verschlüsselung: NEU (neue Passphrase)",
-                         "none": "Verschlüsselung: KEINE (Platte wird unverschlüsselt aufgebaut)"}[encryption])
+        raise RescueError(tr("Neue Verschlüsselung braucht eine getrennte /boot-Partition (GRUB kann das verschlüsselte Root-Dateisystem sonst nicht lesen). Bitte 'wie im Original' oder 'ohne' wählen."))
+    plan.summary.insert(1, {"keep": tr("Verschlüsselung: wie im Original"), "new": tr("Verschlüsselung: NEU (neue Passphrase)"),
+                         "none": tr("Verschlüsselung: KEINE (Platte wird unverschlüsselt aufgebaut)")}[encryption])
     for mp, dev, node in sorted(mounts, key=lambda m: m[0].count("/") if m[0] != "/" else -1):
         target = mount_root + ("" if mp == "/" else mp)
-        plan.steps.append(Step(f"{mp} einhängen ({dev})", ["sh", "-c", 'mkdir -p "$1" && mount "$2" "$1"', "mount",
+        plan.steps.append(Step(tr("{0} einhängen ({1})", mp, dev), ["sh", "-c", 'mkdir -p "$1" && mount "$2" "$1"', "mount",
                                                            target, dev]))
         plan.summary.append(f"{mp:<12} {node.fstype:<6} {dev}")
     if plan.resizes:
         plan.summary.append("")
-        plan.summary.append(f"Größe angepasst: Ziel-Platte {target_size / 2**30:.1f} GiB statt {src.size / 2**30:.1f} GiB "
-                            "(alt -> neu)")
+        plan.summary.append(tr("Größe angepasst: Ziel-Platte {0:.1f} GiB statt {1:.1f} GiB (alt -> neu)", target_size / 2**30, src.size / 2**30))
         plan.summary += ["  " + r.line() for r in plan.resizes]
     # Aufräumen in umgekehrter Reihenfolge des Aufbaus: erst aushängen, dann VG deaktivieren, dann LUKS schließen
     # erst normal, dann lazy aushängen; danach die Geräte freigeben lassen (sonst bleibt der LV/LUKS "in Benutzung")
-    plan.cleanup = [Step("Zielsystem aushängen", ["sh", "-c", 'sync; umount -R "$1" 2>/dev/null; '
+    plan.cleanup = [Step(tr("Zielsystem aushängen"), ["sh", "-c", 'sync; umount -R "$1" 2>/dev/null; '
                                                   'for m in $(findmnt -rn -o TARGET -R "$1" 2>/dev/null | sort -r); '
                                                   'do umount -l "$m" 2>/dev/null; done; udevadm settle; sleep 1',
                                                   "umount", mount_root], ok_codes=(0, 1, 32)),
@@ -443,7 +436,7 @@ def restore_step(client: str, snapshot: str, archive: str, mount_root: str, name
         argv += ["--ns", namespace]
     if keyfile:
         argv += ["--keyfile", keyfile]
-    return Step(f"Dateien zurückspielen ({archive})", argv, env=env or {})
+    return Step(tr("Dateien zurückspielen ({0})", archive), argv, env=env or {})
 
 
 def edit_crypttab(mount_root: str, edits: dict[str, str | None], on_line: Callable[[str], None] = print) -> None:
@@ -457,19 +450,19 @@ def edit_crypttab(mount_root: str, edits: dict[str, str | None], on_line: Callab
             name = parts[0]
             seen.add(name)
             if edits[name] is None:
-                out.append("# pbsgui: ohne Verschlüsselung wiederhergestellt, Eintrag deaktiviert: " + line)
-                on_line(f"crypttab: Eintrag {name} deaktiviert")
+                out.append(tr("# pbsgui: ohne Verschlüsselung wiederhergestellt, Eintrag deaktiviert: ") + line)
+                on_line(tr("crypttab: Eintrag {0} deaktiviert", name))
             else:
                 if len(parts) > 1:
                     parts[1] = f"UUID={edits[name]}"
                 out.append(" ".join(parts))
-                on_line(f"crypttab: Eintrag {name} auf neue UUID {edits[name]} gesetzt")
+                on_line(tr("crypttab: Eintrag {0} auf neue UUID {1} gesetzt", name, edits[name]))
         else:
             out.append(line)
     for name, luks_uuid in edits.items():
         if luks_uuid and name not in seen:
             out.append(f"{name} UUID={luks_uuid} none luks,discard")
-            on_line(f"crypttab: Eintrag {name} ergänzt")
+            on_line(tr("crypttab: Eintrag {0} ergänzt", name))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(out) + "\n")
 
@@ -488,29 +481,29 @@ def finish_steps(rec: RecoveryData, mount_root: str, target_disk: str, uefi: boo
     """Im chroot: Initramfs und Bootloader neu erzeugen (Hardware kann sich geändert haben)."""
     # LC_ALL=C: die Live-Umgebung hat de_DE gesetzt, das Zielsystem nicht zwingend (sonst Locale-Warnungen)
     chroot = lambda *a: ["chroot", mount_root, "env", "LC_ALL=C", *a]
-    steps = [Step("Leere Systemverzeichnisse anlegen (vom Backup ausgeschlossen: /tmp, /var/tmp, /proc …)",
+    steps = [Step(tr("Leere Systemverzeichnisse anlegen (vom Backup ausgeschlossen: /tmp, /var/tmp, /proc …)"),
                   ["sh", "-c", 'cd "$1" && mkdir -p proc sys dev run tmp var/tmp mnt media && chmod 1777 tmp var/tmp',
                    "mkdirs", mount_root])]
-    steps += [Step(f"/{d} einbinden", ["sh", "-c", 'mkdir -p "$2" && mount --rbind "$1" "$2" && mount --make-rslave "$2"',
+    steps += [Step(tr("/{0} einbinden", d), ["sh", "-c", 'mkdir -p "$2" && mount --rbind "$1" "$2" && mount --make-rslave "$2"',
                                       "bind", f"/{d}", f"{mount_root}/{d}"]) for d in ("dev", "proc", "sys", "run")]
     if plan and plan.needs_cryptsetup:
-        steps.append(Step("Verschlüsselungs-Pakete im Zielsystem sicherstellen (cryptsetup-initramfs)",
+        steps.append(Step(tr("Verschlüsselungs-Pakete im Zielsystem sicherstellen (cryptsetup-initramfs)"),
                           ["sh", "-c", _ENSURE_CRYPTSETUP, "ensure-crypt", mount_root]))
     if plan and plan.crypttab:
         edits = dict(plan.crypttab)
-        steps.append(Step("crypttab im Zielsystem anpassen", [],
+        steps.append(Step(tr("crypttab im Zielsystem anpassen"), [],
                           call=lambda on_line: edit_crypttab(mount_root, edits, on_line)))
-    steps.append(Step("Initramfs neu erzeugen", chroot("update-initramfs", "-u", "-k", "all")))
+    steps.append(Step(tr("Initramfs neu erzeugen"), chroot("update-initramfs", "-u", "-k", "all")))
     if uefi:
         steps += [
-            Step("GRUB (UEFI) installieren", chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",
+            Step(tr("GRUB (UEFI) installieren"), chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",
                                                     f"--bootloader-id={rec.efi_label}", "--recheck")),
-            Step("GRUB als Fallback-Eintrag installieren (für neue Hardware)",
+            Step(tr("GRUB als Fallback-Eintrag installieren (für neue Hardware)"),
                  chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi", "--removable", "--recheck")),
         ]
     else:
-        steps.append(Step("GRUB (BIOS) installieren", chroot("grub-install", "--recheck", target_disk)))
-    steps.append(Step("GRUB-Konfiguration erzeugen", chroot("update-grub")))
+        steps.append(Step(tr("GRUB (BIOS) installieren"), chroot("grub-install", "--recheck", target_disk)))
+    steps.append(Step(tr("GRUB-Konfiguration erzeugen"), chroot("update-grub")))
     return steps
 
 
@@ -521,13 +514,13 @@ def run_steps(steps: list[Step], on_line: Callable[[str], None] = print, env: di
     for st in steps:
         on_line(f"==> {st.title}")
         if dry_run:
-            on_line("    " + (" ".join(st.argv) if st.argv else "(interne Funktion)"))
+            on_line("    " + (" ".join(st.argv) if st.argv else tr("(interne Funktion)")))
             continue
         if st.call:
             try:
                 st.call(lambda l: on_line("    " + l))
             except Exception as e:  # Fehler wie bei einem fehlgeschlagenen Befehl behandeln
-                on_line(f"    FEHLER: {e}")
+                on_line(tr("    FEHLER: {0}", e))
                 return st
             continue
         full_env = {**os.environ, **(env or {}), **st.env}
@@ -535,18 +528,18 @@ def run_steps(steps: list[Step], on_line: Callable[[str], None] = print, env: di
             p = popen(st.argv, env=full_env, stdin=subprocess.PIPE if st.stdin is not None else subprocess.DEVNULL,
                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         except OSError as e:
-            on_line(f"    FEHLER: {e}")
+            on_line(tr("    FEHLER: {0}", e))
             return st
         if st.stdin is not None and p.stdin:
             p.stdin.write(st.stdin)
             p.stdin.close()
         if p.stdout is None:
-            raise RescueError("Kein Ausgabestrom vom Befehl")
+            raise RescueError(tr("Kein Ausgabestrom vom Befehl"))
         for line in p.stdout:
             on_line("    " + line.rstrip("\n"))
         code = p.wait()
         if code not in st.ok_codes:
-            on_line(f"    FEHLER: Exitcode {code}")
+            on_line(tr("    FEHLER: Exitcode {0}", code))
             return st
     return None
 
@@ -609,12 +602,12 @@ def list_full_snapshots(cfg: RescueConfig):
 def pick_snapshot(cfg: RescueConfig):
     snaps = list_full_snapshots(cfg)
     if not snaps:
-        raise RescueError("Kein Vollbackup mit Wiederherstellungsdaten gefunden (benötigt pbsgui ≥ 0.2 mit --mode full)")
+        raise RescueError(tr("Kein Vollbackup mit Wiederherstellungsdaten gefunden (benötigt pbsgui ≥ 0.2 mit --mode full)"))
     if cfg.snapshot:
         for s in snaps:
             if s.path == cfg.snapshot:
                 return s
-        raise RescueError(f"Snapshot nicht gefunden: {cfg.snapshot}")
+        raise RescueError(tr("Snapshot nicht gefunden: {0}", cfg.snapshot))
     return snaps[0]
 
 
@@ -656,7 +649,7 @@ def validate_target(disk: str, rec: RecoveryData, disks: list[dict] | None = Non
     cands = candidate_disks() if disks is None else disks
     match = next((d for d in cands if d["path"] == disk), None)
     if not match:
-        raise RescueError(f"{disk} ist keine zulässige Ziel-Platte (eingehängt, Live-Medium oder nicht vorhanden)")
+        raise RescueError(tr("{0} ist keine zulässige Ziel-Platte (eingehängt, Live-Medium oder nicht vorhanden)", disk))
     return match["size"]
 
 
@@ -678,8 +671,8 @@ def execute(cfg: RescueConfig, snapshot, rec: RecoveryData, plan: Plan, on_line:
         ok = True
         return True
     finally:
-        on_line("==> Aufräumen")
+        on_line(tr("==> Aufräumen"))
         run_steps(plan.cleanup, on_line, env, dry_run, popen)
         if ok:
-            on_line("Trockenlauf beendet: es wurde nichts verändert." if dry_run else
-                    "Wiederherstellung abgeschlossen. System neu starten und das Rettungsmedium entfernen.")
+            on_line(tr("Trockenlauf beendet: es wurde nichts verändert.") if dry_run else
+                    tr("Wiederherstellung abgeschlossen. System neu starten und das Rettungsmedium entfernen."))

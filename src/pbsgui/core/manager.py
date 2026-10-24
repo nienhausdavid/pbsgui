@@ -15,6 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..i18n import tr
 from .client import PbsClient
 from .dashboard import DatastoreUsage, Overview, build_overview, datastore_usage
 from .history import RunRecord, find_run, list_runs, load_restore_test, save_restore_test
@@ -59,7 +60,7 @@ class ProfileManager:
     def client(self, profile: Profile) -> PbsClient:
         token = self.secrets.get(profile.slug, "token")
         if not token:
-            raise SchedulerError("Kein Token-Secret gespeichert")
+            raise SchedulerError(tr("Kein Token-Secret gespeichert"))
         return PbsClient(profile, token, self.secrets.get(profile.slug, "keypass") or "",
                          key_content=self.secrets.get(profile.slug, "key") or "")
 
@@ -98,7 +99,7 @@ class ProfileManager:
                          on_line=lambda _l: None) -> RestoreTestResult:
         cat = self._loader(profile)(snapshot).get(archive)
         if cat is None:
-            raise SchedulerError(f"Archiv {archive} nicht im Snapshot")
+            raise SchedulerError(tr("Archiv {0} nicht im Snapshot", archive))
         res = restore_test(self.client(profile), profile, snapshot, archive, cat, count, on_line=on_line)
         save_restore_test(self.paths, profile, res.to_dict())
         return res
@@ -138,7 +139,7 @@ class ProfileManager:
         if overwrite_home:
             return restore_to_original(client, profile, snapshot, archive, rels, on_line=on_line)
         if not target:
-            raise SchedulerError("Zielordner fehlt")
+            raise SchedulerError(tr("Zielordner fehlt"))
         return restore_to_folder(client, snapshot, archive, rels, Path(target), on_line=on_line)
 
     def has_key(self, profile: Profile) -> bool:
@@ -163,23 +164,22 @@ class ProfileManager:
         try:
             data = _json.loads(Path(path).read_text())
         except (OSError, ValueError) as e:
-            raise SchedulerError(f"Schlüsseldatei nicht lesbar: {e}") from None
+            raise SchedulerError(tr("Schlüsseldatei nicht lesbar: {0}", e)) from None
         fp = data.get("fingerprint") if isinstance(data, dict) else None
         if not fp or "data" not in data:
-            raise SchedulerError("Das ist keine Schlüsseldatei (Felder 'data'/'fingerprint' fehlen)")
+            raise SchedulerError(tr("Das ist keine Schlüsseldatei (Felder 'data'/'fingerprint' fehlen)"))
         if fp != profile.key_fingerprint:
-            raise SchedulerError(f"Falscher Schlüssel: Fingerprint der Datei {fp[:23]}… passt nicht zum Profil "
-                                 f"{profile.key_fingerprint[:23]}…")
+            raise SchedulerError(tr("Falscher Schlüssel: Fingerprint der Datei {0}… passt nicht zum Profil {1}…", fp[:23], profile.key_fingerprint[:23]))
         stored = self.secrets.get(profile.slug, "key")
         if stored and _json.loads(stored).get("data") != data.get("data"):
-            raise SchedulerError("Der Fingerprint stimmt, der Schlüsselinhalt aber nicht: Datei ist beschädigt")
+            raise SchedulerError(tr("Der Fingerprint stimmt, der Schlüsselinhalt aber nicht: Datei ist beschädigt"))
         profile.key_exported_at = time.strftime("%Y-%m-%d %H:%M:%S")
         self.save(profile)
 
     def export_key(self, profile: Profile, dest: str) -> None:
         content = self.secrets.get(profile.slug, "key")
         if not content:
-            raise SchedulerError("Kein automatisch erzeugter Schlüssel vorhanden")
+            raise SchedulerError(tr("Kein automatisch erzeugter Schlüssel vorhanden"))
         export_key(content, dest)
         profile.key_exported_at = time.strftime("%Y-%m-%d %H:%M:%S")
         self.save(profile)  # merkt sich den Export (bei Vollbackup auch in der System-Kopie)
@@ -192,7 +192,7 @@ class ProfileManager:
              schedule: str = "keep", key: str | None = None, dbdump: str | None = None) -> None:
         """schedule: "install" | "remove" | "keep"."""
         if profile.backup_mode == FULL and profile.scope != "system":
-            raise SchedulerError("Ein Vollbackup braucht den System-Modus (Zugriff auf alle Dateien).")
+            raise SchedulerError(tr("Ein Vollbackup braucht den System-Modus (Zugriff auf alle Dateien)."))
         if schedule == "install":
             ensure_recoverable(profile)  # Vollbackup-Zeitplan erst nach Schlüssel-Export
         self.profiles_store.save(profile)
@@ -286,7 +286,7 @@ class ProfileManager:
         try:
             ensure_recoverable(profile)
         except RecoveryError as e:
-            on_line(f"Fehler: {e}")
+            on_line(tr("Fehler: {0}", e))
             return 4
         if profile.backup_mode != FULL:
             return run_profile(profile, Paths.for_scope("user"), self.secrets, on_line=on_line, progress=True, mode=mode)
@@ -296,16 +296,16 @@ class ProfileManager:
         try:
             require_trusted_code()
         except PrivilegeError as e:
-            on_line(f"Fehler: {e}")
+            on_line(tr("Fehler: {0}", e))
             return 4
         root = str(Path(__file__).resolve().parents[2])  # .../src
         cmd = ["pkexec", "env", f"PYTHONPATH={root}", "PBSGUI_PROGRESS=1", sys.executable, "-m", "pbsgui.cli.run", profile.slug,
                "--scope", "system", *(["--mode", mode] if mode else [])]
-        on_line("Vollbackup braucht Administrator-Rechte: Passwortabfrage …")
+        on_line(tr("Vollbackup braucht Administrator-Rechte: Passwortabfrage …"))
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                 text=True, bufsize=1)
         if proc.stdout is None:
-            raise RuntimeError("Kein Ausgabestrom vom Backup-Prozess")
+            raise RuntimeError(tr("Kein Ausgabestrom vom Backup-Prozess"))
         for line in proc.stdout:
             on_line(line.rstrip("\n"))
         return proc.wait()
@@ -315,7 +315,7 @@ class ProfileManager:
         if new_scope == profile.scope:
             return
         if profile.backup_mode == FULL:
-            raise SchedulerError("Ein Vollbackup braucht den System-Modus und kann nicht gewechselt werden.")
+            raise SchedulerError(tr("Ein Vollbackup braucht den System-Modus und kann nicht gewechselt werden."))
         old = Profile.from_dict({**profile.to_dict(), "scope": profile.scope})
         self.save(old, schedule="remove")
         profile.scope = new_scope
@@ -334,4 +334,4 @@ class ProfileManager:
         r = subprocess.run(["pkexec", "env", f"PYTHONPATH={root}", sys.executable, "-m", "pbsgui.cli.admin"],
                            input=json.dumps(request), capture_output=True, text=True)
         if r.returncode != 0:
-            raise SchedulerError(r.stderr.strip() or "Administrator-Aktion abgebrochen oder fehlgeschlagen")
+            raise SchedulerError(r.stderr.strip() or tr("Administrator-Aktion abgebrochen oder fehlgeschlagen"))

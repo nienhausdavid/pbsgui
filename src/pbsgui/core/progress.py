@@ -17,6 +17,7 @@ import time
 from collections import deque
 from dataclasses import asdict, dataclass
 from typing import Callable
+from ..i18n import tr
 
 PREFIX = "@@pbsgui-progress "
 
@@ -76,11 +77,11 @@ def describe(p: Progress) -> str:
     """Einzeilige Anzeige für GUI, TUI und Kommandozeile."""
     rate = f"{fmt_bytes(p.rate)}/s"
     if p.percent is None:
-        why = p.basis or "Gesamtmenge unbekannt (erstes Backup)"
-        return f"{fmt_bytes(p.done)} gelesen  ·  {rate}  ·  seit {fmt_duration(p.elapsed)}  ·  {why}"
-    eta = f"  ·  noch ca. {fmt_duration(p.eta)}" if p.eta is not None and p.rate > 0 else ""
-    return (f"{p.percent:.0f} %  ·  {fmt_bytes(p.done)} von {fmt_bytes(p.total or 0)}  ·  {rate}{eta}"
-            + (f"  ({p.basis})" if p.basis else ""))
+        why = tr(p.basis) if p.basis else tr("Gesamtmenge unbekannt (erstes Backup)")
+        return tr("{0} gelesen  ·  {1}  ·  seit {2}  ·  {3}", fmt_bytes(p.done), rate, fmt_duration(p.elapsed), why)
+    eta = tr("  ·  noch ca. {0}", fmt_duration(p.eta)) if p.eta is not None and p.rate > 0 else ""
+    return (tr("{0:.0f} %  ·  {1} von {2}  ·  {3}{4}", p.percent, fmt_bytes(p.done), fmt_bytes(p.total or 0), rate, eta)
+            + (f"  ({tr(p.basis)})" if p.basis else ""))
 
 
 def read_rchar(pid: int, io_root: str = "/proc") -> int | None:

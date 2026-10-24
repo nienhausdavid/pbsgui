@@ -11,6 +11,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Static, Tree
 
+from ..i18n import tr
 from ..core.files import Catalog, FilesError, map_to_original
 from ..core.manager import ProfileManager
 from ..core.models import Profile, Snapshot
@@ -28,10 +29,10 @@ def fmt_size(n: int) -> str:
 
 class FilesScreen(ModalScreen[None]):
     # Leertaste mit Vorrang: der Baum belegt sie sonst selbst (Auf-/Zuklappen). "m" geht ebenfalls.
-    BINDINGS = [("escape", "close", "Schließen"), Binding("space", "toggle", "Markieren", priority=True),
-                Binding("m", "toggle", "Markieren", show=False), ("r", "to_folder", "In Ordner"),
-                ("o", "to_original", "Überschreiben (nur Home)"), ("slash", "search", "Suchen"),
-                ("p", "preview", "Vorschau"), ("v", "versions", "Fassungen")]
+    BINDINGS = [("escape", "close", tr("Schließen")), Binding("space", "toggle", tr("Markieren"), priority=True),
+                Binding("m", "toggle", tr("Markieren"), show=False), ("r", "to_folder", tr("In Ordner")),
+                ("o", "to_original", tr("Überschreiben (nur Home)")), ("slash", "search", tr("Suchen")),
+                ("p", "preview", tr("Vorschau")), ("v", "versions", tr("Fassungen"))]
     DEFAULT_CSS = """
     FilesScreen { align: center middle; }
     #files-box { width: 100; height: 90%; border: thick $accent; background: $surface; padding: 0 1; }
@@ -47,9 +48,9 @@ class FilesScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="files-box"):
-            yield Static(f"Dateien in {self.snapshot.path}", markup=False)
-            yield Tree("Archive", id="files-tree")
-            yield Static("Lade Dateiliste …", id="files-info", markup=False)
+            yield Static(tr("Dateien in {0}", self.snapshot.path), markup=False)
+            yield Tree(tr("Archive"), id="files-tree")
+            yield Static(tr("Lade Dateiliste …"), id="files-info", markup=False)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -65,7 +66,7 @@ class FilesScreen(ModalScreen[None]):
         try:
             cats = self.mgr.catalogs(self.profile, self.snapshot)
         except Exception as e:
-            self.app.call_from_thread(self._say, f"Fehler: {e}")
+            self.app.call_from_thread(self._say, tr("Fehler: {0}", e))
             return
         self.app.call_from_thread(self._loaded, {k: v for k, v in cats.items() if k != "recovery.pxar"})
 
@@ -74,8 +75,8 @@ class FilesScreen(ModalScreen[None]):
         tree = self.query_one("#files-tree", Tree)
         for name in sorted(cats):
             tree.root.add(Text(name), data=(name, "/"), allow_expand=True)
-        self._say("Pfeile: bewegen, Enter: auf-/zuklappen, Leertaste: markieren" if cats
-                  else "Dieser Snapshot enthält keine Datei-Archive.")
+        self._say(tr("Pfeile: bewegen, Enter: auf-/zuklappen, Leertaste: markieren") if cats
+                  else tr("Dieser Snapshot enthält keine Datei-Archive."))
 
     def on_tree_node_expanded(self, e: Tree.NodeExpanded) -> None:
         node = e.node
@@ -111,7 +112,7 @@ class FilesScreen(ModalScreen[None]):
             return
         key = tuple(node.data)
         if self.marks and next(iter(self.marks))[0] != key[0]:
-            self.app.notify("Auswahl nur aus einem Archiv gleichzeitig", severity="warning")
+            self.app.notify(tr("Auswahl nur aus einem Archiv gleichzeitig"), severity="warning")
             return
         self.marks.symmetric_difference_update({key})
         base = str(node.label)[4:]                        # Beschriftung ohne "[x] " / "[ ] "
@@ -119,9 +120,9 @@ class FilesScreen(ModalScreen[None]):
         sel = self.selected()
         if sel:
             files, size = self.cats[sel[0]].count(sel[1])
-            self._say(f"{len(sel[1])} Auswahl, {files} Dateien, {fmt_size(size)}")
+            self._say(tr("{0} Auswahl, {1} Dateien, {2}", len(sel[1]), files, fmt_size(size)))
         else:
-            self._say("Nichts markiert.")
+            self._say(tr("Nichts markiert."))
 
     def action_search(self) -> None:
         def got(text):
@@ -131,24 +132,24 @@ class FilesScreen(ModalScreen[None]):
             for name, cat in self.cats.items():
                 hits = cat.search(text)
                 if hits:
-                    node = tree.root.add(Text(f"Suche '{text}' in {name}: {len(hits)} Treffer"), allow_expand=True)
+                    node = tree.root.add(Text(tr("Suche '{0}' in {1}: {2} Treffer", text, name, len(hits))), allow_expand=True)
                     for h in hits[:200]:
                         node.add_leaf(self._label(name, h.path, h.path), data=(name, h.path))
                     node.expand()
-        self.app.push_screen(PromptScreen("Dateien suchen", "", "Name oder Muster mit * und ?"), got)
+        self.app.push_screen(PromptScreen(tr("Dateien suchen"), "", tr("Name oder Muster mit * und ?")), got)
 
     # -- Aktionen -----------------------------------------------------------------
     def _done(self, res, extra: str = "") -> None:
-        text = f"{res.copied} Dateien wiederhergestellt ({fmt_size(res.bytes)}). {extra}"
+        text = tr("{0} Dateien wiederhergestellt ({1}). {2}", res.copied, fmt_size(res.bytes), extra)
         if res.safety_dir and res.safety_copies:
-            text += f" {res.safety_copies} überschriebene Dateien gesichert in {res.safety_dir}."
+            text += tr(" {0} überschriebene Dateien gesichert in {1}.", res.safety_copies, res.safety_dir)
         if res.skipped:
-            text += f" Übersprungen: {len(res.skipped)}."
+            text += tr(" Übersprungen: {0}.", len(res.skipped))
         self._say(text)
         self.app.notify(escape(text), timeout=12)
 
     def _fail(self, msg: str) -> None:
-        self._say(f"Fehler: {msg}")
+        self._say(tr("Fehler: {0}", msg))
         self.app.notify(escape(msg), severity="error", timeout=12)
 
     def _restore(self, **kw) -> None:
@@ -156,7 +157,7 @@ class FilesScreen(ModalScreen[None]):
         if not sel:
             return
         archive, paths = sel
-        self._say("Stelle wieder her …")
+        self._say(tr("Stelle wieder her …"))
 
         def work():
             try:
@@ -164,23 +165,23 @@ class FilesScreen(ModalScreen[None]):
             except Exception as e:
                 self.app.call_from_thread(self._fail, str(e))
                 return
-            self.app.call_from_thread(self._done, res, f"Ziel: {kw['target']}." if kw.get("target") else "")
+            self.app.call_from_thread(self._done, res, tr("Ziel: {0}.", kw['target']) if kw.get("target") else "")
 
         self.run_worker(work, thread=True)
 
     def action_to_folder(self) -> None:
         if not self.selected():
-            self.app.notify("Erst mit der Leertaste Dateien markieren", severity="warning")
+            self.app.notify(tr("Erst mit der Leertaste Dateien markieren"), severity="warning")
             return
         default = str(Path.home() / "pbsgui-wiederhergestellt")
-        self.app.push_screen(PromptScreen("Wiederherstellen in Ordner", default,
-                                      "Nichts wird überschrieben; vorhandene Dateien werden übersprungen."),
+        self.app.push_screen(PromptScreen(tr("Wiederherstellen in Ordner"), default,
+                                      tr("Nichts wird überschrieben; vorhandene Dateien werden übersprungen.")),
                          lambda t: t and self._restore(target=t))
 
     def action_to_original(self) -> None:
         sel = self.selected()
         if not sel:
-            self.app.notify("Erst mit der Leertaste Dateien markieren", severity="warning")
+            self.app.notify(tr("Erst mit der Leertaste Dateien markieren"), severity="warning")
             return
         archive, paths = sel
         try:
@@ -189,23 +190,22 @@ class FilesScreen(ModalScreen[None]):
             self.app.notify(escape(str(e)), severity="error")
             return
         if not all(i.in_home for i in items):
-            self.app.notify("Überschreiben ist nur im Home-Verzeichnis erlaubt", severity="error")
+            self.app.notify(tr("Überschreiben ist nur im Home-Verzeichnis erlaubt"), severity="error")
             return
         existing = sum(1 for i in items if i.exists)
         self.app.push_screen(ConfirmScreen(
-            f"{len(items)} Pfad(e) im Home-Verzeichnis am Originalort überschreiben ({existing} existieren schon)? "
-            "Alte Fassungen werden vorher nach ~/.local/share/pbsgui/overwritten/<Zeit>/ gesichert."),
+            tr("{0} Pfad(e) im Home-Verzeichnis am Originalort überschreiben ({1} existieren schon)? Alte Fassungen werden vorher nach ~/.local/share/pbsgui/overwritten/<Zeit>/ gesichert.", len(items), existing)),
             lambda yes: yes and self._restore(overwrite_home=True))
 
     def _cursor_file(self) -> tuple[str, str] | None:
         node = self.query_one("#files-tree", Tree).cursor_node
         if not node or node.data is None or node.data[1] == "/":
-            self.app.notify("Erst eine Datei auswählen", severity="warning")
+            self.app.notify(tr("Erst eine Datei auswählen"), severity="warning")
             return None
         archive, path = node.data
         entry = self.cats[archive].by_path.get(path)
         if entry is None or entry.kind == "d":
-            self.app.notify("Das ist ein Ordner: bitte eine Datei wählen", severity="warning")
+            self.app.notify(tr("Das ist ein Ordner: bitte eine Datei wählen"), severity="warning")
             return None
         return archive, path
 

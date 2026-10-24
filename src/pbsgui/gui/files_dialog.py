@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
                                QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
+from ..i18n import tr
 from ..core.files import Catalog, CatalogEntry, FilesError, map_to_original
 from ..core.manager import ProfileManager
 from ..core.models import Profile, Snapshot
@@ -29,24 +30,24 @@ class FilesDialog(QDialog):
         self.mgr, self.profile, self.snapshot = mgr, profile, snapshot
         self.cats: dict[str, Catalog] = {}
         self._worker: Worker | None = None
-        self.setWindowTitle(f"Dateien in {snapshot.path}")
+        self.setWindowTitle(tr("Dateien in {0}", snapshot.path))
         self.resize(1100, 640)
         self._sessions: dict[str, PreviewSession] = {}
         self._closed = False
 
         self.archive = QComboBox()
-        self.search = QLineEdit(); self.search.setPlaceholderText("Suchen (Namen, * und ? als Platzhalter), Enter")
-        self.tree = QTreeWidget(); self.tree.setHeaderLabels(["Name", "Größe", "Datum"])
+        self.search = QLineEdit(); self.search.setPlaceholderText(tr("Suchen (Namen, * und ? als Platzhalter), Enter"))
+        self.tree = QTreeWidget(); self.tree.setHeaderLabels(["Name", tr("Größe"), tr("Datum")])
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setColumnWidth(0, 420)
-        self.info = QLabel("Lade Dateiliste …"); self.info.setWordWrap(True)
-        self.btn_folder = QPushButton("In Ordner wiederherstellen …")
-        self.btn_over = QPushButton("Am Originalort überschreiben (nur Home) …")
-        self.btn_versions = QPushButton("Fassungen …"); self.btn_versions.setToolTip("Alle Fassungen dieser Datei aus allen Snapshots")
-        self.btn_all = QPushButton("In allen Snapshots suchen …")
+        self.info = QLabel(tr("Lade Dateiliste …")); self.info.setWordWrap(True)
+        self.btn_folder = QPushButton(tr("In Ordner wiederherstellen …"))
+        self.btn_over = QPushButton(tr("Am Originalort überschreiben (nur Home) …"))
+        self.btn_versions = QPushButton(tr("Fassungen …")); self.btn_versions.setToolTip(tr("Alle Fassungen dieser Datei aus allen Snapshots"))
+        self.btn_all = QPushButton(tr("In allen Snapshots suchen …"))
         self.preview = PreviewPane()
-        close = QPushButton("Schließen")
-        top = QHBoxLayout(); top.addWidget(QLabel("Archiv:")); top.addWidget(self.archive, 1); top.addWidget(self.search, 2)
+        close = QPushButton(tr("Schließen"))
+        top = QHBoxLayout(); top.addWidget(QLabel(tr("Archiv:"))); top.addWidget(self.archive, 1); top.addWidget(self.search, 2)
         bot = QHBoxLayout()
         for w in (self.btn_folder, self.btn_over, self.btn_versions, self.btn_all):
             bot.addWidget(w)
@@ -55,7 +56,7 @@ class FilesDialog(QDialog):
         split.setStretchFactor(0, 3); split.setStretchFactor(1, 2); split.setChildrenCollapsible(False)
         lay = QVBoxLayout(self)
         lay.addLayout(top); lay.addWidget(split, 1); lay.addWidget(self.info); lay.addLayout(bot)
-        self._previews = Runner(self, lambda m: self.preview.clear(f"Vorschau nicht möglich: {m}"))
+        self._previews = Runner(self, lambda m: self.preview.clear(tr("Vorschau nicht möglich: {0}", m)))
 
         self.archive.currentTextChanged.connect(self._show_root)
         self.search.returnPressed.connect(self._do_search)
@@ -75,7 +76,7 @@ class FilesDialog(QDialog):
     def _run(self, fn, done) -> None:
         self._worker = Worker(fn, self)
         self._worker.done.connect(done)
-        self._worker.failed.connect(lambda m: (self.info.setText(f"Fehler: {m}"), QMessageBox.warning(self, "Fehler", m)))
+        self._worker.failed.connect(lambda m: (self.info.setText(tr("Fehler: {0}", m)), QMessageBox.warning(self, tr("Fehler"), m)))
         self._worker.start()
 
     def _cat(self) -> Catalog | None:
@@ -92,7 +93,7 @@ class FilesDialog(QDialog):
     def _loaded(self, cats) -> None:
         self.cats = {k: v for k, v in cats.items() if k != "recovery.pxar"}
         if not self.cats:
-            self.info.setText("Dieser Snapshot enthält keine Datei-Archive.")
+            self.info.setText(tr("Dieser Snapshot enthält keine Datei-Archive."))
             return
         self.archive.blockSignals(True)
         self.archive.addItems(sorted(self.cats))
@@ -106,7 +107,7 @@ class FilesDialog(QDialog):
         self.tree.clear()
         if cat:
             self.tree.addTopLevelItems([self._item(e) for e in cat.children("/")])
-        self.info.setText("Dateien oder Ordner wählen (Strg/Umschalt für mehrere).")
+        self.info.setText(tr("Dateien oder Ordner wählen (Strg/Umschalt für mehrere)."))
 
     def _expand(self, item: QTreeWidgetItem) -> None:
         cat = self._cat()
@@ -122,7 +123,7 @@ class FilesDialog(QDialog):
         self.tree.clear()
         found = cat.search(text)
         self.tree.addTopLevelItems([self._item(e, e.path) for e in found])
-        self.info.setText(f"{len(found)} Treffer" + (" (Anzeige begrenzt)" if len(found) >= 500 else ""))
+        self.info.setText(tr("{0} Treffer", len(found)) + (tr(" (Anzeige begrenzt)") if len(found) >= 500 else ""))
 
     def _close_sessions(self, final: bool = False) -> None:
         self._closed = self._closed or final
@@ -141,19 +142,19 @@ class FilesDialog(QDialog):
         one = self._single_file()
         self.btn_versions.setEnabled(bool(one and one[1] != "d"))
         if one is None:
-            self.preview.clear("Eine einzelne Datei wählen, um den Inhalt zu sehen.")
+            self.preview.clear(tr("Eine einzelne Datei wählen, um den Inhalt zu sehen."))
             return
         path, kind = one
         if kind == "d":
-            self.preview.clear("Ordner")
+            self.preview.clear(tr("Ordner"))
             return
         archive = self.archive.currentText()
-        self.preview.clear("Lade Vorschau …")
+        self.preview.clear(tr("Lade Vorschau …"))
 
         def work(_l):
             ps = self._sessions.get(archive)
             if self._closed:
-                raise RuntimeError("Dialog geschlossen")
+                raise RuntimeError(tr("Dialog geschlossen"))
             if ps is None:
                 ps = self._sessions[archive] = self.mgr.preview_session(self.profile, self.snapshot, archive)
             return ps.preview(path)
@@ -173,14 +174,14 @@ class FilesDialog(QDialog):
     def _selection_changed(self) -> None:
         paths, cat = self.selected_paths(), self._cat()
         self.btn_folder.setEnabled(bool(paths))
-        ok_home, why = False, "Wähle Dateien oder Ordner aus."
+        ok_home, why = False, tr("Wähle Dateien oder Ordner aus.")
         if paths and cat:
             files, size = cat.count(paths)
-            self.info.setText(f"{len(paths)} Auswahl, {files} Dateien, {fmt_size(size)}")
+            self.info.setText(tr("{0} Auswahl, {1} Dateien, {2}", len(paths), files, fmt_size(size)))
             try:
                 items = map_to_original(self.profile, self.archive.currentText(), paths)
                 ok_home = all(i.in_home for i in items)
-                why = "" if ok_home else "Überschreiben ist nur für Dateien im Home-Verzeichnis erlaubt."
+                why = "" if ok_home else tr("Überschreiben ist nur für Dateien im Home-Verzeichnis erlaubt.")
             except FilesError as e:
                 why = str(e)
         self.btn_over.setEnabled(ok_home)
@@ -188,42 +189,39 @@ class FilesDialog(QDialog):
 
     # -- Aktionen -----------------------------------------------------------
     def _result_text(self, res) -> str:
-        text = f"{res.copied} Dateien wiederhergestellt ({fmt_size(res.bytes)})."
+        text = tr("{0} Dateien wiederhergestellt ({1}).", res.copied, fmt_size(res.bytes))
         if res.safety_dir and res.safety_copies:
-            text += f"\n{res.safety_copies} überschriebene Dateien vorher gesichert in:\n{res.safety_dir}"
+            text += tr("\n{0} überschriebene Dateien vorher gesichert in:\n{1}", res.safety_copies, res.safety_dir)
         if res.skipped:
-            text += f"\n\nÜbersprungen ({len(res.skipped)}):\n" + "\n".join(res.skipped[:15])
+            text += tr("\n\nÜbersprungen ({0}):\n", len(res.skipped)) + "\n".join(res.skipped[:15])
         return text
 
     def _restore_folder(self) -> None:
         paths = self.selected_paths()
-        target = QFileDialog.getExistingDirectory(self, "Zielordner (nichts wird überschrieben)", str(Path.home()))
+        target = QFileDialog.getExistingDirectory(self, tr("Zielordner (nichts wird überschrieben)"), str(Path.home()))
         if not paths or not target:
             return
-        self.info.setText("Stelle wieder her …")
+        self.info.setText(tr("Stelle wieder her …"))
         arch = self.archive.currentText()
         self._run(lambda _l: self.mgr.restore_files(self.profile, self.snapshot, arch, paths, target=target),
-                  lambda res: (self.info.setText("Fertig."), QMessageBox.information(self, "Wiederhergestellt",
-                                                                                      self._result_text(res) + f"\n\nZiel: {target}")))
+                  lambda res: (self.info.setText(tr("Fertig.")), QMessageBox.information(self, tr("Wiederhergestellt"),
+                                                                                      self._result_text(res) + tr("\n\nZiel: {0}", target))))
 
     def _restore_original(self) -> None:
         paths, arch = self.selected_paths(), self.archive.currentText()
         try:
             items = map_to_original(self.profile, arch, paths)
         except FilesError as e:
-            QMessageBox.warning(self, "Nicht möglich", str(e))
+            QMessageBox.warning(self, tr("Nicht möglich"), str(e))
             return
         if not all(i.in_home for i in items):
-            QMessageBox.warning(self, "Nicht möglich", "Überschreiben ist nur im Home-Verzeichnis erlaubt.")
+            QMessageBox.warning(self, tr("Nicht möglich"), tr("Überschreiben ist nur im Home-Verzeichnis erlaubt."))
             return
         existing = sum(1 for i in items if i.exists)
         if QMessageBox.question(
-                self, "Am Originalort überschreiben",
-                f"{len(items)} Pfad(e) werden an ihren ursprünglichen Ort im Home-Verzeichnis zurückgeschrieben, "
-                f"{existing} davon existieren schon.\n\nVorhandene Dateien werden durch die Fassung aus dem Backup "
-                "ersetzt. Die alten Fassungen werden vorher nach ~/.local/share/pbsgui/overwritten/<Zeit>/ gesichert; "
-                "nichts wird gelöscht.\n\nFortfahren?") != QMessageBox.StandardButton.Yes:
+                self, tr("Am Originalort überschreiben"),
+                tr("{0} Pfad(e) werden an ihren ursprünglichen Ort im Home-Verzeichnis zurückgeschrieben, {1} davon existieren schon.\n\nVorhandene Dateien werden durch die Fassung aus dem Backup ersetzt. Die alten Fassungen werden vorher nach ~/.local/share/pbsgui/overwritten/<Zeit>/ gesichert; nichts wird gelöscht.\n\nFortfahren?", len(items), existing)) != QMessageBox.StandardButton.Yes:
             return
-        self.info.setText("Schreibe zurück …")
+        self.info.setText(tr("Schreibe zurück …"))
         self._run(lambda _l: self.mgr.restore_files(self.profile, self.snapshot, arch, paths, overwrite_home=True),
-                  lambda res: (self.info.setText("Fertig."), QMessageBox.information(self, "Wiederhergestellt", self._result_text(res))))
+                  lambda res: (self.info.setText(tr("Fertig.")), QMessageBox.information(self, tr("Wiederhergestellt"), self._result_text(res))))

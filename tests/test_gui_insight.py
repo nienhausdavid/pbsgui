@@ -275,3 +275,34 @@ def test_aggregate_priority():
     assert tray_mod.aggregate(["ok", "error", "running"]) == "running"
     assert tray_mod.aggregate(["ok", "warning", "error"]) == "error"
     assert tray_mod.aggregate(["ok", "none"]) == "ok" and tray_mod.aggregate([]) == "none"
+
+
+# -- Server ändern ------------------------------------------------------------------------------------------------
+def test_edit_server_dialog_saves_after_verification(app, world, monkeypatch):
+    from pbsgui.gui import edit_server
+    from pbsgui.gui.edit_server import EditServerDialog
+    mgr, prof, *_ = world
+    shown = []
+    monkeypatch.setattr(edit_server.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    d = EditServerDialog(mgr, prof)
+    d.datastore.setText("store2"); d.namespace.setText("n1")
+    d._save()
+    assert pump(app, lambda: d.result_info is not None)
+    assert mgr.profiles_store.load("Laptop").datastore == "store2" and mgr.profiles_store.load("Laptop").namespace == "n1"
+    assert d.result_info.new_target and "alten Ziel" in shown[0]
+
+
+def test_edit_server_dialog_requires_fingerprint_confirmation(app, world):
+    from pbsgui.gui.edit_server import EditServerDialog
+    mgr, prof, *_ = world
+    d = EditServerDialog(mgr, prof)
+    d._got_fp("11:22")                                     # neuer Fingerprint abgerufen, aber nicht bestätigt
+    assert not d.fp_ok.isHidden() and d.fp.text() == "11:22"
+    d._save()
+    assert "bestätigen" in d.status.text() and mgr.profiles_store.load("Laptop").fingerprint == "AA"
+
+
+def test_window_shows_server_and_edit_button(app, world):
+    mgr, prof, *_ = world
+    w = window_mod.MainWindow(mgr)
+    assert "127.0.0.1:1" in w.f_server.text() and w.server_btn.isEnabled()

@@ -8,6 +8,19 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Server nachträglich ändern:** Server, Port, Fingerprint, Datastore, Namespace und Token eines vorhandenen Profils lassen sich ändern
+  (`pbsgui server NAME …`, GUI „Server ändern …“ im Backup-Tab, TUI `i`). Profilname, Schlüssel, Quellen, Zeitplan und Verlauf bleiben.
+  Die neuen Angaben werden vor dem Speichern mit dem echten Client geprüft (sonst bleibt alles unverändert); eine geänderte Token-ID braucht ihr
+  Secret, ein neuer Fingerprint muss ausdrücklich bestätigt werden. Vorhandene Snapshots bleiben auf dem alten Ziel, das nächste Backup lädt am
+  neuen alles neu hoch (der Schlüssel passt weiter).
+- **Zweisprachig: Deutsch und Englisch.** GUI, Terminal-Oberfläche, Kommandozeile, Rettungs-Assistent und Web-Oberfläche (`index.en.html`)
+  folgen der Systemsprache (`LANG`); ausdrücklich mit `pbsgui language de|en|auto` (Datei `~/.config/pbsgui/language`, in der GUI links unten)
+  oder `PBSGUI_LANG`. Die Quelltexte sind deutsch und zugleich die Schlüssel (`tr("Text {0}", wert)`), die Übersetzungen stehen in
+  `src/pbsgui/i18n/en_*.py`; ein Test prüft, dass jeder Text übersetzt ist und die Platzhalter passen. README, Installation, Wiederherstellung,
+  Sicherheit und CHANGELOG gibt es auf Englisch (`README.md`, `docs/INSTALLATION.md`, `docs/RESTORE.md`, `SECURITY.md`, `CHANGELOG.en.md`);
+  die deutschen Fassungen heißen `*.de.md` bzw. `docs/WIEDERHERSTELLUNG.md`.
+
+### Hinzugefügt
 - **VM-Backups von Proxmox VE auf physische Platten (V2P)** mit der Rettungs-ISO: Snapshots `vm/<id>/…` mit Abbild-Archiven
   (`drive-*.img`) lassen sich auf eine oder mehrere Platten zurückspielen (Kommandozeile `pbsgui rescue vm-snapshots|vm-run`,
   Haken im Terminal-Assistenten, „Art der Wiederherstellung“ in der Web-Oberfläche). Zuordnung Quell- zu Ziel-Platte, Boot-Platte aus der

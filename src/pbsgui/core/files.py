@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator
 
+from ..i18n import tr
 from .client import ClientError, PbsClient
 from .models import Profile, Snapshot, logical_archive
 
@@ -159,13 +160,13 @@ def _fusermount() -> list[str]:
 def mounted(client: PbsClient, snapshot: Snapshot, archive: str, timeout: float = 30) -> Iterator[Path]:
     """Hängt ein Archiv schreibgeschützt per FUSE ein und hängt es am Ende sicher wieder aus."""
     if not archive.endswith(".pxar"):
-        raise FilesError(f"{archive} ist kein Datei-Archiv (.pxar)")
+        raise FilesError(tr("{0} ist kein Datei-Archiv (.pxar)", archive))
     mp = Path(tempfile.mkdtemp(prefix="pbsgui-mnt-"))
     try:
         try:
             client.mount(snapshot, archive, str(mp))
         except ClientError as e:
-            raise FilesError(f"Einhängen fehlgeschlagen: {e} (ist FUSE installiert? `fusermount3` nötig)") from None
+            raise FilesError(tr("Einhängen fehlgeschlagen: {0} (ist FUSE installiert? `fusermount3` nötig)", e)) from None
         end = time.time() + timeout
         while not (os.path.ismount(mp) or any(mp.iterdir()) or mp.is_symlink()) and time.time() < end:
             time.sleep(0.2)
@@ -231,7 +232,7 @@ def copy_selection(src_root: Path, rels: list[str], dest_root: Path, *, overwrit
             return
         if dest.resolve(strict=False) == confine.resolve() or _within(dest.parent, confine):
             return
-        raise FilesError(f"Zielpfad liegt außerhalb des erlaubten Bereichs: {dest}")
+        raise FilesError(tr("Zielpfad liegt außerhalb des erlaubten Bereichs: {0}", dest))
 
     def one(src: Path, rel: str) -> None:
         dest = dest_for(rel)
@@ -248,16 +249,16 @@ def copy_selection(src_root: Path, rels: list[str], dest_root: Path, *, overwrit
                 pass
             return
         if not (stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode)):
-            res.skipped.append(f"{rel} (Sonderdatei)")
+            res.skipped.append(tr("{0} (Sonderdatei)", rel))
             return
         dest.parent.mkdir(parents=True, exist_ok=True)
         guard(dest)
         if os.path.lexists(dest):
             if not overwrite:
-                res.skipped.append(f"{rel} (existiert schon)")
+                res.skipped.append(tr("{0} (existiert schon)", rel))
                 return
             if os.path.isdir(dest) and not os.path.islink(dest):
-                res.skipped.append(f"{rel} (am Ziel ist ein Ordner)")
+                res.skipped.append(tr("{0} (am Ziel ist ein Ordner)", rel))
                 return
             if safety_dir is not None:                    # alte Fassung sichern, bevor sie ersetzt wird
                 keep = safety_dir / rel.lstrip("/")
@@ -276,9 +277,9 @@ def copy_selection(src_root: Path, rels: list[str], dest_root: Path, *, overwrit
     for rel in rels:
         src = src_root / rel.lstrip("/")
         if not os.path.lexists(src):
-            res.skipped.append(f"{rel} (nicht im Archiv)")
+            res.skipped.append(tr("{0} (nicht im Archiv)", rel))
             continue
-        on_line(f"Kopiere {rel}")
+        on_line(tr("Kopiere {0}", rel))
         one(src, rel)
     return res
 
@@ -306,7 +307,7 @@ def map_to_original(profile: Profile, archive: str, rels: list[str], home: Path 
     home = (home or Path.home()).resolve()
     origin = archive_origin(profile, archive)
     if origin is None:
-        raise FilesError(f"Der Originalort von {archive} ist unbekannt: Zurückschreiben nicht möglich")
+        raise FilesError(tr("Der Originalort von {0} ist unbekannt: Zurückschreiben nicht möglich", archive))
     out = []
     for rel in rels:
         dest = Path(os.path.normpath(Path(origin) / rel.lstrip("/")))
@@ -317,7 +318,7 @@ def map_to_original(profile: Profile, archive: str, rels: list[str], home: Path 
 def require_home_only(items: list[OriginalPath]) -> None:
     outside = [i.dest for i in items if not i.in_home]
     if outside:
-        raise FilesError("Überschreiben am Originalort ist nur im Home-Verzeichnis erlaubt. Außerhalb: "
+        raise FilesError(tr("Überschreiben am Originalort ist nur im Home-Verzeichnis erlaubt. Außerhalb: ")
                          + ", ".join(str(p) for p in outside[:5]) + (" …" if len(outside) > 5 else ""))
 
 
@@ -343,7 +344,7 @@ def restore_to_folder(client: PbsClient, snapshot: Snapshot, archive: str, rels:
     """Kopiert die gewählten Pfade in einen Zielordner (nichts wird überschrieben)."""
     target = Path(target).expanduser()
     if target.exists() and not target.is_dir():
-        raise FilesError(f"{target} ist kein Ordner")
+        raise FilesError(tr("{0} ist kein Ordner", target))
     target.mkdir(parents=True, exist_ok=True)
     with mounted(client, snapshot, archive) as mp:
         return copy_selection(mp, rels, target, overwrite=False, on_line=on_line)

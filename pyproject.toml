@@ -26,7 +26,7 @@ pbsgui-run = "pbsgui.cli.run:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"pbsgui.web" = ["words.txt", "index.html"]
+"pbsgui.web" = ["words.txt", "index.html", "index.en.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

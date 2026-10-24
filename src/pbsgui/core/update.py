@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+from ..i18n import tr
 
 PACKAGES = ("pbstui", "proxmox-backup-client", "netbird", "wireguard-tools", "openvpn")
 STATE_FILE = "/run/pbsgui-update.state"     # "fertig", "offline" oder "fehler" (+ Text)
@@ -59,24 +60,24 @@ def update(run: Run = subprocess.run, wait: float = 25, on_line: Callable[[str],
         return res
 
     if not shutil.which("apt-get") and run is subprocess.run:
-        return finish(UpdateResult("fehler", text="apt-get nicht gefunden"))
-    on_line("Prüfe die Netzwerkverbindung …")
+        return finish(UpdateResult("fehler", text=tr("apt-get nicht gefunden")))
+    on_line(tr("Prüfe die Netzwerkverbindung …"))
     if not online(wait=wait, run=run, sleep=sleep):
-        return finish(UpdateResult("offline", text="kein Netzwerk: Updates übersprungen"))
+        return finish(UpdateResult("offline", text=tr("kein Netzwerk: Updates übersprungen")))
     env = {**os.environ, "DEBIAN_FRONTEND": "noninteractive", "LC_ALL": "C"}
-    on_line("Aktualisiere Paketlisten …")
+    on_line(tr("Aktualisiere Paketlisten …"))
     r = run(["apt-get", "update", "-qq"], capture_output=True, text=True, env=env, timeout=180)
     if r.returncode != 0:
-        return finish(UpdateResult("fehler", text="apt-get update fehlgeschlagen: " + (r.stderr or r.stdout).strip()[-300:]))
+        return finish(UpdateResult("fehler", text=tr("apt-get update fehlgeschlagen: ") + (r.stderr or r.stdout).strip()[-300:]))
     before = installed_packages(run)
     if not before:
-        return finish(UpdateResult("fertig", text="keine der Programme installiert"))
+        return finish(UpdateResult("fertig", text=tr("keine der Programme installiert")))
     on_line("Aktualisiere: " + ", ".join(sorted(before)))
     r = run(["apt-get", "install", "-y", "-qq", "--only-upgrade", "-o", "Dpkg::Options::=--force-confold", *sorted(before)],
             capture_output=True, text=True, env=env, timeout=900)
     if r.returncode != 0:
-        return finish(UpdateResult("fehler", text="Aktualisierung fehlgeschlagen: " + (r.stderr or r.stdout).strip()[-300:]))
+        return finish(UpdateResult("fehler", text=tr("Aktualisierung fehlgeschlagen: ") + (r.stderr or r.stdout).strip()[-300:]))
     after = installed_packages(run)
     upgraded = sorted(f"{p} {before[p]} -> {after[p]}" for p in before if p in after and after[p] != before[p])
-    text = ("aktualisiert: " + ", ".join(upgraded)) if upgraded else "alles aktuell"
+    text = ("aktualisiert: " + ", ".join(upgraded)) if upgraded else tr("alles aktuell")
     return finish(UpdateResult("fertig", upgraded, text, restart_needed=any(u.startswith("pbstui ") for u in upgraded)))

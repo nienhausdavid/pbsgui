@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..i18n import tr
 from ..core import rescue, vmimage, vpn
 from ..core.pbs_api import ApiError, fetch_fingerprint
 from ..core.rescue import RescueConfig, RescueError
@@ -38,7 +39,7 @@ def _s(d: dict, key: str, maxlen: int = 256) -> str:
     if v is None:
         return ""
     if not isinstance(v, str) or len(v) > maxlen:
-        raise ServiceError(f"Ungültiger Wert für {key}")
+        raise ServiceError(tr("Ungültiger Wert für {0}", key))
     return v.strip()
 
 
@@ -86,13 +87,13 @@ class RescueService:
         try:
             return {"fingerprint": fetch_fingerprint(host, port)}
         except (ApiError, OSError) as e:
-            raise ServiceError(f"Fingerprint nicht abrufbar: {e}") from None
+            raise ServiceError(tr("Fingerprint nicht abrufbar: {0}", e)) from None
 
     @staticmethod
     def _host(d: dict) -> str:
         h = _s(d, "server")
         if not _HOST.match(h):
-            raise ServiceError("Server: Name oder Adresse ungültig")
+            raise ServiceError(tr("Server: Name oder Adresse ungültig"))
         return h
 
     @staticmethod
@@ -100,9 +101,9 @@ class RescueService:
         try:
             p = int(d.get("port") or 8007)
         except (TypeError, ValueError):
-            raise ServiceError("Port ungültig") from None
+            raise ServiceError(tr("Port ungültig")) from None
         if not 1 <= p <= 65535:
-            raise ServiceError("Port ungültig")
+            raise ServiceError(tr("Port ungültig"))
         return p
 
     # -- VPN ----------------------------------------------------------------------------------------------
@@ -111,7 +112,7 @@ class RescueService:
         if kind == "wireguard":
             text = _s(d, "config", MAX_PASTE)
             if "[Interface]" not in text:
-                raise ServiceError("Das ist keine WireGuard-Konfiguration (Abschnitt [Interface] fehlt)")
+                raise ServiceError(tr("Das ist keine WireGuard-Konfiguration (Abschnitt [Interface] fehlt)"))
             name = _s(d, "name", 15) or "wg0"
             path = self.workdir / f"{name}.conf"
             self._write_secret(path, text + "\n")
@@ -124,7 +125,7 @@ class RescueService:
         elif kind == "openvpn":
             text = _s(d, "config", MAX_PASTE)
             if not re.search(r"^\s*(remote|client)\b", text, re.M):
-                raise ServiceError("Das ist keine OpenVPN-Konfiguration (remote/client fehlt)")
+                raise ServiceError(tr("Das ist keine OpenVPN-Konfiguration (remote/client fehlt)"))
             path = self.workdir / "client.ovpn"
             self._write_secret(path, text + "\n")
             try:
@@ -137,14 +138,14 @@ class RescueService:
             except vpn.VpnError as e:
                 raise ServiceError(str(e)) from None
         else:
-            raise ServiceError("Unbekannter VPN-Typ")
+            raise ServiceError(tr("Unbekannter VPN-Typ"))
         return {"ok": r.ok, "text": r.text[-600:], "vpn": vpn.status(self.run_cmd)}
 
     def vpn_down(self, d: dict) -> dict:
         kind = _s(d, "kind")
         fn = {"wireguard": vpn.wireguard_down, "openvpn": vpn.openvpn_down, "netbird": vpn.netbird_down}.get(kind)
         if not fn:
-            raise ServiceError("Unbekannter VPN-Typ")
+            raise ServiceError(tr("Unbekannter VPN-Typ"))
         r = fn(run=self.run_cmd) if kind != "wireguard" else vpn.wireguard_down(None, self.run_cmd)
         return {"ok": r.ok, "text": r.text[-600:], "vpn": vpn.status(self.run_cmd)}
 
@@ -160,9 +161,9 @@ class RescueService:
         try:
             k = json.loads(text)
         except ValueError:
-            raise ServiceError("Das ist keine Schlüsseldatei (kein gültiges JSON)") from None
+            raise ServiceError(tr("Das ist keine Schlüsseldatei (kein gültiges JSON)")) from None
         if not isinstance(k, dict) or "kdf" not in k or "fingerprint" not in k:
-            raise ServiceError("Das sieht nicht nach einem PBS-Schlüssel aus (kdf/fingerprint fehlen)")
+            raise ServiceError(tr("Das sieht nicht nach einem PBS-Schlüssel aus (kdf/fingerprint fehlen)"))
         path = self.workdir / "key.json"
         self._write_secret(path, text)
         self.keyfile = str(path)
@@ -172,26 +173,26 @@ class RescueService:
     def connect(self, d: dict) -> dict:
         fp = _s(d, "fingerprint", 100)
         if not _FP.match(fp):
-            raise ServiceError("Fingerprint ungültig")
+            raise ServiceError(tr("Fingerprint ungültig"))
         auth_id = _s(d, "auth_id")
         if not _AUTH.match(auth_id):
-            raise ServiceError("Token-ID ungültig")
+            raise ServiceError(tr("Token-ID ungültig"))
         ds, ns, bid = _s(d, "datastore"), _s(d, "namespace"), _s(d, "backup_id")
-        for label, v in (("Datastore", ds), ("Namespace", ns), ("Backup-ID", bid)):
+        for label, v in ((tr("Datastore"), ds), (tr("Namespace"), ns), ("Backup-ID", bid)):
             if not _NAME.match(v):
-                raise ServiceError(f"{label} enthält unzulässige Zeichen")
+                raise ServiceError(tr("{0} enthält unzulässige Zeichen", label))
         if not ds:
-            raise ServiceError("Datastore fehlt")
+            raise ServiceError(tr("Datastore fehlt"))
         token = d.get("token") or ""
         if not isinstance(token, str) or not token or len(token) > 512:
-            raise ServiceError("Token-Secret fehlt")
+            raise ServiceError(tr("Token-Secret fehlt"))
         cfg = RescueConfig(server=self._host(d), port=self._port(d), datastore=ds, auth_id=auth_id, token=token,
                            fingerprint=fp, namespace=ns.strip("/"), backup_id=bid, keyfile=self.keyfile)
         if not cfg.fingerprint:
-            raise ServiceError("Fingerprint fehlt: erst abrufen und mit dem Wert in PBS vergleichen")
+            raise ServiceError(tr("Fingerprint fehlt: erst abrufen und mit dem Wert in PBS vergleichen"))
         mode = _s(d, "mode") or "files"
         if mode not in ("files", "vm"):
-            raise ServiceError("Unbekannte Art der Wiederherstellung")
+            raise ServiceError(tr("Unbekannte Art der Wiederherstellung"))
         try:
             snaps = vmimage.list_vm_snapshots(cfg) if mode == "vm" else rescue.list_full_snapshots(cfg)
         except (RescueError, ApiError) as e:
@@ -199,7 +200,7 @@ class RescueService:
         except Exception as e:      # ClientError u. ä.
             msg = str(e).replace(token, "***")
             if "missing key" in msg:
-                msg += " (das Backup ist verschlüsselt: erst die Schlüsseldatei angeben)"
+                msg += tr(" (das Backup ist verschlüsselt: erst die Schlüsseldatei angeben)")
             raise ServiceError(msg[-400:]) from None
         self.cfg, self.snaps, self.snap, self.rec, self.plan = cfg, snaps, None, None, None
         self.mode, self.vmcfg, self.vmplan = mode, None, None
@@ -209,11 +210,11 @@ class RescueService:
 
     def choose(self, d: dict) -> dict:
         if not self.cfg:
-            raise ServiceError("Zuerst mit dem Server verbinden", 409)
+            raise ServiceError(tr("Zuerst mit dem Server verbinden"), 409)
         path = _s(d, "path", 300)
         snap = next((s for s in self.snaps if s.path == path), None)
         if not snap:
-            raise ServiceError("Snapshot nicht gefunden")
+            raise ServiceError(tr("Snapshot nicht gefunden"))
         self.cfg.snapshot = snap.path
         if self.mode == "vm":
             try:
@@ -241,19 +242,19 @@ class RescueService:
     # -- Plan ------------------------------------------------------------------------------------------------
     def make_vm_plan(self, d: dict) -> dict:
         if not (self.cfg and self.snap and self.vmcfg):
-            raise ServiceError("Zuerst einen Snapshot wählen", 409)
+            raise ServiceError(tr("Zuerst einen Snapshot wählen"), 409)
         raw = d.get("mapping")
         if not isinstance(raw, dict) or len(raw) > 32:
-            raise ServiceError("Zuordnung ungültig")
+            raise ServiceError(tr("Zuordnung ungültig"))
         mapping: dict[str, str] = {}
         for k, v in raw.items():
             if not isinstance(k, str) or not isinstance(v, str) or not re.fullmatch(r"/dev/[A-Za-z0-9/_\-]+", v):
-                raise ServiceError("Zuordnung ungültig")
+                raise ServiceError(tr("Zuordnung ungültig"))
             if v:
                 mapping[k] = v
         pw = d.get("passphrase") or ""
         if not isinstance(pw, str) or len(pw) > 512:
-            raise ServiceError("Passphrase ungültig")
+            raise ServiceError(tr("Passphrase ungültig"))
         try:
             plan = vmimage.build_plan(self.cfg, self.snap, self.vmcfg, mapping, rescue.candidate_disks(),
                                       vmimage.RepairOptions.from_dict(d.get("repair") if isinstance(d.get("repair"), dict) else None))
@@ -267,21 +268,21 @@ class RescueService:
         if self.mode == "vm":
             return self.make_vm_plan(d)
         if not (self.cfg and self.snap and self.rec):
-            raise ServiceError("Zuerst einen Snapshot wählen", 409)
+            raise ServiceError(tr("Zuerst einen Snapshot wählen"), 409)
         disk = _s(d, "disk", 64)
         if not re.fullmatch(r"/dev/[A-Za-z0-9/_\-]+", disk):
-            raise ServiceError("Ziel-Platte ungültig")
+            raise ServiceError(tr("Ziel-Platte ungültig"))
         enc = _s(d, "encryption") or "keep"
         if enc not in ("keep", "new", "none"):
-            raise ServiceError("Verschlüsselung ungültig")
+            raise ServiceError(tr("Verschlüsselung ungültig"))
         passphrase = d.get("passphrase") or ""
         new_pass = d.get("new_passphrase") or ""
         if not isinstance(passphrase, str) or not isinstance(new_pass, str) or len(passphrase) > 512 or len(new_pass) > 512:
-            raise ServiceError("Passphrase ungültig")
+            raise ServiceError(tr("Passphrase ungültig"))
         if enc == "new" and len(new_pass) < 8:
-            raise ServiceError("Die neue Passphrase braucht mindestens 8 Zeichen")
+            raise ServiceError(tr("Die neue Passphrase braucht mindestens 8 Zeichen"))
         if rescue.needs_passphrase(self.rec, enc) and not passphrase:
-            raise ServiceError("Die LUKS-Passphrase des Originalsystems fehlt")
+            raise ServiceError(tr("Die LUKS-Passphrase des Originalsystems fehlt"))
         try:
             size = rescue.validate_target(disk, self.rec)
             shrink = bool(d.get("shrink"))
@@ -302,17 +303,16 @@ class RescueService:
         dry = bool(d.get("dry_run"))
         with self._lock:
             if self.run.state == "running":
-                raise ServiceError("Es läuft bereits eine Wiederherstellung", 409)
+                raise ServiceError(tr("Es läuft bereits eine Wiederherstellung"), 409)
             vm = self.mode == "vm"
             if not (self.cfg and self.snap and ((vm and self.vmplan) or (not vm and self.rec and self.plan))):
-                raise ServiceError("Zuerst einen Plan erstellen", 409)
+                raise ServiceError(tr("Zuerst einen Plan erstellen"), 409)
             if not dry:
                 if os.geteuid() != 0:
-                    raise ServiceError("Die Wiederherstellung braucht root (nur der Trockenlauf geht ohne)", 403)
+                    raise ServiceError(tr("Die Wiederherstellung braucht root (nur der Trockenlauf geht ohne)"), 403)
                 want = self.vm_targets if vm else [self.target]
                 if sorted(set(_s(d, "confirm", 512).split())) != want:
-                    raise ServiceError(f"Bestätigung falsch: zum Starten {'alle Gerätenamen' if vm else 'den Gerätenamen'} "
-                                       f"{' '.join(want)} eintippen", 403)
+                    raise ServiceError(tr("Bestätigung falsch: zum Starten {0} {1} eintippen", 'alle Gerätenamen' if vm else 'den Gerätenamen', ' '.join(want)), 403)
             self.run = RunState("running", [], dry)
             cfg, snap, rec, plan = self.cfg, self.snap, self.rec, (self.vmplan if vm else self.plan)
         threading.Thread(target=self._execute, args=(cfg, snap, rec, plan, dry), daemon=True).start()
@@ -326,7 +326,7 @@ class RescueService:
             ok = (vmimage.execute(cfg, plan, log, dry_run=dry) if self.mode == "vm"
                   else rescue.execute(cfg, snap, rec, plan, log, dry_run=dry))
         except Exception as e:
-            log(f"FEHLER: {str(e).replace(cfg.token, '***')}")
+            log(tr("FEHLER: {0}", str(e).replace(cfg.token, '***')))
         finally:
             self.run.state = "ok" if ok else "failed"
             cfg.token = cfg.passphrase = cfg.new_passphrase = ""        # Geheimnisse nicht länger als nötig behalten
@@ -342,9 +342,9 @@ class RescueService:
     def power(self, d: dict) -> dict:
         action = _s(d, "action")
         if action not in ("reboot", "poweroff"):
-            raise ServiceError("Unbekannte Aktion")
+            raise ServiceError(tr("Unbekannte Aktion"))
         if self.run.state == "running":
-            raise ServiceError("Die Wiederherstellung läuft noch", 409)
+            raise ServiceError(tr("Die Wiederherstellung läuft noch"), 409)
 
         def later():
             time.sleep(2)

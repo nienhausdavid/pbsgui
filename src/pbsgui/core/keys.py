@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from ..i18n import tr
 from .client import ClientError, client_binary
 
 
@@ -56,14 +57,14 @@ def generate_key(binary: str | None = None) -> tuple[str, str]:
             r = subprocess.run([binary or client_binary(), "key", "create", path, "--kdf", "none"],
                                capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
         except FileNotFoundError:
-            raise ClientError(f"Client nicht gefunden: {binary or client_binary()}") from None
+            raise ClientError(tr("Client nicht gefunden: {0}", binary or client_binary())) from None
         if r.returncode != 0:
-            raise ClientError((r.stderr or r.stdout).strip() or "key create fehlgeschlagen")
+            raise ClientError((r.stderr or r.stdout).strip() or tr("key create fehlgeschlagen"))
         content = Path(path).read_text()
         try:
             fp = json.loads(content).get("fingerprint", "")
         except ValueError:
-            raise ClientError("Ungültige Key-Datei vom Client") from None
+            raise ClientError(tr("Ungültige Key-Datei vom Client")) from None
         return content, fp
     finally:
         shutil.rmtree(d, ignore_errors=True)

@@ -25,6 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from ..i18n import language, tr
 from . import auth
 from .service import RescueService, ServiceError
 
@@ -34,6 +35,7 @@ MAX_BODY = 128 * 1024
 MAX_CONNECTIONS = 48
 MAX_TARPIT = 16
 INDEX = Path(__file__).with_name("index.html")
+INDEX_EN = Path(__file__).with_name("index.en.html")      # englische Fassung, gleiche Elemente und IDs
 
 
 # -- Zertifikat -----------------------------------------------------------------------------------------------
@@ -62,7 +64,7 @@ def make_certificate(directory: Path, names: list[str]) -> tuple[Path, Path, str
                         "-keyout", str(key), "-out", str(cert), "-days", "2", "-subj", "/CN=pbsgui-rescue",
                         "-addext", f"subjectAltName={sans}"], capture_output=True, text=True)
     if r.returncode != 0:
-        raise RuntimeError("Zertifikat konnte nicht erzeugt werden (openssl): " + (r.stderr or r.stdout).strip()[-300:])
+        raise RuntimeError(tr("Zertifikat konnte nicht erzeugt werden (openssl): ") + (r.stderr or r.stdout).strip()[-300:])
     os.chmod(key, 0o600)
     der = ssl.PEM_cert_to_DER_cert(cert.read_text())
     h = hashlib.sha256(der).hexdigest().upper()
@@ -99,7 +101,7 @@ class App:
         self.stop_event.set()
 
     def _finished(self, ok: bool, dry: bool) -> None:
-        self.guard.log("info", "-", ("Trockenlauf" if dry else "Wiederherstellung") + (" fertig" if ok else " fehlgeschlagen"))
+        self.guard.log("info", "-", (tr("Trockenlauf") if dry else tr("Wiederherstellung")) + (" fertig" if ok else " fehlgeschlagen"))
 
     def idle_expired(self) -> bool:
         return self.clock() - self.last_request > self.idle_seconds
@@ -159,24 +161,24 @@ def make_handler(app: App):
 
         def _body(self) -> dict:
             if self.headers.get("Transfer-Encoding"):
-                raise ServiceError("Chunked wird nicht unterstützt", 411)
+                raise ServiceError(tr("Chunked wird nicht unterstützt"), 411)
             try:
                 n = int(self.headers.get("Content-Length") or 0)
             except ValueError:
-                raise ServiceError("Content-Length ungültig") from None
+                raise ServiceError(tr("Content-Length ungültig")) from None
             if n < 0 or n > MAX_BODY:
-                raise ServiceError("Anfrage zu groß", 413)
+                raise ServiceError(tr("Anfrage zu groß"), 413)
             raw = self.rfile.read(n) if n else b""
             if not raw:
                 return {}
             if "json" not in (self.headers.get("Content-Type") or ""):
-                raise ServiceError("Nur JSON", 415)
+                raise ServiceError(tr("Nur JSON"), 415)
             try:
                 d = json.loads(raw)
             except ValueError:
-                raise ServiceError("Ungültiges JSON") from None
+                raise ServiceError(tr("Ungültiges JSON")) from None
             if not isinstance(d, dict):
-                raise ServiceError("JSON-Objekt erwartet")
+                raise ServiceError(tr("JSON-Objekt erwartet"))
             return d
 
         def _cookie(self) -> str:
@@ -202,9 +204,9 @@ def make_handler(app: App):
             except (BrokenPipeError, ConnectionResetError, TimeoutError, socket.timeout):
                 pass
             except Exception:                  # kein Stacktrace an den Client
-                guard.log("info", ip, f"interner Fehler bei {self.command} {urlsplit(self.path).path}")
+                guard.log("info", ip, tr("interner Fehler bei {0} {1}", self.command, urlsplit(self.path).path))
                 try:
-                    self._json(500, {"error": "Interner Fehler"})
+                    self._json(500, {"error": tr("Interner Fehler")})
                 except OSError:
                     pass
 
@@ -214,8 +216,7 @@ def make_handler(app: App):
             if rest > 0:                                      # gesperrt: kurz bremsen, dann ablehnen
                 app.delay()
                 if guard.block_kind(ip) == "lock" and path.startswith("/api/"):     # wer sich vertippt hat, erfährt den Grund
-                    return self._json(429, {"error": f"Zu viele Fehlversuche: diese Adresse ist noch etwa {max(1, round(rest / 60))} "
-                                                     "Minuten gesperrt"}, {"Retry-After": str(int(rest))})
+                    return self._json(429, {"error": tr("Zu viele Fehlversuche: diese Adresse ist noch etwa {0} Minuten gesperrt", max(1, round(rest / 60)))}, {"Retry-After": str(int(rest))})
                 return self._send(403, b"Forbidden", "text/plain")
             if not guard.allow_request(ip):
                 return self._send(429, b"Too Many Requests", "text/plain", {"Retry-After": "10"})
@@ -227,7 +228,7 @@ def make_handler(app: App):
                 return self._send(200, FAKE_LOGIN, "text/html")
             if path == "/" and self.command in ("GET", "HEAD"):
                 nonce = secrets.token_urlsafe(16)
-                html = INDEX.read_text().replace("__NONCE__", nonce).replace("__HP__", auth.HONEYPOT_FIELD).encode()
+                html = (INDEX_EN if language() == "en" else INDEX).read_text().replace("__NONCE__", nonce).replace("__HP__", auth.HONEYPOT_FIELD).encode()
                 csp = (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; "
                        "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
                 return self._send(200, html, "text/html", {"Content-Security-Policy": csp})
@@ -237,26 +238,26 @@ def make_handler(app: App):
                 return self._login(ip)
             sess = sessions.get(self._cookie(), ip)
             if not sess:
-                return self._json(401, {"error": "Nicht angemeldet oder Sitzung abgelaufen"})
+                return self._json(401, {"error": tr("Nicht angemeldet oder Sitzung abgelaufen")})
             if self.command == "POST":
                 if not secrets.compare_digest(self.headers.get("X-CSRF-Token") or "", sess.csrf):
-                    return self._json(403, {"error": "CSRF-Prüfung fehlgeschlagen"})
+                    return self._json(403, {"error": tr("CSRF-Prüfung fehlgeschlagen")})
             elif self.command not in ("GET", "HEAD"):
-                return self._json(405, {"error": "Methode nicht erlaubt"})
+                return self._json(405, {"error": tr("Methode nicht erlaubt")})
             self._api(path, sess)
 
         def _login(self, ip: str) -> None:
             if self.command != "POST":
-                return self._json(405, {"error": "Methode nicht erlaubt"})
+                return self._json(405, {"error": tr("Methode nicht erlaubt")})
             d = self._body()
             if str(d.get(auth.HONEYPOT_FIELD, "")).strip():     # unsichtbares Feld ausgefüllt: das war kein Mensch
-                guard.honeypot(ip, "Honeypot-Feld ausgefüllt")
+                guard.honeypot(ip, tr("Honeypot-Feld ausgefüllt"))
                 app.delay()
-                return self._json(401, {"error": "Anmeldung fehlgeschlagen"})
+                return self._json(401, {"error": tr("Anmeldung fehlgeschlagen")})
             pw = d.get("password")
             if not isinstance(pw, str) or len(pw) > 200:
                 app.delay()
-                return self._json(401, {"error": "Anmeldung fehlgeschlagen"})
+                return self._json(401, {"error": tr("Anmeldung fehlgeschlagen")})
             ok, why = guard.check_login(ip, pw)
             if ok:
                 s = sessions.create(ip)
@@ -264,10 +265,10 @@ def make_handler(app: App):
                 return self._json(200, {"csrf": s.csrf}, {"Set-Cookie": cookie})
             app.delay()                                          # Fehlversuche kosten Zeit
             if why == "locked":
-                return self._json(429, {"error": "Zu viele Fehlversuche: diese Adresse ist vorübergehend gesperrt"})
+                return self._json(429, {"error": tr("Zu viele Fehlversuche: diese Adresse ist vorübergehend gesperrt")})
             if why == "down":
-                return self._json(503, {"error": "Die Web-Oberfläche wurde abgeschaltet (zu viele Fehlversuche)"})
-            return self._json(401, {"error": "Anmeldung fehlgeschlagen"})
+                return self._json(503, {"error": tr("Die Web-Oberfläche wurde abgeschaltet (zu viele Fehlversuche)")})
+            return self._json(401, {"error": tr("Anmeldung fehlgeschlagen")})
 
         def _api(self, path: str, sess) -> None:
             get_routes = {"/api/status": lambda: service.status(), "/api/disks": lambda: service.disks(),
@@ -284,11 +285,11 @@ def make_handler(app: App):
                     return self._json(200, {"ok": True}, {"Set-Cookie": "pbsgui_session=; Max-Age=0; Path=/; Secure; HttpOnly"})
                 if path == "/api/stop":
                     self._json(200, {"ok": True})
-                    app.request_stop("auf Wunsch beendet")
+                    app.request_stop(tr("auf Wunsch beendet"))
                     return
                 if path in post_routes:
                     return self._json(200, post_routes[path](self._body()))
-            self._json(404, {"error": "Unbekannte Adresse"})
+            self._json(404, {"error": tr("Unbekannte Adresse")})
 
         def _query_int(self, name: str) -> int:
             for part in urlsplit(self.path).query.split("&"):
@@ -364,7 +365,7 @@ class WebServer:
         try:
             while not self.app.stop_event.wait(5):
                 if self.app.idle_expired() and not self.app.service.run.state == "running":
-                    self.app.request_stop("Leerlauf: Zeit abgelaufen")
+                    self.app.request_stop(tr("Leerlauf: Zeit abgelaufen"))
         finally:
             self.httpd.shutdown()
             self.httpd.server_close()
@@ -394,11 +395,7 @@ def read_info() -> dict | None:
 
 
 def describe(info: dict) -> str:
-    return ("Web-Oberfläche der Wiederherstellung\n"
-            "  Adresse:      " + "\n                ".join(info["urls"]) + "\n"
-            f"  Passwort:     {info['password']}\n"
-            f"  Fingerabdruck (SHA-256, im Browser vergleichen):\n    {info['fingerprint']}\n"
-            f"  Schaltet sich nach {info['idle_minutes']:.0f} Minuten ohne Anfragen ab.")
+    return (tr("Web-Oberfläche der Wiederherstellung\n  Adresse:      ") + "\n                ".join(info["urls"]) + tr("\n  Passwort:     {0}\n  Fingerabdruck (SHA-256, im Browser vergleichen):\n    {1}\n  Schaltet sich nach {2:.0f} Minuten ohne Anfragen ab.", info['password'], info['fingerprint'], info['idle_minutes']))
 
 
 def start_daemon(bind: str = "0.0.0.0", port: int = DEFAULT_PORT, timeout: float = 60, wait: float = 30) -> dict | None:
@@ -435,59 +432,59 @@ def events_tail(n: int = 12) -> list[str]:
 
 
 def run(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="pbsgui web", description="Web-Oberfläche für die Wiederherstellung (Rettungs-ISO)")
-    ap.add_argument("--bind", default="0.0.0.0", help="Adresse, an der gelauscht wird; Standard: alle Adressen")
+    ap = argparse.ArgumentParser(prog="pbsgui web", description=tr("Web-Oberfläche für die Wiederherstellung (Rettungs-ISO)"))
+    ap.add_argument("--bind", default="0.0.0.0", help=tr("Adresse, an der gelauscht wird; Standard: alle Adressen"))
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
-    ap.add_argument("--timeout", type=float, default=60, help="Minuten ohne Anfrage, dann schaltet sie sich ab (Standard 60)")
-    ap.add_argument("--daemon", action="store_true", help="im Hintergrund starten und die Zugangsdaten anzeigen")
+    ap.add_argument("--timeout", type=float, default=60, help=tr("Minuten ohne Anfrage, dann schaltet sie sich ab (Standard 60)"))
+    ap.add_argument("--daemon", action="store_true", help=tr("im Hintergrund starten und die Zugangsdaten anzeigen"))
     ap.add_argument("--stop", action="store_true"); ap.add_argument("--status", action="store_true")
     a = ap.parse_args(argv)
     if a.status or a.stop:
         info = read_info()
         if not info:
-            print("Die Web-Oberfläche läuft nicht.")
+            print(tr("Die Web-Oberfläche läuft nicht."))
             return 1
         if a.stop:
             os.kill(int(info["pid"]), signal.SIGTERM)
-            print("Beendet.")
+            print(tr("Beendet."))
             return 0
         print(describe(info))
         return 0
     if read_info():
         print(describe(read_info()))      # type: ignore[arg-type]
-        print("\n(Sie läuft bereits; `pbsgui web --stop` beendet sie.)")
+        print(tr("\n(Sie läuft bereits; `pbsgui web --stop` beendet sie.)"))
         return 0
     if not shutil.which("openssl"):
-        print("Fehler: openssl fehlt (für das Zertifikat).", file=sys.stderr)
+        print(tr("Fehler: openssl fehlt (für das Zertifikat)."), file=sys.stderr)
         return 1
     if a.daemon:
         info = start_daemon(a.bind, a.port, a.timeout)
         if info:
             print(describe(info))
             return 0
-        print("Fehler: Die Web-Oberfläche ist nicht angelaufen (siehe /run/pbsgui-web/web.log).", file=sys.stderr)
+        print(tr("Fehler: Die Web-Oberfläche ist nicht angelaufen (siehe /run/pbsgui-web/web.log)."), file=sys.stderr)
         return 1
     try:
         srv = WebServer(a.bind, a.port, a.timeout)
     except OSError as e:
-        print(f"Fehler: {e}", file=sys.stderr)
+        print(tr("Fehler: {0}", e), file=sys.stderr)
         return 1
     except RuntimeError as e:
-        print(f"Fehler: {e}", file=sys.stderr)
+        print(tr("Fehler: {0}", e), file=sys.stderr)
         return 1
     events_file = RUN_DIR / "events.log"
     RUN_DIR.mkdir(mode=0o700, exist_ok=True)
     srv.app.guard.log = _tee(srv.app.guard.log, events_file)          # type: ignore[method-assign]
     write_info(srv.info())
-    signal.signal(signal.SIGTERM, lambda *_: srv.app.request_stop("beendet (Signal)"))
+    signal.signal(signal.SIGTERM, lambda *_: srv.app.request_stop(tr("beendet (Signal)")))
     print(describe(srv.info()), flush=True)
-    print("\nEreignisse (Anmeldungen, Sperren, Köder):", flush=True)
+    print(tr("\nEreignisse (Anmeldungen, Sperren, Köder):"), flush=True)
     try:
         reason = srv.serve()
     except KeyboardInterrupt:
-        reason = "beendet (Strg+C)"
+        reason = tr("beendet (Strg+C)")
     (RUN_DIR / "info.json").unlink(missing_ok=True)
-    print(f"Web-Oberfläche beendet: {reason}")
+    print(tr("Web-Oberfläche beendet: {0}", reason))
     return 0
 
 

@@ -2,6 +2,9 @@ import os
 import sys
 from pathlib import Path
 
+# Die Tests prüfen deutsche Texte; die Sprache muss vor dem Import der Module feststehen (tr() läuft teils beim Import).
+os.environ.setdefault("PBSGUI_LANG", "de")
+
 import pytest
 
 from pbsgui.core.models import Profile

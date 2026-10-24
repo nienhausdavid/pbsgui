@@ -39,3 +39,11 @@ def test_release_script_rejects_bad_input_without_touching_anything():
     r = subprocess.run(["sh", str(ROOT / "scripts/release.sh"), "1.2"], capture_output=True, text=True, cwd=ROOT)
     assert r.returncode != 0 and "Keine gültige Version" in r.stderr
     assert pyproject_version() in (ROOT / "pyproject.toml").read_text()
+
+
+def test_english_changelog_mirrors_the_german_one():
+    de = (ROOT / "CHANGELOG.md").read_text()
+    en = (ROOT / "CHANGELOG.en.md").read_text()
+    heads = lambda t: re.findall(r"^## \[([^\]]+)\](?: - (\d{4}-\d{2}-\d{2}))?$", t, re.M)
+    assert heads(de) == heads(en)                                              # gleiche Versionen und Daten
+    assert re.findall(r"^\[[^\]]+\]: \S+$", de, re.M) == re.findall(r"^\[[^\]]+\]: \S+$", en, re.M)

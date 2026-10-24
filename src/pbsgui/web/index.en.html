@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pbsgui Restore</title>
+<style nonce="__NONCE__">
+:root{--bg:#f3f4f7;--card:#fff;--text:#0f172a;--muted:#475569;--line:#8a94a6;--soft:#dde2ec;--acc:#1d4ed8;--acct:#fff;--bad:#b91c1c;--ok:#166534}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1c2027;--text:#f1f5f9;--muted:#b6c0d0;--line:#6b7686;--soft:#2b3240;--acc:#3b82f6;--acct:#0b1220;--bad:#ff8a8a;--ok:#7bdc98}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;padding:.8rem 1.2rem;background:var(--card);border-bottom:1px solid var(--line)}
+header h1{font-size:1.1rem;margin:0}
+main{max-width:46rem;margin:1.2rem auto;padding:0 1rem 3rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1.2rem;margin-bottom:1rem}
+h2{margin:.1rem 0 .6rem;font-size:1.25rem}
+.muted{color:var(--muted);font-size:.92rem}
+label{display:block;margin:.7rem 0 .2rem;font-weight:600}
+input,select,textarea{width:100%;padding:.55rem .65rem;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);font:inherit}
+textarea{min-height:7rem;font-family:ui-monospace,monospace;font-size:.85rem}
+input[type=checkbox],input[type=radio]{width:auto}
+button{padding:.6rem 1.1rem;border-radius:7px;border:1px solid var(--line);background:var(--soft);color:var(--text);font:inherit;cursor:pointer;margin:.6rem .5rem 0 0}
+button.primary{background:var(--acc);color:var(--acct);border-color:var(--acc);font-weight:700}
+button.danger{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:700}
+button:disabled{opacity:.5;cursor:not-allowed}
+.msg{margin-top:.8rem;white-space:pre-wrap}.bad{color:var(--bad)}.ok{color:var(--ok)}
+.hp{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden}
+.row{display:flex;gap:.8rem;flex-wrap:wrap}.row>*{flex:1 1 12rem}
+.opt{display:flex;gap:.6rem;align-items:flex-start;padding:.55rem .6rem;border:1px solid var(--soft);border-radius:7px;margin:.4rem 0;cursor:pointer}
+.opt input{margin-top:.35rem}
+.opt:has(input:checked){border-color:var(--acc);background:var(--soft)}
+pre{background:#0b0f14;color:#d7e0ea;padding:.8rem;border-radius:8px;max-height:26rem;overflow:auto;font-size:.8rem;white-space:pre-wrap;word-break:break-word}
+ol.steps{display:flex;gap:.3rem;list-style:none;padding:0;margin:0 0 1rem;flex-wrap:wrap}
+ol.steps li{padding:.2rem .6rem;border-radius:99px;background:var(--soft);font-size:.8rem;color:var(--muted)}
+ol.steps li.on{background:var(--acc);color:var(--acct);font-weight:700}
+.hidden{display:none}
+.warn{border-left:4px solid var(--bad);padding-left:.7rem;margin:.6rem 0}
+code{font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<header><h1>pbsgui Restore</h1><div><span id="chips" class="muted"></span> <button id="logout" class="hidden">Log out</button></div></header>
+<main>
+<section id="login" class="card">
+  <h2>Login</h2>
+  <p class="muted">The password is shown on the console of the server. First compare the certificate fingerprint in the browser with the value shown there.</p>
+  <form id="loginform" autocomplete="off">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+    <div class="hp" aria-hidden="true"><label for="__HP__">Website</label><input id="__HP__" name="__HP__" type="text" tabindex="-1" autocomplete="off"></div>
+    <button class="primary" type="submit">Log in</button>
+  </form>
+  <div id="loginmsg" class="msg bad"></div>
+</section>
+
+<div id="app" class="hidden">
+<ol class="steps" id="steps"></ol>
+
+<section class="card" data-step="1"><h2>1. Network and VPN (optional)</h2>
+  <p class="muted">If the backup server is behind a VPN, set up the tunnel here. Otherwise continue with step 2.</p>
+  <label for="vkind">Type</label>
+  <select id="vkind"><option value="wireguard">WireGuard</option><option value="openvpn">OpenVPN</option><option value="netbird">NetBird</option></select>
+  <div id="vpn-wireguard"><label for="vname">Interface name</label><input id="vname" value="wg0" maxlength="15"><label for="vwg">Configuration (paste wg0.conf)</label><textarea id="vwg" spellcheck="false"></textarea></div>
+  <div id="vpn-openvpn" class="hidden"><label for="vovpn">Configuration (paste .ovpn, certificates embedded)</label><textarea id="vovpn" spellcheck="false"></textarea>
+    <div class="row"><div><label for="vuser">User (optional)</label><input id="vuser" autocomplete="off"></div><div><label for="vpass">Password (optional)</label><input id="vpass" type="password" autocomplete="off"></div></div></div>
+  <div id="vpn-netbird" class="hidden"><label for="vkey">Setup-Key</label><input id="vkey" type="password" autocomplete="off"><label for="vurl">Management URL (empty = netbird.io)</label><input id="vurl" placeholder="https://netbird.example.org"></div>
+  <button id="vup" class="primary">Connect</button><button id="vdown">Disconnect</button><button class="next">Next</button>
+  <div id="vmsg" class="msg"></div>
+</section>
+
+<section class="card hidden" data-step="2"><h2>2. Backup server</h2>
+  <div class="row"><div><label for="server">Server</label><input id="server" placeholder="pbs.example.org"></div><div><label for="port">Port</label><input id="port" value="8007" inputmode="numeric"></div></div>
+  <label for="mode">Kind of restore</label>
+  <select id="mode"><option value="files">Files: pbsgui full backup of a Linux system (the disk layout is rebuilt)</option><option value="vm">VM image: Proxmox VE backup of a virtual machine onto physical disks (V2P)</option></select>
+  <div class="row"><div><label for="datastore">Datastore</label><input id="datastore"></div><div><label for="namespace">Namespace (empty = root)</label><input id="namespace"></div></div>
+  <div class="row"><div><label for="backup_id">Backup ID (empty = all)</label><input id="backup_id"></div><div><label for="auth_id">Token ID</label><input id="auth_id" placeholder="user@pbs!name"></div></div>
+  <label for="token">Token secret</label><input id="token" type="password" autocomplete="off">
+  <label for="fp">Fingerprint of the server</label><input id="fp" spellcheck="false">
+  <button id="getfp">Fetch fingerprint</button><span class="muted">Compare it with the value in the PBS interface!</span>
+  <label for="keytext">Key file (only for an encrypted backup: paste the content of key.json)</label><textarea id="keytext" spellcheck="false"></textarea>
+  <button id="setkey">Use key</button>
+  <div><button class="back">Back</button><button id="connect" class="primary">Find snapshots</button></div>
+  <div id="smsg" class="msg"></div>
+</section>
+
+<section class="card hidden" data-step="3"><h2>3. Snapshot</h2><div id="snaps"></div>
+  <button class="back">Back</button><button id="choose" class="primary">Next</button><div id="cmsg" class="msg"></div>
+</section>
+
+<section class="card hidden" data-step="4"><h2>4. Target disks</h2>
+  <p class="warn">The chosen disks are <b>completely overwritten</b>.</p>
+  <div id="vmmode" class="hidden">
+    <p id="vminfo" class="muted"></p><div id="vmdisks"></div>
+    <h3>Repair automatically afterwards</h3>
+    <label class="opt"><input type="checkbox" id="r-grow" checked><span>Enlarge the partition and file system to the disk size</span></label>
+    <label class="opt"><input type="checkbox" id="r-initramfs" checked><span>Rebuild the initramfs with all drivers (new hardware)</span></label>
+    <label class="opt"><input type="checkbox" id="r-bootloader" checked><span>Reinstall the bootloader (UEFI with fallback, or BIOS)</span></label>
+    <label class="opt"><input type="checkbox" id="r-network" checked><span>Adapt network interface names</span></label>
+    <label class="opt"><input type="checkbox" id="r-services" checked><span>Disable qemu-guest-agent and cloud-init</span></label>
+    <label for="vmluks">LUKS passphrase (only if the image has encrypted volumes)</label><input id="vmluks" type="password" autocomplete="off">
+  </div>
+  <div id="filemode">
+  <div id="disks"></div>
+  <label for="enc">Encryption (LUKS)</label>
+  <select id="enc"><option value="keep">As in the original</option><option value="new">Re-encrypt (new passphrase)</option><option value="none">Without encryption</option></select>
+  <div id="oldpass" class="hidden"><label for="pass">LUKS passphrase of the original system</label><input id="pass" type="password" autocomplete="off"></div>
+  <div id="newpass" class="hidden"><label for="npass">New LUKS passphrase (at least 8 characters)</label><input id="npass" type="password" autocomplete="off"></div>
+  <label class="opt hidden" id="shrinkrow"><input type="checkbox" id="shrink"><span>Resize: the disk is smaller than the original, partitions and volumes are shrunk</span></label>
+  </div>
+  <button class="back">Back</button><button id="plan" class="primary">Create plan</button><div id="pmsg" class="msg"></div>
+</section>
+
+<section class="card hidden" data-step="5"><h2>5. Check the plan</h2><ul id="plansum"></ul><div id="planwarn"></div>
+  <label for="confirm">To confirm, type the device name (all of them if there are several, separated by spaces): <code id="confirmname"></code></label><input id="confirm" autocomplete="off" spellcheck="false">
+  <button class="back">Back</button><button id="dry">Dry run</button><button id="go" class="danger">Restore</button><div id="rmsg" class="msg"></div>
+</section>
+
+<section class="card hidden" data-step="6"><h2 id="runtitle">6. Restore running</h2><pre id="log"></pre><div id="runmsg" class="msg"></div>
+  <button id="reboot" class="primary hidden">Restart</button><button id="poweroff" class="hidden">Shut down</button>
+</section>
+</div>
+</main>
+<script nonce="__NONCE__">
+"use strict";
+const $ = id => document.getElementById(id);
+const STEPS = ["VPN", "Server", "Snapshot", "Disk", "Plan", "Running"];
+let csrf = "", step = 1, snapshots = [], info = {}, poll = null, logNext = 0;
+
+async function api(path, body) {
+  const opt = {credentials: "same-origin", headers: {}};
+  if (body !== undefined) { opt.method = "POST"; opt.headers["Content-Type"] = "application/json"; opt.headers["X-CSRF-Token"] = csrf; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  let d = {}; try { d = await r.json(); } catch (e) {}
+  if (r.status === 401 && path !== "/api/login") { location.reload(); }
+  if (!r.ok) throw new Error(d.error || ("Error " + r.status));
+  return d;
+}
+function show(el, on) { el.classList.toggle("hidden", !on); }
+function msg(id, text, cls) { const e = $(id); e.textContent = text || ""; e.className = "msg " + (cls || ""); }
+function el(tag, props, ...kids) { const e = document.createElement(tag); Object.assign(e, props || {}); kids.forEach(k => e.append(k)); return e; }
+function fmtSize(n) { return (n / 2**30).toFixed(1) + " GiB"; }
+async function busy(btn, fn) { btn.disabled = true; try { await fn(); } finally { btn.disabled = false; } }
+
+function goto(n) {
+  step = n;
+  document.querySelectorAll("section[data-step]").forEach(s => show(s, +s.dataset.step === n));
+  const ol = $("steps"); ol.replaceChildren(...STEPS.map((t, i) => el("li", {textContent: (i + 1) + " " + t, className: i + 1 === n ? "on" : ""})));
+}
+document.querySelectorAll("button.next").forEach(b => b.onclick = () => goto(step + 1));
+document.querySelectorAll("button.back").forEach(b => b.onclick = () => goto(step - 1));
+
+$("loginform").onsubmit = async ev => {
+  ev.preventDefault(); msg("loginmsg", "");
+  try {
+    const d = await api("/api/login", {password: $("pw").value, "__HP__": $("__HP__").value});
+    csrf = d.csrf; $("pw").value = ""; show($("login"), false); show($("app"), true); show($("logout"), true);
+    info = await api("/api/status"); chips(); goto(1);
+  } catch (e) { msg("loginmsg", e.message, "bad"); }
+};
+function chips() {
+  const v = info.vpn || {}; const on = Object.entries(v).filter(([k, x]) => x && x !== "aus" && x !== "off" && x !== "nicht verbunden" && x !== "not connected" && x !== "nicht installiert" && x !== "not installed").map(([k]) => k);
+  $("chips").textContent = (info.root ? "root" : "without root (dry run only)") + " · " + (info.uefi ? "UEFI" : "BIOS") + (on.length ? " · VPN: " + on.join(", ") : "");
+}
+$("logout").onclick = async () => { try { await api("/api/logout", {}); } catch (e) {} location.reload(); };
+
+$("vkind").onchange = () => ["wireguard", "openvpn", "netbird"].forEach(k => show($("vpn-" + k), $("vkind").value === k));
+$("vup").onclick = ev => busy(ev.target, async () => {
+  const k = $("vkind").value; msg("vmsg", "Connecting …");
+  const body = {kind: k};
+  if (k === "wireguard") { body.config = $("vwg").value; body.name = $("vname").value; }
+  if (k === "openvpn") { body.config = $("vovpn").value; body.user = $("vuser").value; body.password = $("vpass").value; }
+  if (k === "netbird") { body.setup_key = $("vkey").value; body.management_url = $("vurl").value; }
+  try { const d = await api("/api/vpn/up", body); info.vpn = d.vpn; chips(); msg("vmsg", (d.ok ? "Connected. " : "Error: ") + d.text, d.ok ? "ok" : "bad");
+        $("vpass").value = ""; $("vkey").value = ""; $("vwg").value = $("vwg").value && d.ok ? "" : $("vwg").value; }
+  catch (e) { msg("vmsg", e.message, "bad"); }
+});
+$("vdown").onclick = ev => busy(ev.target, async () => {
+  try { const d = await api("/api/vpn/down", {kind: $("vkind").value}); info.vpn = d.vpn; chips(); msg("vmsg", d.text || "Disconnected", "ok"); } catch (e) { msg("vmsg", e.message, "bad"); }
+});
+
+$("getfp").onclick = ev => busy(ev.target, async () => {
+  msg("smsg", "Fetching the fingerprint …");
+  try { const d = await api("/api/fingerprint", {server: $("server").value, port: $("port").value}); $("fp").value = d.fingerprint; msg("smsg", "Fingerprint taken over. Compare it with the value in the PBS interface.", "ok"); }
+  catch (e) { msg("smsg", e.message, "bad"); }
+});
+$("setkey").onclick = ev => busy(ev.target, async () => {
+  try { const d = await api("/api/key", {content: $("keytext").value}); $("keytext").value = ""; msg("smsg", "Key taken over (fingerprint " + d.fingerprint + ").", "ok"); }
+  catch (e) { msg("smsg", e.message, "bad"); }
+});
+$("connect").onclick = ev => busy(ev.target, async () => {
+  msg("smsg", $("mode").value === "vm" ? "Looking for VM backups …" : "Looking for full backups …");
+  try {
+    const d = await api("/api/connect", {server: $("server").value, port: $("port").value, datastore: $("datastore").value, namespace: $("namespace").value,
+      backup_id: $("backup_id").value, mode: $("mode").value, auth_id: $("auth_id").value, token: $("token").value, fingerprint: $("fp").value});
+    $("token").value = ""; snapshots = d.snapshots;
+    vmMode = d.mode === "vm";
+    if (!snapshots.length) { msg("smsg", vmMode ? "No VM backups with an image found (check the VM number as backup ID, the namespace and the key)." : "No full backups with recovery data found (check the backup ID, namespace and key).", "bad"); return; }
+    $("snaps").replaceChildren(...snapshots.map((s, i) => el("label", {className: "opt"},
+      el("input", {type: "radio", name: "snap", value: s.path, checked: i === 0}),
+      el("span", {textContent: new Date(s.time * 1000).toLocaleString() + "  ·  " + (vmMode ? "VM " : "") + s.backup_id +
+        (vmMode ? "  ·  " + s.disks.map(x => x.key + " " + fmtSize(x.size)).join(", ") : (s.size ? "  ·  " + fmtSize(s.size) : ""))}))));
+    msg("smsg", ""); goto(3);
+  } catch (e) { msg("smsg", e.message, "bad"); }
+});
+
+let originalSize = 0, needsPass = false, vmMode = false, vmInfo = null;
+$("choose").onclick = ev => busy(ev.target, async () => {
+  const sel = document.querySelector("input[name=snap]:checked"); if (!sel) return;
+  msg("cmsg", "Loading the layout data of the snapshot …");
+  try {
+    const d = await api("/api/choose", {path: sel.value});
+    show($("filemode"), !d.vm); show($("vmmode"), !!d.vm);
+    if (d.vm) { vmInfo = d; renderVm(d); }
+    else { originalSize = d.original_size; needsPass = d.needs_passphrase; renderDisks(d.disks); updateEnc(); }
+    msg("cmsg", ""); goto(4);
+  } catch (e) { msg("cmsg", e.message, "bad"); }
+});
+function renderVm(d) {
+  $("vminfo").textContent = "VM " + (d.name || "(unnamed)") + " · " + (d.ostype || "?") + " · " + (d.uefi ? "UEFI" : "BIOS") + ". Every disk of the VM gets a target disk; disks without a target are not restored.";
+  if (!d.targets.length) { $("vmdisks").replaceChildren(el("p", {className: "bad", textContent: "No permitted target disk found (mounted disks and the live medium are excluded)."})); return; }
+  $("vmdisks").replaceChildren(...d.disks.map(x => {
+    const sel = el("select", {id: "map-" + x.key});
+    sel.append(el("option", {value: "", textContent: "(do not restore)"}));
+    d.targets.forEach(t => sel.append(el("option", {value: t.path, textContent: t.path + " · " + fmtSize(t.size) + " · " + (t.model || "-"),
+                                                      selected: x.boot && d.targets.length === 1})));
+    return el("div", {}, el("label", {htmlFor: "map-" + x.key, textContent: x.key + " (" + fmtSize(x.size) + ")" + (x.boot ? " · boot disk" : "")}), sel);
+  }));
+}
+function renderDisks(disks) {
+  if (!disks.length) { $("disks").replaceChildren(el("p", {className: "bad", textContent: "No permitted target disk found (mounted disks and the live medium are excluded)."})); return; }
+  $("disks").replaceChildren(...disks.map((d, i) => el("label", {className: "opt"},
+    el("input", {type: "radio", name: "disk", value: d.path, checked: i === 0, onchange: updateEnc}),
+    el("span", {textContent: d.path + "  ·  " + fmtSize(d.size) + "  ·  " + (d.model || "-") + (d.removable ? "  ·  removable medium" : "")}))));
+  disks.forEach(d => { d.node = null; }); window.__disks = disks;
+}
+function updateEnc() {
+  const enc = $("enc").value; show($("oldpass"), enc === "keep" && needsPass); show($("newpass"), enc === "new");
+  const sel = document.querySelector("input[name=disk]:checked"); const d = sel && (window.__disks || []).find(x => x.path === sel.value);
+  show($("shrinkrow"), !!(d && originalSize && d.size < originalSize));
+}
+$("enc").onchange = updateEnc;
+$("plan").onclick = ev => busy(ev.target, async () => {
+  let body;
+  if (vmMode) {
+    const mapping = {}; (vmInfo.disks || []).forEach(x => { const v = $("map-" + x.key); if (v && v.value) mapping[x.key] = v.value; });
+    if (!Object.keys(mapping).length) { msg("pmsg", "Please choose at least one target disk.", "bad"); return; }
+    const repair = {}; ["grow", "initramfs", "bootloader", "network", "services"].forEach(k => repair[k] = $("r-" + k).checked);
+    body = {mapping, repair, passphrase: $("vmluks").value};
+  } else {
+    const sel = document.querySelector("input[name=disk]:checked"); if (!sel) { msg("pmsg", "Please choose a disk.", "bad"); return; }
+    body = {disk: sel.value, encryption: $("enc").value, passphrase: $("pass").value, new_passphrase: $("npass").value, shrink: $("shrink").checked};
+  }
+  msg("pmsg", "Creating the plan …");
+  try {
+    const d = await api("/api/plan", body);
+    $("plansum").replaceChildren(...d.summary.map(l => el("li", {textContent: l})));
+    $("planwarn").replaceChildren(...d.warnings.map(w => el("p", {className: "warn", textContent: "Warning: " + w})));
+    $("confirmname").textContent = d.disk; $("confirm").value = ""; msg("pmsg", ""); goto(5);
+  } catch (e) { msg("pmsg", e.message, "bad"); }
+});
+async function start(dry) {
+  msg("rmsg", "");
+  try { await api("/api/start", {dry_run: dry, confirm: $("confirm").value}); $("log").textContent = ""; logNext = 0; goto(6); show($("reboot"), false); show($("poweroff"), false); poll = setInterval(tick, 1500); tick(); }
+  catch (e) { msg("rmsg", e.message, "bad"); }
+}
+$("dry").onclick = () => start(true);
+$("go").onclick = () => { if (confirm("ALL DATA ON " + $("confirmname").textContent + " WILL BE LOST. Continue?")) start(false); };
+async function tick() {
+  try {
+    const d = await api("/api/log?since=" + logNext);
+    if (d.lines.length) { const pre = $("log"); const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30; pre.append(d.lines.join("\n") + "\n"); if (atEnd) pre.scrollTop = pre.scrollHeight; }
+    logNext = d.next;
+    if (d.state === "ok" || d.state === "failed") {
+      clearInterval(poll); const ok = d.state === "ok";
+      $("runtitle").textContent = ok ? (d.dry_run ? "Dry run finished" : "Finished") : "Failed";
+      msg("runmsg", ok ? (d.dry_run ? "Nothing was changed." : "Restore finished. Restart afterwards (the rescue medium access is gone then).") : "Failed: check the messages above; the target disk may be incomplete.", ok ? "ok" : "bad");
+      show($("reboot"), ok && !d.dry_run); show($("poweroff"), ok && !d.dry_run);
+    }
+  } catch (e) { msg("runmsg", e.message, "bad"); }
+}
+$("reboot").onclick = async () => { try { await api("/api/power", {action: "reboot"}); msg("runmsg", "The server is restarting. This page will become unreachable shortly."); } catch (e) { msg("runmsg", e.message, "bad"); } };
+$("poweroff").onclick = async () => { try { await api("/api/power", {action: "poweroff"}); msg("runmsg", "The server is shutting down."); } catch (e) { msg("runmsg", e.message, "bad"); } };
+$("pw").focus();
+</script>
+</body>
+</html>

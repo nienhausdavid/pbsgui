@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from ..i18n import tr
 from .modes import FULL
 from .models import Profile
 from .scheduler import SchedulerError
@@ -42,9 +43,7 @@ def needs_key_export(profile: Profile) -> bool:
 def ensure_recoverable(profile: Profile) -> None:
     if needs_key_export(profile):
         raise RecoveryError(
-            "Vollbackup gesperrt: Der Verschlüsselungs-Schlüssel wurde noch nicht exportiert. Ohne Kopie ließe sich "
-            "das System auf einem neuen PC nicht wiederherstellen. Jetzt sichern: "
-            f"pbsgui key export {profile.name} <ZIELDATEI>")
+            tr("Vollbackup gesperrt: Der Verschlüsselungs-Schlüssel wurde noch nicht exportiert. Ohne Kopie ließe sich das System auf einem neuen PC nicht wiederherstellen. Jetzt sichern: pbsgui key export {0} <ZIELDATEI>", profile.name))
 
 
 REQUIRED_TOOLS = {"lsblk": "util-linux", "blkid": "util-linux", "sfdisk": "fdisk"}
@@ -81,9 +80,8 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
     def sh(argv: list[str], outfile: str | None = None, artifact: str | None = None) -> str | None:
         """Führt einen Befehl aus. outfile: stdout dorthin; artifact: Datei, die der Befehl selbst erzeugt."""
         if not which(argv[0]):
-            hint = f" (Paket {REQUIRED_TOOLS[argv[0]]})" if argv[0] in REQUIRED_TOOLS else ""
-            note(f"{argv[0]} nicht installiert{hint}" + (": OHNE sie ist keine Wiederherstellung auf einem neuen PC "
-                                                        "möglich" if argv[0] in REQUIRED_TOOLS else ""))
+            hint = tr(" (Paket {0})", REQUIRED_TOOLS[argv[0]]) if argv[0] in REQUIRED_TOOLS else ""
+            note(tr("{0} nicht installiert{1}", argv[0], hint) + (tr(": OHNE sie ist keine Wiederherstellung auf einem neuen PC möglich") if argv[0] in REQUIRED_TOOLS else ""))
             return None
         try:
             r = run(argv, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -91,7 +89,7 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
             note(f"{' '.join(argv[:2])}: {e}")
             return None
         if r.returncode != 0:
-            note(f"{' '.join(argv[:2])} fehlgeschlagen: {(r.stderr or r.stdout).strip()[:160]}")
+            note(tr("{0} fehlgeschlagen: {1}", ' '.join(argv[:2]), (r.stderr or r.stdout).strip()[:160]))
             return None
         if outfile:
             (dest / outfile).write_text(r.stdout)
@@ -112,7 +110,7 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
     try:
         walk(json.loads(lsblk or "{}").get("blockdevices"))
     except ValueError:
-        note("lsblk lieferte kein gültiges JSON")
+        note(tr("lsblk lieferte kein gültiges JSON"))
 
     for d in (n for n in devices if n.get("type") == "disk"):
         path, name = d.get("path") or f"/dev/{d['name']}", d["kname"]
@@ -148,12 +146,12 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
         shutil.copyfile("/proc/self/mountinfo", dest / "mountinfo.txt")
         out.files.append("mountinfo.txt")
     except OSError as e:
-        note(f"mountinfo: {e}")
+        note(tr("mountinfo: {0}", e))
 
     luks = [n for n in devices if n.get("fstype") == "crypto_LUKS"]
     if luks and not profile.encrypt:
         # Der Header enthält die Schlüssel-Slots: nur in ein verschlüsseltes Backup legen
-        note("LUKS-Header NICHT gesichert: das Backup ist unverschlüsselt")
+        note(tr("LUKS-Header NICHT gesichert: das Backup ist unverschlüsselt"))
     elif luks:
         for n in luks:
             sh(["cryptsetup", "luksHeaderBackup", n.get("path") or f"/dev/{n['name']}", "--header-backup-file",
@@ -177,42 +175,9 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
 
 def render_sheet(profile: Profile) -> str:
     """Notfallblatt zum Ausdrucken. Enthält bewusst KEIN Token-Secret und keinen Schlüssel."""
-    ns = f" --ns {profile.namespace}" if profile.namespace else ""
+    ns = tr(" --ns {0}", profile.namespace) if profile.namespace else ""
     repo = profile.repository
-    key = (f"Schlüssel-Fingerprint: {profile.key_fingerprint}\n"
-           "Schlüsseldatei:        EXTERN AUFBEWAHREN (Passwortmanager/USB-Stick), ohne sie ist das Backup unlesbar!"
-           if profile.encrypt else "Verschlüsselung:       aus (Backup liegt unverschlüsselt auf dem Server)")
-    keyopt = " --keyfile /pfad/zum/schluessel.json" if profile.encrypt else ""
-    return f"""NOTFALLBLATT – pbsgui Vollbackup '{profile.name}'
-Erstellt: {time.strftime('%Y-%m-%d %H:%M')}   (enthält KEINE Geheimnisse)
-
-SERVER
-  Adresse:     {profile.server}:{profile.port}
-  Fingerprint: {profile.fingerprint}
-  Datastore:   {profile.datastore}
-  Namespace:   {profile.namespace or '(Wurzel)'}
-  Backup-ID:   host/{profile.backup_id}
-  Zugang:      {profile.auth_id}
-  Token-Secret: NICHT hier. Im Passwortmanager oder in PBS neu erzeugen (Benutzer/Token verwalten).
-
-VERSCHLÜSSELUNG
-  {key.replace(chr(10), chr(10) + '  ')}
-
-WIEDERHERSTELLUNG VON HAND (aus einem Live-System mit proxmox-backup-client)
-  1. Ziel-Platte vorbereiten: Partitionen, ggf. LUKS/LVM und Dateisysteme anlegen. Die Vorlage dazu liegt im Backup
-     unter /var/lib/pbsgui/recovery/{profile.slug}/ (partition-table-*.sfdisk, lvm-*.vg, luks-header-*.img, blkid.txt).
-  2. Zielsystem unter /mnt/ziel einhängen (Root, dann /boot, /boot/efi usw.).
-  3. Zugang setzen und Snapshots ansehen:
-       export PBS_REPOSITORY='{repo}'
-       export PBS_FINGERPRINT='{profile.fingerprint}'
-       export PBS_PASSWORD='<Token-Secret>'
-       proxmox-backup-client snapshot list{ns}
-  4. Wiederherstellen (Archiv des Vollbackups heißt root.pxar):
-       proxmox-backup-client restore host/{profile.backup_id}/<ZEITSTEMPEL> root.pxar /mnt/ziel{ns}{keyopt}
-  5. Bootloader/Initramfs neu erzeugen (chroot): update-initramfs -u -k all; grub-install; update-grub.
-
-HINWEISE
-  - Das ist ein dateibasiertes Backup, kein Abbild. Auf anderer Hardware kann das Nachbauen nötig sein
-    (Treiber, Netzwerknamen, Secure Boot, TPM-gebundene LUKS-Schlüssel gehen nicht mit).
-  - Ein laufendes System wird ohne Snapshot gesichert: Datenbanken können inkonsistent sein.
-"""
+    key = (tr("Schlüssel-Fingerprint: {0}\nSchlüsseldatei:        EXTERN AUFBEWAHREN (Passwortmanager/USB-Stick), ohne sie ist das Backup unlesbar!", profile.key_fingerprint)
+           if profile.encrypt else tr("Verschlüsselung:       aus (Backup liegt unverschlüsselt auf dem Server)"))
+    keyopt = tr(" --keyfile /pfad/zum/schluessel.json") if profile.encrypt else ""
+    return tr("NOTFALLBLATT – pbsgui Vollbackup '{0}'\nErstellt: {1}   (enthält KEINE Geheimnisse)\n\nSERVER\n  Adresse:     {2}:{3}\n  Fingerprint: {4}\n  Datastore:   {5}\n  Namespace:   {6}\n  Backup-ID:   host/{7}\n  Zugang:      {8}\n  Token-Secret: NICHT hier. Im Passwortmanager oder in PBS neu erzeugen (Benutzer/Token verwalten).\n\nVERSCHLÜSSELUNG\n  {9}\n\nWIEDERHERSTELLUNG VON HAND (aus einem Live-System mit proxmox-backup-client)\n  1. Ziel-Platte vorbereiten: Partitionen, ggf. LUKS/LVM und Dateisysteme anlegen. Die Vorlage dazu liegt im Backup\n     unter /var/lib/pbsgui/recovery/{10}/ (partition-table-*.sfdisk, lvm-*.vg, luks-header-*.img, blkid.txt).\n  2. Zielsystem unter /mnt/ziel einhängen (Root, dann /boot, /boot/efi usw.).\n  3. Zugang setzen und Snapshots ansehen:\n       export PBS_REPOSITORY='{11}'\n       export PBS_FINGERPRINT='{12}'\n       export PBS_PASSWORD='<Token-Secret>'\n       proxmox-backup-client snapshot list{13}\n  4. Wiederherstellen (Archiv des Vollbackups heißt root.pxar):\n       proxmox-backup-client restore host/{14}/<ZEITSTEMPEL> root.pxar /mnt/ziel{15}{16}\n  5. Bootloader/Initramfs neu erzeugen (chroot): update-initramfs -u -k all; grub-install; update-grub.\n\nHINWEISE\n  - Das ist ein dateibasiertes Backup, kein Abbild. Auf anderer Hardware kann das Nachbauen nötig sein\n    (Treiber, Netzwerknamen, Secure Boot, TPM-gebundene LUKS-Schlüssel gehen nicht mit).\n  - Ein laufendes System wird ohne Snapshot gesichert: Datenbanken können inkonsistent sein.\n", profile.name, time.strftime('%Y-%m-%d %H:%M'), profile.server, profile.port, profile.fingerprint, profile.datastore, profile.namespace or '(Wurzel)', profile.backup_id, profile.auth_id, key.replace(chr(10), chr(10) + '  '), profile.slug, repo, profile.fingerprint, ns, profile.backup_id, ns, keyopt)

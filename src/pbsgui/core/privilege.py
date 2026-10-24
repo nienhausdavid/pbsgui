@@ -13,6 +13,7 @@ import os
 import stat
 import sys
 from pathlib import Path
+from ..i18n import tr
 
 ENV_ALLOW = "PBSGUI_ALLOW_USER_CODE_AS_ROOT"
 
@@ -44,11 +45,9 @@ def require_trusted_code(python: str | None = None) -> None:
         return
     checks = [("pbsgui-Code", package_root() / "pbsgui"), ("Python-Interpreter", Path(python or sys.executable))]
     if sys.prefix != sys.base_prefix:     # virtuelle Umgebung: ihre Bibliotheken würden ebenfalls als root geladen
-        checks.append(("virtuelle Python-Umgebung", Path(sys.prefix)))
+        checks.append((tr("virtuelle Python-Umgebung"), Path(sys.prefix)))
     for what, path in checks:
         bad = _unsafe_part(path)
         if bad:
             raise PrivilegeError(
-                f"Aus Sicherheitsgründen startet pbsgui {what} nicht als root: '{bad}' gehört nicht root oder ist für "
-                f"andere beschreibbar. Bitte das Debian-Paket installieren (scripts/install.sh). Nur für Entwicklung: "
-                f"{ENV_ALLOW}=1 setzen.")
+                tr("Aus Sicherheitsgründen startet pbsgui {0} nicht als root: '{1}' gehört nicht root oder ist für andere beschreibbar. Bitte das Debian-Paket installieren (scripts/install.sh). Nur für Entwicklung: {2}=1 setzen.", what, bad, ENV_ALLOW))

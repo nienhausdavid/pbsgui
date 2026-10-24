@@ -8,6 +8,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout)
 
+from ..i18n import tr
 from ..core.dbdump import MARIADB, Database, DumpError, access_state, find_databases, setup_socket_access
 from ..core.manager import ProfileManager
 from ..core.models import Profile
@@ -21,23 +22,21 @@ class DbCredDialog(QDialog):
         super().__init__(parent)
         self.mgr, self.profile, self.db = mgr, profile, db
         self._worker: Worker | None = None
-        self.setWindowTitle(f"Datenbank-Zugang: {db.container}")
+        self.setWindowTitle(tr("Datenbank-Zugang: {0}", db.container))
         self.setMinimumWidth(460)
-        self.user = QLineEdit(); self.user.setPlaceholderText("Vorhandener Benutzer mit Leserechten")
+        self.user = QLineEdit(); self.user.setPlaceholderText(tr("Vorhandener Benutzer mit Leserechten"))
         self.pw = QLineEdit(); self.pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self.create = QCheckBox("Stattdessen Dump-Benutzer (nur lesen) automatisch anlegen")
+        self.create = QCheckBox(tr("Stattdessen Dump-Benutzer (nur lesen) automatisch anlegen"))
         self.admin_user = QLineEdit("root")
         self.admin_pw = QLineEdit(); self.admin_pw.setEchoMode(QLineEdit.EchoMode.Password)
         self.status = QLabel(""); self.status.setWordWrap(True)
-        note = QLabel("Der Zugang wird verschlüsselt gespeichert und nie aus .env-Dateien oder der Container-Umgebung "
-                      "gelesen. Empfohlen: ein eigener Benutzer nur mit Leserechten. Der Admin-Zugang wird nur "
-                      "einmal zum Anlegen benutzt und nicht gespeichert.")
+        note = QLabel(tr("Der Zugang wird verschlüsselt gespeichert und nie aus .env-Dateien oder der Container-Umgebung gelesen. Empfohlen: ein eigener Benutzer nur mit Leserechten. Der Admin-Zugang wird nur einmal zum Anlegen benutzt und nicht gespeichert."))
         note.setWordWrap(True)
         form = QFormLayout()
-        form.addRow("Benutzer", self.user); form.addRow("Passwort", self.pw)
+        form.addRow(tr("Benutzer"), self.user); form.addRow(tr("Passwort"), self.pw)
         form.addRow(self.create); form.addRow("Admin-Benutzer", self.admin_user); form.addRow("Admin-Passwort", self.admin_pw)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Speichern && prüfen")
+        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Speichern && prüfen"))
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
@@ -55,10 +54,10 @@ class DbCredDialog(QDialog):
         admin, admin_pw = self.admin_user.text().strip(), self.admin_pw.text()
         self.pw.clear(); self.admin_pw.clear()   # Passwörter sofort aus den Widgets entfernen
         if create and not (admin and admin_pw):
-            self.status.setText("Admin-Benutzer und -Passwort eingeben.")
+            self.status.setText(tr("Admin-Benutzer und -Passwort eingeben."))
             return
         if not create and not (user and pw):
-            self.status.setText("Benutzer und Passwort eingeben.")
+            self.status.setText(tr("Benutzer und Passwort eingeben."))
             return
         mgr, profile, db = self.mgr, self.profile, self.db
 
@@ -69,10 +68,10 @@ class DbCredDialog(QDialog):
                 mgr.set_db_credential(profile, db, user, pw)
 
         self.buttons.setEnabled(False)
-        self.status.setText("Prüfe …")
+        self.status.setText(tr("Prüfe …"))
         self._worker = Worker(work, self)
         self._worker.done.connect(lambda _r: self.accept())
-        self._worker.failed.connect(lambda m: (self.status.setText(f"Fehler: {m}"), self.buttons.setEnabled(True)))
+        self._worker.failed.connect(lambda m: (self.status.setText(tr("Fehler: {0}", m)), self.buttons.setEnabled(True)))
         self._worker.start()
 
 
@@ -87,19 +86,16 @@ class DbDumpDialog(QDialog):
         self._worker: Worker | None = None
         self.setWindowTitle("Datenbank-Dumps")
         self.setMinimumWidth(560)
-        note = QLabel("Vor jedem Backup werden laufende Datenbank-Container gedumpt und als eigenes Archiv "
-                      "(dbdumps.pxar) mitgesichert. Gestoppte Container nicht: ihre Dateien sind konsistent und im "
-                      "normalen Backup enthalten. Dumps von Containern, die länger als 14 Tage nicht mehr erkannt "
-                      "werden, räumt pbsgui auf.")
+        note = QLabel(tr("Vor jedem Backup werden laufende Datenbank-Container gedumpt und als eigenes Archiv (dbdumps.pxar) mitgesichert. Gestoppte Container nicht: ihre Dateien sind konsistent und im normalen Backup enthalten. Dumps von Containern, die länger als 14 Tage nicht mehr erkannt werden, räumt pbsgui auf."))
         note.setWordWrap(True)
-        self.enabled = QCheckBox("Dumps vor jedem Backup anlegen"); self.enabled.setChecked(profile.db_dump)
-        self.status = QLabel("Suche Datenbank-Container …"); self.status.setWordWrap(True)
+        self.enabled = QCheckBox(tr("Dumps vor jedem Backup anlegen")); self.enabled.setChecked(profile.db_dump)
+        self.status = QLabel(tr("Suche Datenbank-Container …")); self.status.setWordWrap(True)
         self.list = QListWidget()
-        self.socket_btn = QPushButton("Ohne Passwort einrichten … (empfohlen, Container steht kurz still)")
+        self.socket_btn = QPushButton(tr("Ohne Passwort einrichten … (empfohlen, Container steht kurz still)"))
         self.socket_btn.setEnabled(False)
         self.socket_btn.clicked.connect(self.setup_access)
-        self.cred_btn = QPushButton("Zugang mit Passwort festlegen …"); self.cred_btn.setEnabled(False)
-        self.del_btn = QPushButton("Zugang entfernen"); self.del_btn.setEnabled(False)
+        self.cred_btn = QPushButton(tr("Zugang mit Passwort festlegen …")); self.cred_btn.setEnabled(False)
+        self.del_btn = QPushButton(tr("Zugang entfernen")); self.del_btn.setEnabled(False)
         self.cred_btn.clicked.connect(self.edit_credential)
         self.del_btn.clicked.connect(self.remove_credential)
         self.list.currentRowChanged.connect(self._row_changed)
@@ -136,13 +132,13 @@ class DbDumpDialog(QDialog):
     def label(self, db: Database) -> str:
         how = self.state(db)
         if how == "none":
-            return f"{db.container} ({db.owner}): Postgres, kein Zugang nötig"
+            return tr("{0} ({1}): Postgres, kein Zugang nötig", db.container, db.owner)
         if how == "socket":
-            return f"{db.container} ({db.owner}): MariaDB/MySQL, Zugang: ohne Passwort (Socket)"
+            return tr("{0} ({1}): MariaDB/MySQL, Zugang: ohne Passwort (Socket)", db.container, db.owner)
         if how == "password":
             cred = self.mgr.db_credentials(self.profile).get(db.key) or {}
-            return f"{db.container} ({db.owner}): MariaDB/MySQL, Zugang: {cred.get('user', '?')}"
-        return f"{db.container} ({db.owner}): MariaDB/MySQL, Zugang FEHLT"
+            return tr("{0} ({1}): MariaDB/MySQL, Zugang: {2}", db.container, db.owner, cred.get('user', '?'))
+        return tr("{0} ({1}): MariaDB/MySQL, Zugang FEHLT", db.container, db.owner)
 
     def _show(self, dbs: list[Database], err: str = "", states: dict | None = None) -> None:
         if states is not None:
@@ -154,8 +150,8 @@ class DbDumpDialog(QDialog):
             self.list.addItem(QListWidgetItem(self.label(db)))
         if 0 <= current < len(dbs):
             self.list.setCurrentRow(current)
-        self.status.setText(err or (f"{len(dbs)} Datenbank-Container gefunden." if dbs else
-                                    "Keine laufenden Datenbank-Container gefunden (oder kein Zugriff auf deren Docker-Socket)."))
+        self.status.setText(err or (tr("{0} Datenbank-Container gefunden.", len(dbs)) if dbs else
+                                    tr("Keine laufenden Datenbank-Container gefunden (oder kein Zugriff auf deren Docker-Socket).")))
         self._row_changed(self.list.currentRow())
 
     def _selected(self) -> Database | None:
@@ -175,12 +171,11 @@ class DbDumpDialog(QDialog):
         if not db:
             return
         if QMessageBox.question(
-                self, "Ohne Passwort einrichten",
-                f"{db.container} wird einmalig für etwa 15 bis 40 Sekunden gestoppt (Anwendungen, die ihn nutzen, "
-                "verlieren kurz die Datenbank). Es wird kein Passwort gebraucht und keines gespeichert.\n\nFortfahren?"
+                self, tr("Ohne Passwort einrichten"),
+                tr("{0} wird einmalig für etwa 15 bis 40 Sekunden gestoppt (Anwendungen, die ihn nutzen, verlieren kurz die Datenbank). Es wird kein Passwort gebraucht und keines gespeichert.\n\nFortfahren?", db.container)
         ) != QMessageBox.StandardButton.Yes:
             return
-        self.status.setText(f"Richte {db.container} ein (Container steht kurz still) …")
+        self.status.setText(tr("Richte {0} ein (Container steht kurz still) …", db.container))
         self.socket_btn.setEnabled(False)
 
         def work(_l):
@@ -193,7 +188,7 @@ class DbDumpDialog(QDialog):
 
         self._worker = Worker(work, self)
         self._worker.done.connect(done)
-        self._worker.failed.connect(lambda m: (self.status.setText(f"Fehler: {m}"), self._row_changed(self.list.currentRow())))
+        self._worker.failed.connect(lambda m: (self.status.setText(tr("Fehler: {0}", m)), self._row_changed(self.list.currentRow())))
         self._worker.start()
 
     def edit_credential(self) -> None:
@@ -209,7 +204,7 @@ class DbDumpDialog(QDialog):
         try:
             self.mgr.remove_db_credential(self.profile, db.key)
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", str(e))
+            QMessageBox.warning(self, tr("Fehler"), str(e))
             return
         self.states.pop(db.key, None)
         self._show(self.dbs)
@@ -219,6 +214,6 @@ class DbDumpDialog(QDialog):
         try:
             self.mgr.save(self.profile)
         except Exception as e:
-            QMessageBox.warning(self, "Speichern fehlgeschlagen", str(e))
+            QMessageBox.warning(self, tr("Speichern fehlgeschlagen"), str(e))
             return
         self.accept()

@@ -1,5 +1,7 @@
 # Wiederherstellung mit der Rettungs-ISO
 
+[English](RESTORE.md) · **Deutsch**
+
 So spielst du ein **Vollbackup** auf einem neuen oder leeren PC zurück. Du brauchst:
 
 | Was | Wo es herkommt |

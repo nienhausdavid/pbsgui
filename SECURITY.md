@@ -1,43 +1,49 @@
-# Sicherheit
+# Security
 
-## Meldung von Schwachstellen
-Bitte keine öffentlichen Issues für Sicherheitslücken. Schreib an den Maintainer über eine private Nachricht auf GitHub
-(Security → „Report a vulnerability“ im Repository).
+**English** · [Deutsch](SECURITY.de.md)
 
-## Was pbsgui schützt und wie
-- **Geheimnisse:** API-Token, Schlüssel und Passphrasen liegen verschlüsselt im Geheimnis-Speicher (`systemd-creds`,
-  Rechte 0600; Fallback Datei 0600) und werden nie als Programmargument übergeben. Der Klartext-Schlüssel liegt nur
-  kurz in einem 0700-Verzeichnis im RAM (`XDG_RUNTIME_DIR`, `/run` oder `/dev/shm`).
-- **Verbindung:** TLS mit gepinntem Fingerabdruck; vor dem Fingerabdruck-Vergleich wird nichts gesendet.
-- **Root-Code:** Vollbackups und Systemzeitpläne starten Python als root. pbsgui tut das nur, wenn Code und Interpreter
-  root gehören und für andere nicht beschreibbar sind (Debian-Paket); in einem Entwicklungs-Checkout wird das
-  verweigert (Ausnahme nur mit `PBSGUI_ALLOW_USER_CODE_AS_ROOT=1`).
-- **Root-Helfer:** `pbsgui.cli.admin` nimmt nur bekannte Geheimnis-Arten und Aktionen an; Namen werden zu Dateinamen
-  gesäubert, Texte in Units von Steuerzeichen und `%` befreit.
-- **Programme** werden immer mit Argumentlisten gestartet, nie über eine Shell mit Benutzereingaben.
-- **Wiederherstellung:** „Überschreiben“ ist auf das Home-Verzeichnis begrenzt (Symlinks werden aufgelöst), alte
-  Fassungen werden vorher gesichert.
+## Reporting vulnerabilities
+Please do not open public issues for security vulnerabilities. Write to the maintainer through a private message on GitHub
+(Security → “Report a vulnerability” in the repository).
 
-- **Web-Oberfläche der Rettungs-ISO** (nur auf Wunsch aktiv): zufällige Passphrase (etwa 78 Bit), HTTPS, Rate Limiting, Sperren,
-  Honeypot (verstecktes Feld, Köder-Adressen), Abschaltung nach 40 Fehlversuchen, eine Sitzung mit Zeitlimits, CSRF-Token,
-  Content-Security-Policy mit Nonce, keine Datei- oder Verzeichnisfreigabe, kein Stacktrace an Clients, Größenlimits. Sie lauscht
-  standardmäßig an allen Adressen (nötig, solange noch kein VPN steht); bei Bedarf mit `--bind` auf eine Adresse beschränken.
+## What pbsgui protects and how
+- **Secrets:** API tokens, keys and passphrases are stored encrypted in the secret store (`systemd-creds`,
+  mode 0600; fallback: file with mode 0600) and are never passed as a program argument. The plain-text key only exists
+  briefly in a 0700 directory in RAM (`XDG_RUNTIME_DIR`, `/run` or `/dev/shm`).
+- **Connection:** TLS with a pinned fingerprint; nothing is sent before the fingerprint has been compared.
+- **Root code:** full backups and system schedules start Python as root. pbsgui only does so if the code and the
+  interpreter belong to root and are not writable by others (Debian package); in a development checkout this is
+  refused (exception only with `PBSGUI_ALLOW_USER_CODE_AS_ROOT=1`).
+- **Root helper:** `pbsgui.cli.admin` accepts only known kinds of secrets and actions; names are sanitized into file names,
+  texts in units are stripped of control characters and `%`.
+- **Programs** are always started with argument lists, never through a shell with user input.
+- **Restore:** “overwrite” is limited to the home directory (symlinks are resolved), old versions are saved beforehand.
+- **Changing the server afterwards:** the new settings are checked with the client before anything is stored; a changed
+  token ID needs its secret; a changed fingerprint must be confirmed explicitly.
+- **Catalog cache and restore test:** the cached file lists (`~/.cache/pbsgui/catalogs`) are readable only by the user (0600/0700);
+  for encrypted backups they contain file names in plain text, like the files themselves on that computer. Restore-test samples are
+  decrypted only in RAM (`XDG_RUNTIME_DIR` or `/dev/shm`) and removed right away. The file preview never follows symbolic links
+  and refuses paths outside the archive.
 
-## Prüfungen
-Die CI führt `ruff` (Fehler- und Sicherheitsregeln), `bandit` und `pip-audit` aus; `tests/test_security.py` sichert die
-oben genannten Eigenschaften ab.
+- **Web interface of the rescue ISO** (only active on request): random passphrase (about 78 bits), HTTPS, rate limiting, lockouts,
+  honeypot (hidden field, decoy addresses), shutdown after 40 failed attempts, a single session with time limits, CSRF token,
+  content security policy with a nonce, no file or directory sharing, no stack trace to clients, size limits. By default it
+  listens on all addresses (needed as long as there is no VPN yet); restrict it to one address with `--bind` if needed.
 
-## Bekannte Grenzen
-- Die Rettungs-ISO startet eine root-Konsole (Wiederherstellung braucht root). Sie ist für den Einsatz an einem Rechner
-  gedacht, auf den man physischen Zugriff hat; die ISO ist nicht für den Dauerbetrieb gedacht.
-- Ein kompromittierter Benutzer mit sudo-Rechten kann naturgemäß alles.
-- Der Schlüssel im Geheimnis-Speicher ist an den Rechner gebunden; der Export ist Pflicht und liegt in der Verantwortung
-  des Benutzers.
+## Checks
+The CI runs `ruff` (error and security rules), `bandit` and `pip-audit`; `tests/test_security.py` secures the properties
+listed above.
 
-## Rettungs-ISO: Web-Oberfläche und VM-Abbilder
-- Die Web-Oberfläche (`pbsgui web`) nutzt HTTPS mit selbstsigniertem Zertifikat (Fingerabdruck auf der Konsole), eine zufällige Passphrase
-  (4 Wörter und Zahlen), Rate Limiting, Sperren mit wachsender Dauer, Honeypot (verstecktes Formularfeld, Köder-Adressen), eine Sitzung
-  mit CSRF-Token und Content-Security-Policy; sie schaltet sich nach Leerlauf oder zu vielen Fehlversuchen ab.
-- VM-Abbilder: Zerstörende Schritte brauchen die getippte Bestätigung **aller** Ziel-Platten; die Auswahl ist auf zulässige Platten
-  beschränkt (keine eingehängten, nicht das Live-Medium); Werkzeuge laufen immer mit leerer Eingabe, damit nichts auf dem Terminal
-  nach Passwörtern fragt; Passphrasen gehen nur über stdin.
+## Known limits
+- The rescue ISO starts a root console (restoring needs root). It is meant for use on a machine you have physical access
+  to; the ISO is not meant for permanent operation.
+- A compromised user with sudo rights can of course do anything.
+- The key in the secret store is bound to the machine; exporting it is mandatory and the user's responsibility.
+
+## Rescue ISO: web interface and VM images
+- The web interface (`pbsgui web`) uses HTTPS with a self-signed certificate (fingerprint on the console), a random passphrase
+  (4 words and numbers), rate limiting, lockouts of growing length, a honeypot (hidden form field, decoy addresses), a session
+  with a CSRF token and a content security policy; it switches itself off after being idle or after too many failed attempts.
+- VM images: destructive steps need the typed confirmation of **all** target disks; the choice is restricted to permitted disks
+  (no mounted ones, not the live medium); tools always run with empty input so that nothing asks for passwords on the terminal;
+  passphrases only go through stdin.

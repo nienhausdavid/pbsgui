@@ -4,6 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QListWidget, QListWidgetItem
 
+from ..i18n import tr
 from ..core.modes import mount_choices
 
 
@@ -18,14 +19,14 @@ class MountList(QListWidget):
             flags = item.flags() | Qt.ItemFlag.ItemIsUserCheckable
             if m.bind:
                 flags &= ~Qt.ItemFlag.ItemIsEnabled
-                item.setToolTip("Duplikat eines bereits eingehängten Verzeichnisses: wird nicht doppelt gesichert")
+                item.setToolTip(tr("Duplikat eines bereits eingehängten Verzeichnisses: wird nicht doppelt gesichert"))
             elif m.usb:
-                item.setToolTip("USB-Laufwerk: nur mit ausdrücklichem Haken")
+                item.setToolTip(tr("USB-Laufwerk: nur mit ausdrücklichem Haken"))
             item.setFlags(flags)
             item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
             self.addItem(item)
         if self.count() == 0:
-            self.addItem(QListWidgetItem("Keine weiteren lokalen Laufwerke erkannt (nur das Root-Dateisystem)."))
+            self.addItem(QListWidgetItem(tr("Keine weiteren lokalen Laufwerke erkannt (nur das Root-Dateisystem).")))
             self.item(0).setFlags(Qt.ItemFlag.NoItemFlags)
 
     def selected(self) -> list[str]:

@@ -1,113 +1,124 @@
 # pbsgui
 
-Grafische Oberfläche für den Proxmox Backup Client (`proxmox-backup-client`).
-Plan und Architektur: [docs/PLAN.md](docs/PLAN.md). Status: **Prototyp**.
+**English** · [Deutsch](README.de.md)
 
-## Was funktioniert (getestet gegen einen Fake-Client)
-- Profile mit Quellordnern, Ausschlüssen, Namespace, Verschlüsselungs-Flag
-- Backup-Umfang beim Einrichten wählbar: **nur Home** (Standard, kein sudo, Benutzer-Modus) oder **ganzes System** (Dateiebene, braucht Administrator-Rechte, läuft im System-Modus über `pkexec`/systemd). Vollbackup sichert `/` plus die **gewählten Laufwerke** (`--include-dev`): interne lokale Dateisysteme (ext4, xfs, btrfs, vfat …) sind vorgewählt, **USB-Laufwerke** (auch hinter LUKS/LVM) und Mounts unter `/media`, `/mnt`, `/run` nur auf ausdrückliche Wahl, **Netzwerk-Mounts** (NFS, CIFS, sshfs …) und virtuelle Dateisysteme nie, **Bind-Mount-Duplikate** werden nicht doppelt gelesen. Ausgeschlossen sind `/proc`, `/sys`, `/dev`, `/run`, `/tmp` u. Ä.; keine Docker-/Container-Standardausschlüsse. Es ist **kein** Systemabbild
-- Server einrichten: Weg A (einmalig als root, legt Benutzer/Token/ACLs an) oder Weg B (vorhandener Token), mit Fingerprint-Pinning
-- Clientseitige Verschlüsselung standardmäßig an: Key wird automatisch erzeugt (ohne Passphrase, da der Client sie nur per TTY akzeptiert), verschlüsselt im Geheimnis-Speicher abgelegt und nur kurz als 0600-Datei im tmpfs bereitgestellt; Export-Dialog zur Sicherung
-- Beim Einrichten: Datastores laden, Namespaces live prüfen (vorhanden / wird angelegt / mit Weg B nicht anlegbar)
-- Backup starten mit Live-Log, Snapshots listen, Restore in einen frei gewählten Zielordner
-- Zeitpläne als systemd-Timer, wählbar pro Profil: Benutzer- oder System-Units; beim Anlegen direkt auswählbar
-- **Nur Geändertes lesen** (Änderungserkennung per Metadaten-Vergleich, spart bei großen, selten geänderten Datenmengen viel Lesezeit)
-- Optional **Datenbank-Dumps** laufender Container (Postgres, MariaDB/MySQL) vor dem Backup, als Archiv `dbdumps.pxar`
-  (Details und Zugangsdaten: CHANGELOG, `pbsgui dbdump --help`); beim Anlegen auch „erstes Backup direkt starten“
-- Geheimnisse verschlüsselt über `systemd-creds` (Fallback: Datei 0600)
+Graphical, terminal and command-line interface for the Proxmox Backup Client (`proxmox-backup-client`).
+Plan and architecture: [docs/PLAN.md](docs/PLAN.md) (German). Status: **prototype**.
 
-## Gegen echten PBS 4.2 geprüft (Token-Anmeldung)
-Provisionierung (Benutzer, Token, verschachtelter Namespace, ACLs), Wiederholbarkeit, Backup, Restore
-(Inhalt identisch), Isolation (Token sieht fremde Namespaces nicht), Aufräumen.
-Erkenntnisse: neue ACLs greifen erst nach 3–8 s (die App wartet darauf); beim Löschen eines Benutzers
-bleibt dessen eigene ACL bestehen (die App entfernt sie vorher).
+The interface is available in **English and German**. It follows the system language (`LANG`); choose explicitly with
+`pbsgui language en|de|auto` or the environment variable `PBSGUI_LANG`.
 
-## Noch nicht / nicht verifiziert
-- Root-Login per Passwort und 2FA-Ablauf ungeprüft (getestet wurde mit API-Token)
-- System-Scope (pkexec-Helfer, System-Units) ist nur per Unit-Test mit Fake-Runner geprüft
-- Master-Key-Erzeugung (RSA) und Prune fehlen; Key-Rotation ebenso (ein Key wird nie überschrieben)
+## What works (tested against a fake client)
+- Profiles with source folders, exclusions, namespace and an encryption flag
+- Backup scope chosen during setup: **home only** (default, no sudo, user mode) or the **entire system** (file level, needs administrator rights, runs in system mode via `pkexec`/systemd). A full backup covers `/` plus the **chosen drives** (`--include-dev`): internal local file systems (ext4, xfs, btrfs, vfat …) are preselected, **USB drives** (also behind LUKS/LVM) and mounts under `/media`, `/mnt`, `/run` only on explicit choice, **network mounts** (NFS, CIFS, sshfs …) and virtual file systems never, **bind-mount duplicates** are not read twice. Excluded are `/proc`, `/sys`, `/dev`, `/run`, `/tmp` and the like; there are no Docker/container default exclusions. It is **not** a system image
+- Server setup: way A (once as root, creates user/token/ACLs) or way B (existing token), with fingerprint pinning
+- **Change the server afterwards** (server, port, fingerprint, datastore, namespace, token): `pbsgui server NAME …`, GUI “Change server …”, TUI `i`; the new settings are checked with the client before anything is saved
+- Client-side encryption on by default: the key is generated automatically (without a passphrase, because the client only accepts one via a TTY), stored encrypted in the secret store and provided only briefly as a 0600 file in tmpfs; export dialog for safekeeping
+- During setup: load datastores, check namespaces live (exists / will be created / cannot be created with way B)
+- Start a backup with a live log, list snapshots, restore into a freely chosen target folder
+- Schedules as systemd timers, selectable per profile: user or system units; selectable right at creation
+- **Read only what changed** (change detection by metadata comparison, saves a lot of read time for large, rarely changing data)
+- Optional **database dumps** of running containers (Postgres, MariaDB/MySQL) before the backup, as the archive `dbdumps.pxar`
+  (details and credentials: CHANGELOG, `pbsgui dbdump --help`); also “start the first backup right away” at creation
+- Secrets encrypted via `systemd-creds` (fallback: file with mode 0600)
+
+## Checked against a real PBS 4.2 (token login)
+Provisioning (user, token, nested namespace, ACLs), repeatability, backup, restore
+(identical content), isolation (the token does not see foreign namespaces), cleanup.
+Findings: new ACLs take 3–8 s to become effective (the app waits for them); deleting a user
+leaves its own ACL behind (the app removes it first).
+
+## Not yet / not verified
+- Root login by password and the 2FA flow are unchecked (testing used an API token)
+- System scope (pkexec helper, system units) is only covered by a unit test with a fake runner
+- Master key generation (RSA) and prune are missing; so is key rotation (a key is never overwritten)
 
 ## Installation
-Ein Befehl (Debian 13 / Ubuntu), Details in [docs/INSTALLATION.md](docs/INSTALLATION.md):
+One command (Debian 13 / Ubuntu), details in [docs/INSTALLATION.md](docs/INSTALLATION.md):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nienhausdavid/pbsgui/main/scripts/install.sh | sudo sh
 ```
-Als Debian-Paket aus dem Quellcode (Debian 13; reines Python, nutzt `python3-textual` und `python3-pyside6.*` der Distribution):
+As a Debian package from source (Debian 13; pure Python, uses `python3-textual` and `python3-pyside6.*` of the distribution):
 ```bash
-scripts/build-deb.sh dist && sudo apt install ./dist/pbstui_*_all.deb ./dist/pbsgui_*_all.deb   # nur pbstui: ohne Qt, für Server
+scripts/build-deb.sh dist && sudo apt install ./dist/pbstui_*_all.deb ./dist/pbsgui_*_all.deb   # pbstui only: without Qt, for servers
 ```
-Das signierte APT-Repository liegt auf GitHub Pages (`https://nienhausdavid.github.io/pbsgui`), siehe [docs/RELEASING.md](docs/RELEASING.md).
-Den `proxmox-backup-client` gibt es im Proxmox-Client-Repository (`pbs-client`).
+The signed APT repository is on GitHub Pages (`https://nienhausdavid.github.io/pbsgui`), see [docs/RELEASING.md](docs/RELEASING.md) (German).
+The `proxmox-backup-client` is available from the Proxmox client repository (`pbs-client`).
 
-## Einzelne Dateien wiederherstellen (File-Level-Restore)
-Dateibrowser für jeden Snapshot: GUI (Snapshots → „Dateien durchsuchen …“), TUI (Snapshot wählen, `f`; Leertaste markiert, `r` in Ordner, `o` überschreiben, `/` suchen) und Kommandozeile:
+## Restore single files (file-level restore)
+File browser for every snapshot: GUI (Snapshots → “Browse files …”), TUI (select a snapshot, `f`; space marks, `r` to a folder, `o` overwrite, `/` search) and command line:
 ```bash
-pbsgui files NAME [ORDNER] [--search MUSTER]                       # Inhalt ansehen / suchen
-pbsgui restore NAME --path /Dokumente --path /notiz.txt --target ~/zurueck   # Auswahl in einen Ordner
-pbsgui restore NAME --path /Dokumente --overwrite                 # NUR Home: am Originalort ersetzen (mit Rückfrage)
+pbsgui files NAME [FOLDER] [--search PATTERN]                       # look at / search the content
+pbsgui restore NAME --path /Documents --path /note.txt --target ~/back   # restore a selection into a folder
+pbsgui restore NAME --path /Documents --overwrite                  # HOME ONLY: replace at the original location (with confirmation)
 ```
-Der Dateibaum kommt aus `catalog dump` (der Client entschlüsselt ihn selbst, geht also auch bei verschlüsselten Backups), die Daten per schreibgeschütztem FUSE-`mount`. **Überschreiben** ist nur für Pfade im eigenen Home-Verzeichnis erlaubt (sonst Abbruch), ersetzt nur vorhandene Dateien, löscht nichts und sichert die alten Fassungen vorher nach `~/.local/share/pbsgui/overwritten/<Zeit>/`. Braucht FUSE (`fusermount3`).
+The file tree comes from `catalog dump` (the client decrypts it itself, so this also works for encrypted backups); the data is read through a read-only FUSE `mount`. **Overwriting** is only allowed for paths in your own home directory (otherwise it aborts), only replaces existing files, deletes nothing and saves the old versions to `~/.local/share/pbsgui/overwritten/<time>/` first. Needs FUSE (`fusermount3`).
 
-## Über alle Snapshots: Fassungen, Suche, Vergleich, Restore-Test
+## Across all snapshots: versions, search, comparison, restore test
 ```bash
-pbsgui versions NAME /Dokumente/a.txt [--restore 2 --target ~/zurueck]   # alle Fassungen einer Datei
-pbsgui find NAME "*.odt"                                                 # in allen Snapshots suchen, auch Gelöschtes
-pbsgui diff NAME [ALT] [NEU]                                             # neu / geändert / gelöscht (Standard: die letzten zwei)
-pbsgui preview NAME /Dokumente/a.txt --snapshot 3                        # Inhalt ansehen, ohne wiederherzustellen
-pbsgui restore-test NAME --count 5                                       # Stichprobe zurückholen und prüfen (Exitcode 1 bei Fehler)
+pbsgui versions NAME /Documents/a.txt [--restore 2 --target ~/back]   # all versions of a file
+pbsgui find NAME "*.odt"                                              # search all snapshots, also deleted files
+pbsgui diff NAME [OLD] [NEW]                                          # new / changed / deleted (default: the last two)
+pbsgui preview NAME /Documents/a.txt --snapshot 3                     # look at the content without restoring
+pbsgui restore-test NAME --count 5                                    # restore a sample and check it (exit code 1 on error)
 ```
-GUI: Dateibrowser mit Vorschau und „Fassungen …“; im Snapshots-Tab „Vergleichen …“, „Restore-Test …“ und „Suche in allen Snapshots …“.
+GUI: file browser with preview and “Versions …”; in the Snapshots tab “Compare …”, “Restore test …” and “Search in all snapshots …”.
 
-## Überblick: Dashboard, Verlauf, Tray
-`pbsgui dashboard` (auch `--json`, `--offline`) zeigt je Profil Status, Dauer, Größe, Zuwachs und die Belegung des Datastores; `pbsgui history`
-(`--failed`, `--search TEXT`, `--show LAUF`) die gespeicherten Läufe mit Ausgabe. In der GUI sind das die Tabs „Dashboard“ und „Verlauf“.
-`pbsgui tray` startet die GUI als Symbol im Systembereich (Status, „Jetzt sichern“, Fehlermeldungen); im Tray-Menü lässt sich einstellen,
-dass sie beim Schließen weiterläuft und beim Anmelden startet.
+## Overview: dashboard, history, tray
+`pbsgui dashboard` (also `--json`, `--offline`) shows status, duration, size, growth and the datastore usage per profile; `pbsgui history`
+(`--failed`, `--search TEXT`, `--show RUN`) the stored runs with their output. In the GUI these are the “Dashboard” and “History” tabs.
+`pbsgui tray` starts the GUI as an icon in the system tray (status, “Back up now”, failure notifications); the tray menu lets you choose
+whether it keeps running when the window is closed and whether it starts at login.
 
-## Wiederherstellung auf einem neuen PC (Vollbackup)
-Stand: Vorbereitung **und** geführte Wiederherstellung (`pbsgui rescue`, Rettungs-ISO) sind eingebaut; Anleitung mit Screenshots: [docs/WIEDERHERSTELLUNG.md](docs/WIEDERHERSTELLUNG.md).
-- Bei jedem Vollbackup (als root) sammelt die App Datenträger-Metadaten nach `/var/lib/pbsgui/recovery/<profil>/` und sichert sie damit im Backup mit: Partitionstabellen (sfdisk/sgdisk), LVM-Metadaten, LUKS-Header (nur bei verschlüsseltem Backup), UUIDs, EFI-Einträge, Paketliste, `MANIFEST.json`.
-- **Pflicht:** Ein verschlüsseltes Vollbackup (und sein Zeitplan) startet erst, wenn der Schlüssel exportiert wurde (`pbsgui key export`), denn der Schlüssel im Geheimnis-Speicher ist an den alten Rechner gebunden.
-- `pbsgui recovery NAME` zeigt die Checkliste, `--sheet DATEI` schreibt das **Notfallblatt** (Server, Fingerprint, Namespace, Anleitung; ohne Geheimnisse) zum Ausdrucken.
-- **Rettungs-ISO** (Debian 13 Live, UEFI + BIOS, `scripts/build-iso.sh`; mit WireGuard, OpenVPN und NetBird für Server hinter einem VPN, aktualisiert sich beim Start): bootet in einen Assistenten, baut GPT/LUKS/LVM/Dateisysteme mit den alten UUIDs nach, spielt das Backup zurück und installiert den Bootloader neu. Beim Wiederherstellen wählbar: LUKS wie im Original, neu verschlüsseln (neue Passphrase) oder ohne Verschlüsselung. Eine **kleinere Ziel-Platte** ist möglich („Größe anpassen“ / `--shrink`): Partitionen und LVs werden auf belegten Platz + Reserve verkleinert, EFI und `/boot` bleiben, alle UUIDs bleiben. Auch als `pbsgui rescue …` (Kommandozeile).
-- Grenzen: dateibasiert, kein Abbild; andere Hardware, Secure Boot und TPM-gebundene LUKS-Schlüssel können Handarbeit nötig machen; ein laufendes System wird ohne Snapshot gesichert.
+## Restore on a new PC (full backup)
+Status: the preparation **and** a guided restore (`pbsgui rescue`, rescue ISO) are built in; guide with screenshots: [docs/RESTORE.md](docs/RESTORE.md).
+- With every full backup (as root) the app collects disk metadata into `/var/lib/pbsgui/recovery/<profile>/` and thereby includes it in the backup: partition tables (sfdisk/sgdisk), LVM metadata, LUKS headers (only for an encrypted backup), UUIDs, EFI entries, package list, `MANIFEST.json`.
+- **Mandatory:** an encrypted full backup (and its schedule) only starts once the key has been exported (`pbsgui key export`), because the key in the secret store is bound to the old machine.
+- `pbsgui recovery NAME` shows the checklist, `--sheet FILE` writes the **emergency sheet** (server, fingerprint, namespace, instructions; no secrets) for printing.
+- **Rescue ISO** (Debian 13 live, UEFI + BIOS, `scripts/build-iso.sh`; with WireGuard, OpenVPN and NetBird for servers behind a VPN, updates itself at boot): boots into a wizard, rebuilds GPT/LUKS/LVM/file systems with the old UUIDs, restores the backup and reinstalls the bootloader. During the restore you can choose LUKS as in the original, re-encrypt (new passphrase) or no encryption. A **smaller target disk** is possible (“resize” / `--shrink`): partitions and LVs are shrunk to used space plus a reserve, EFI and `/boot` stay, all UUIDs stay. Also available as `pbsgui rescue …` (command line).
+- Limits: file-based, not an image; different hardware, Secure Boot and TPM-bound LUKS keys may need manual work; a running system is backed up without a snapshot.
 
-## Bedienung: GUI, CLI, TUI
-Alle drei nutzen denselben Core (`pbsgui/core`), beliebig kombinierbar.
+## Usage: GUI, CLI, TUI
+All three use the same core (`pbsgui/core`) and can be combined freely.
 
-| Aufruf | Was |
+| Call | What |
 |---|---|
-| `pbsgui` | Qt-GUI (braucht `pip install 'pbsgui[gui]'`) |
-| `pbstui` (oder `pbsgui tui`) | Terminal-Oberfläche (Textual), läuft auch über SSH ohne Display |
-| `pbsgui list / show / add / probe / backup / snapshots / restore / schedule / status / key / remove` | Kommandozeile, skriptbar (`--json` bei `list`, `snapshots`) |
+| `pbsgui` | Qt GUI (needs `pip install 'pbsgui[gui]'`) |
+| `pbstui` (or `pbsgui tui`) | Terminal interface (Textual), also works over SSH without a display |
+| `pbsgui list / show / add / server / probe / backup / snapshots / restore / schedule / status / key / remove` | Command line, scriptable (`--json` for `list`, `snapshots`) |
 
-`scripts/install-links.sh` legt `pbsgui` und `pbstui` als Links nach `~/.local/bin` (ab dem nächsten Login im PATH).
+`scripts/install-links.sh` creates `pbsgui` and `pbstui` as links in `~/.local/bin` (on the PATH from the next login).
 
-Beispiele:
+Examples:
 ```bash
-pbsgui probe --server pbs.example.org --root-user root@pam        # Datastores/Namespaces ansehen
-pbsgui add --name Laptop --server pbs.example.org --datastore main --namespace laptop   # Weg A (root, einmalig), nur Home
-pbsgui add --name Server --server pbs.example.org --datastore main --mode full             # ganzes System (braucht Admin)
-pbsgui mounts                                  # erkannte Laufwerke (intern/USB/Bind) anzeigen
-pbsgui mounts Server --set /boot --set /data   # Auswahl eines Vollbackup-Profils ändern (--auto, --none)
-pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id user@pbs!tok  # Weg B
-pbsgui key export Laptop ~/laptop-key.json                       # Schlüssel sichern!
+pbsgui probe --server pbs.example.org --root-user root@pam        # look at datastores/namespaces
+pbsgui add --name Laptop --server pbs.example.org --datastore main --namespace laptop   # way A (root, once), home only
+pbsgui add --name Server --server pbs.example.org --datastore main --mode full             # entire system (needs admin)
+pbsgui mounts                                  # show detected drives (internal/USB/bind)
+pbsgui mounts Server --set /boot --set /data   # change the selection of a full-backup profile (--auto, --none)
+pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id user@pbs!tok  # way B
+pbsgui server Laptop --server pbs2.example.org --fetch-fingerprint --datastore backup   # change the server afterwards
+pbsgui key export Laptop ~/laptop-key.json                       # back up the key!
 pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
+pbsgui language en                             # choose the interface language (en, de, auto)
 ```
-Geheimnisse werden nie als Argument akzeptiert: Prompt oder `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
-TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, f Dateien, x Vergleich, w Restore-Test, g Suche in allen Snapshots, e Dashboard, h Verlauf, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, u Laufwerke, p DB-Dumps, n Notfallblatt, d Entfernen, q Beenden. Im Dateibrowser: p Vorschau, v Fassungen.
+Secrets are never accepted as an argument: prompt or `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
+TUI keys: a add, b backup, r snapshots, t restore, f files, x compare, w restore test, g search all snapshots, e dashboard, h history, i change server, s schedule, m mode, v encryption, k back up key, o sources, u drives, p DB dumps, n emergency sheet, d remove, q quit. In the file browser: p preview, v versions.
 
-## Entwickeln
+## Development
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/python -m pytest        # Tests (Fake-Client unter tests/)
-sudo env PYTHONPATH=src PATH=$PATH:/usr/sbin .venv/bin/python -m pytest tests/test_rescue_integration.py   # Layout-Nachbau mit echten Loop-Geräten (root)
-.venv/bin/pbsgui                  # GUI starten
-scripts/install-desktop.sh        # Starter + Icon im Anwendungsmenü installieren (~/.local/share)
+.venv/bin/python -m pytest        # tests (fake client under tests/)
+sudo env PYTHONPATH=src PATH=$PATH:/usr/sbin .venv/bin/python -m pytest tests/test_rescue_integration.py   # layout rebuild with real loop devices (root)
+.venv/bin/pbsgui                  # start the GUI
+scripts/install-desktop.sh        # install launcher + icon into the application menu (~/.local/share)
 ```
-Ende-zu-Ende in QEMU (Backup → ISO-Wiederherstellung → Boot): `tests/vm/` (siehe Kopf von `e2e.py`).
-Debian/Ubuntu: `sudo apt install python3-venv`, dazu den `proxmox-backup-client` aus dem Proxmox-Client-Repo.
+End to end in QEMU (backup → ISO restore → boot): `tests/vm/` (see the head of `e2e.py`).
+Debian/Ubuntu: `sudo apt install python3-venv`, plus the `proxmox-backup-client` from the Proxmox client repo.
 
-## Lizenz
+Texts: the source strings are German and double as keys; the English translations live in `src/pbsgui/i18n/en_*.py`
+(`tr("German text {0}", value)`). A test checks that every `tr()` text has a translation with matching placeholders.
+
+## License
 [AGPL-3.0-or-later](LICENSE).

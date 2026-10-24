@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 
+from ..i18n import tr
 from .client import PbsClient
 from .files import (Catalog, CatalogEntry, FilesError, _within, archive_origin, copy_selection, mounted,
                     parse_catalog)
@@ -349,26 +350,26 @@ class PreviewSession:
 def preview_path(root: Path, rel: str, max_bytes: int = TEXT_BYTES) -> Preview:
     path = root / rel.lstrip("/")
     if not _within(path.parent, root):                            # "..", Ordner-Links aus dem Archiv heraus
-        return Preview("missing", note="Pfad außerhalb des Archivs")
+        return Preview("missing", note=tr("Pfad außerhalb des Archivs"))
     try:
         st = path.lstat()
     except OSError:
-        return Preview("missing", note="Nicht im Archiv")
+        return Preview("missing", note=tr("Nicht im Archiv"))
     if stat.S_ISLNK(st.st_mode):                                  # nie dem Link folgen: er kann aus dem Archiv herauszeigen
-        return Preview("link", text=os.readlink(path), note="Symbolischer Link")
+        return Preview("link", text=os.readlink(path), note=tr("Symbolischer Link"))
     if stat.S_ISDIR(st.st_mode):
-        return Preview("dir", note="Ordner")
+        return Preview("dir", note=tr("Ordner"))
     if not stat.S_ISREG(st.st_mode):
-        return Preview("special", note="Sonderdatei")
+        return Preview("special", note=tr("Sonderdatei"))
     ext = path.suffix.lower()
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except OSError as e:
-        return Preview("missing", note=f"Nicht lesbar: {e.strerror or e}")
+        return Preview("missing", note=tr("Nicht lesbar: {0}", e.strerror or e))
     with os.fdopen(fd, "rb") as fh:
         if ext in IMAGE_TYPES:
             if st.st_size > MAX_IMAGE:
-                return Preview("binary", size=st.st_size, note=f"Bild zu groß für die Vorschau ({st.st_size // 1024 // 1024} MiB)")
+                return Preview("binary", size=st.st_size, note=tr("Bild zu groß für die Vorschau ({0} MiB)", st.st_size // 1024 // 1024))
             data = fh.read(MAX_IMAGE + 1)
             if data.startswith(IMAGE_TYPES[ext]):
                 return Preview("image", data=data, size=st.st_size)
@@ -384,7 +385,7 @@ def preview_path(root: Path, rel: str, max_bytes: int = TEXT_BYTES) -> Preview:
             except UnicodeDecodeError:
                 continue
     return Preview("binary", text=hexdump(sample[:256]), size=st.st_size, truncated=st.st_size > 256,
-                   note="Binärdatei – Hexdump der ersten 256 Bytes")
+                   note=tr("Binärdatei – Hexdump der ersten 256 Bytes"))
 
 
 def hexdump(data: bytes) -> str:
@@ -432,10 +433,10 @@ class RestoreTestResult:
 
     def summary(self) -> str:
         if not self.samples:
-            return "Keine geeigneten Dateien für den Test gefunden"
+            return tr("Keine geeigneten Dateien für den Test gefunden")
         bad = [s for s in self.samples if not s.good]
-        text = f"{len(self.samples) - len(bad)} von {len(self.samples)} Dateien in Ordnung ({self.compared} mit dem Original verglichen)"
-        return text + (f", {len(bad)} FEHLER" if bad else "")
+        text = tr("{0} von {1} Dateien in Ordnung ({2} mit dem Original verglichen)", len(self.samples) - len(bad), len(self.samples), self.compared)
+        return text + (tr(", {0} FEHLER", len(bad)) if bad else "")
 
     def to_dict(self) -> dict:
         return {"snapshot": self.snapshot, "archive": self.archive, "time": self.time, "seconds": round(self.seconds, 1),
@@ -488,7 +489,7 @@ def restore_test(client: PbsClient, profile: Profile, snapshot: Snapshot, archiv
         return RestoreTestResult(snapshot.path, archive, results, time.time() - t0)
     with tempfile.TemporaryDirectory(prefix="pbsgui-test-", dir=_ram_dir()) as tmp, mounted(client, snapshot, archive) as mp:
         for e in samples:
-            on_line(f"Prüfe {e.path}")
+            on_line(tr("Prüfe {0}", e.path))
             dest = Path(tmp) / "r"
             try:
                 res = copy_selection(mp, [e.path], dest)
@@ -497,23 +498,23 @@ def restore_test(client: PbsClient, profile: Profile, snapshot: Snapshot, archiv
                 continue
             got = dest / e.path.lstrip("/")
             if res.skipped or not got.is_file():
-                results.append(SampleResult(e.path, e.size or 0, "fehler", "; ".join(res.skipped) or "nicht wiederhergestellt"))
+                results.append(SampleResult(e.path, e.size or 0, "fehler", "; ".join(res.skipped) or tr("nicht wiederhergestellt")))
                 continue
             digest = sha256_file(got)
             actual = got.stat().st_size
             if actual != e.size:
-                results.append(SampleResult(e.path, e.size or 0, "groesse", f"Katalog {e.size} Bytes, gelesen {actual}", digest))
+                results.append(SampleResult(e.path, e.size or 0, "groesse", tr("Katalog {0} Bytes, gelesen {1}", e.size, actual), digest))
                 continue
             orig = Path(os.path.normpath(Path(origin) / e.path.lstrip("/"))) if origin else None
-            status, detail = "gelesen", "Original geändert oder nicht lesbar: nur Lesbarkeit und Größe geprüft"
+            status, detail = "gelesen", tr("Original geändert oder nicht lesbar: nur Lesbarkeit und Größe geprüft")
             try:
                 if orig is not None and orig.is_file() and not orig.is_symlink():
                     ost = orig.stat()
                     if ost.st_size == e.size and _iso_utc(ost.st_mtime) == e.mtime:
                         if sha256_file(orig) == digest:
-                            status, detail = "ok", "identisch mit dem Original"
+                            status, detail = "ok", tr("identisch mit dem Original")
                         else:
-                            status, detail = "abweichung", "Inhalt weicht vom unveränderten Original ab"
+                            status, detail = "abweichung", tr("Inhalt weicht vom unveränderten Original ab")
             except OSError:
                 pass
             results.append(SampleResult(e.path, e.size or 0, status, detail, digest))

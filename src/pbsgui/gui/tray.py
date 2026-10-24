@@ -13,13 +13,14 @@ from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
+from ..i18n import tr
 from ..core.dashboard import Overview
 from ..core.manager import ProfileManager
 
 POLL_MS = 15000
 COLORS = {"ok": "#16a34a", "running": "#2563eb", "error": "#dc2626", "warning": "#d97706", "none": "#6b7280"}
-LABELS = {"ok": "Alles in Ordnung", "running": "Backup läuft", "error": "Letztes Backup fehlgeschlagen",
-          "warning": "Warnung", "none": "Noch kein Backup"}
+LABELS = {"ok": tr("Alles in Ordnung"), "running": tr("Backup läuft"), "error": tr("Letztes Backup fehlgeschlagen"),
+          "warning": tr("Warnung"), "none": tr("Noch kein Backup")}
 
 
 def aggregate(states: list[str]) -> str:
@@ -95,9 +96,9 @@ class TrayController(QObject):
         self.stateChanged.emit(self.state)
 
     def tooltip(self) -> str:
-        lines = [f"pbsgui – {LABELS[self.state]}"]
+        lines = [tr("pbsgui – {0}", LABELS[self.state])]
         for o in self.overviews:
-            lines.append(f"{o.profile.name}: " + ("läuft" if o.running else
+            lines.append(f"{o.profile.name}: " + (tr("läuft") if o.running else
                          ("fehlgeschlagen" if o.state == "error" else "ok" if o.state == "ok" else "–")))
         return "\n".join(lines)
 
@@ -110,7 +111,7 @@ class TrayController(QObject):
             if self._seen_failures.get(o.profile.slug) != run.id:
                 self._seen_failures[o.profile.slug] = run.id
                 if not self._first and self.available:      # beim Start nur merken, nicht alte Fehler melden
-                    self.tray.showMessage(f"Backup fehlgeschlagen: {o.profile.name}", run.message or f"Exitcode {run.code}",
+                    self.tray.showMessage(tr("Backup fehlgeschlagen: {0}", o.profile.name), run.message or tr("Exitcode {0}", run.code),
                                           QSystemTrayIcon.MessageIcon.Critical, 15000)
         self._first = False
 
@@ -120,23 +121,23 @@ class TrayController(QObject):
         m.clear()
         head = QAction(LABELS[self.state], m); head.setEnabled(False); m.addAction(head)
         m.addSeparator()
-        m.addAction("Fenster öffnen", self.show_window)
-        sub = m.addMenu("Jetzt sichern")
+        m.addAction(tr("Fenster öffnen"), self.show_window)
+        sub = m.addMenu(tr("Jetzt sichern"))
         for o in self.overviews:
             act = sub.addAction(o.profile.name)
             act.setEnabled(not o.running)
             act.triggered.connect(lambda _c=False, n=o.profile.name: self.backup_now(n))
         if not self.overviews:
             sub.setEnabled(False)
-        m.addAction("Verlauf anzeigen", self.show_history)
-        m.addAction("Überblick anzeigen", self.show_dashboard)
+        m.addAction(tr("Verlauf anzeigen"), self.show_history)
+        m.addAction(tr("Überblick anzeigen"), self.show_dashboard)
         m.addSeparator()
-        auto = m.addAction("Beim Anmelden im Hintergrund starten"); auto.setCheckable(True); auto.setChecked(autostart_enabled())
+        auto = m.addAction(tr("Beim Anmelden im Hintergrund starten")); auto.setCheckable(True); auto.setChecked(autostart_enabled())
         auto.toggled.connect(set_autostart)
-        bg = m.addAction("Beim Schließen im Hintergrund weiterlaufen"); bg.setCheckable(True); bg.setChecked(background_enabled())
+        bg = m.addAction(tr("Beim Schließen im Hintergrund weiterlaufen")); bg.setCheckable(True); bg.setChecked(background_enabled())
         bg.toggled.connect(set_background)
         m.addSeparator()
-        m.addAction("Beenden", self.quit)
+        m.addAction(tr("Beenden"), self.quit)
 
     # -- Aktionen -----------------------------------------------------------
     def _activated(self, reason) -> None:
