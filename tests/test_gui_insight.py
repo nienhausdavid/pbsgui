@@ -197,15 +197,16 @@ def test_tray_state_follows_runs_and_locks(app, world, monkeypatch):
     run_profile(prof, paths, mgr.secrets, on_line=lambda _l: None)
     t.poll()
     assert t.state == "ok" and "Laptop: ok" in t.tray.toolTip()
-    sub = [a for a in t.menu.actions() if a.text() == "Jetzt sichern"][0].menu()
-    assert [a.text() for a in sub.actions()] == ["Laptop"] and sub.actions()[0].isEnabled()
+    def backup_actions():                       # das Menü wird bei jedem poll() neu gebaut: immer frisch holen
+        return [a for a in t.menu.actions() if a.text() == "Jetzt sichern"][0].menu().actions()
+    assert [a.text() for a in backup_actions()] == ["Laptop"] and backup_actions()[0].isEnabled()
     paths.state.mkdir(parents=True, exist_ok=True)
     fd = os.open(paths.state / "laptop.lock", os.O_RDWR | os.O_CREAT, 0o600)
     fcntl.flock(fd, fcntl.LOCK_EX)                                                  # ein Backup hält die Sperre
     try:
         t.poll()
         assert t.state == "running"
-        assert not [a for a in t.menu.actions() if a.text() == "Jetzt sichern"][0].menu().actions()[0].isEnabled()
+        assert not backup_actions()[0].isEnabled()
     finally:
         os.close(fd)
     monkeypatch.setenv("FAKE_PBS_FAIL", "1")

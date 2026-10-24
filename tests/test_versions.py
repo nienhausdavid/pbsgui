@@ -171,6 +171,7 @@ def make_tree(base: Path, files: dict[str, str]) -> Path:
 @pytest.fixture
 def world(fake_env, tmp_path, monkeypatch):
     """Drei Snapshots mit je eigenem Dateibaum; Archiv = Name des Quellordners."""
+    monkeypatch.setenv("PBSGUI_FUSERMOUNT", "true")      # Testersatz für FUSE: fusermount nötig sonst (fehlt z. B. in der CI)
     origin = tmp_path / "home"
     prof = Profile(name="Laptop", server="pbs.example", datastore="s", auth_id="u@pbs!t", fingerprint="AA", backup_id="laptop",
                    sources=[str(origin)], encrypt=False)
