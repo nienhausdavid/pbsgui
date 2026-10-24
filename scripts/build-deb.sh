@@ -74,7 +74,7 @@ Version: $version
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.11), python3-textual (>= 0.80)
+Depends: python3 (>= 3.11), python3-textual (>= 0.80), wl-clipboard
 Recommends: proxmox-backup-client, systemd, fdisk, gdisk, efibootmgr
 Replaces: pbsgui (<< $version)
 Breaks: pbsgui (<< $version)

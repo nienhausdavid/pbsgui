@@ -11,7 +11,7 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ### Added
 - **Copy the key and emergency kit to the clipboard:** GUI buttons “Copy key”, “Copy key + emergency sheet” and “Copy emergency sheet”,
-  the same buttons in the TUI overview (and key `y`), `pbsgui key copy|copy-kit|copy-sheet NAME` (needs `wl-copy`, `xclip` or `xsel`;
+  the same buttons in the TUI overview (and key `y`), `pbsgui key copy|copy-kit|copy-sheet NAME` (uses `wl-copy`, otherwise `xclip` or `xsel`; the package `pbstui` now depends on `wl-clipboard`;
   the text goes through stdin). The emergency kit contains the emergency sheet and the secret key; the GUI clears the clipboard after 2 minutes.
   Key and kit count as a safe export and lift the block on the encrypted full backup.
 - **The backup starts by itself after the key is backed up:** if the full backup is still blocked, the GUI (and the TUI with `b`) offers to copy the key
