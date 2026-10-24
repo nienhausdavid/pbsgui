@@ -24,7 +24,7 @@ from .files import Catalog, CopyResult, load_catalog, restore_to_folder, restore
 from .keys import export_key, generate_key
 from .models import Profile, Snapshot
 from .modes import FULL
-from .recovery import RecoveryError, ensure_recoverable
+from .recovery import RecoveryError, ensure_recoverable, render_kit
 from .runner import run_profile
 from .paths import Paths
 from .privilege import PrivilegeError, require_trusted_code
@@ -173,6 +173,22 @@ class ProfileManager:
         stored = self.secrets.get(profile.slug, "key")
         if stored and _json.loads(stored).get("data") != data.get("data"):
             raise SchedulerError(tr("Der Fingerprint stimmt, der Schlüsselinhalt aber nicht: Datei ist beschädigt"))
+        profile.key_exported_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.save(profile)
+
+    def key_text(self, profile: Profile) -> str:
+        """Schlüssel (JSON) zum Kopieren, etwa in die Zwischenablage."""
+        content = self.secrets.get(profile.slug, "key")
+        if not content:
+            raise SchedulerError(tr("Kein automatisch erzeugter Schlüssel vorhanden"))
+        return content
+
+    def emergency_kit(self, profile: Profile) -> str:
+        """Notfallblatt und Schlüssel in einem Text (enthält das Geheimnis: nur im Passwortmanager ablegen)."""
+        return render_kit(profile, self.key_text(profile))
+
+    def mark_key_exported(self, profile: Profile) -> None:
+        """Vermerkt, dass der Schlüssel gesichert wurde (z. B. per Zwischenablage in den Passwortmanager)."""
         profile.key_exported_at = time.strftime("%Y-%m-%d %H:%M:%S")
         self.save(profile)
 

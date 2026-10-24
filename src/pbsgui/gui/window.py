@@ -5,7 +5,7 @@ import os
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSettings, Qt
+from PySide6.QtCore import QEvent, QSettings, QTimer, Qt
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGroupBox, QHeaderView, QProgressBar, QCheckBox, QComboBox,
                                QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
                                QApplication, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
@@ -247,6 +247,11 @@ class MainWindow(QMainWindow):
         self.key_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.key_btn = QPushButton(tr("Schlüssel exportieren …")); self.key_btn.clicked.connect(self.export_key_dialog)
         self.sheet_btn = QPushButton(tr("Notfallblatt speichern …")); self.sheet_btn.clicked.connect(self.save_sheet)
+        self.key_copy_btn = QPushButton(tr("Schlüssel kopieren")); self.key_copy_btn.clicked.connect(lambda: self.copy_key("key"))
+        self.key_copy_btn.setToolTip(tr("Schlüssel in die Zwischenablage kopieren (z. B. in den Passwortmanager einfügen)"))
+        self.kit_copy_btn = QPushButton(tr("Schlüssel + Notfallblatt kopieren")); self.kit_copy_btn.clicked.connect(lambda: self.copy_key("kit"))
+        self.kit_copy_btn.setToolTip(tr("Notfallblatt und Schlüssel in einem Text in die Zwischenablage kopieren"))
+        self.sheet_copy_btn = QPushButton(tr("Notfallblatt kopieren")); self.sheet_copy_btn.clicked.connect(lambda: self.copy_key("sheet"))
         self.f_changed = QCheckBox(tr("Nur geänderte Dateien lesen (schneller)"))
         self.f_changed.setToolTip(tr("Metadaten-Vergleich. Nach dem Umstellen liest das nächste Backup einmal alles, danach nur noch Geändertes. Der PBS-Server muss Version 3.3 oder neuer sein."))
         self.f_weekly = QCheckBox(tr("Zusätzlich wöchentlich alles neu lesen (Modus data)"))
@@ -285,7 +290,8 @@ class MainWindow(QMainWindow):
         g_enc = QGroupBox(tr("Verschlüsselung")); el = QVBoxLayout(g_enc)
         el.addWidget(self.f_enc); el.addWidget(self.key_info)
         krow = QHBoxLayout(); krow.addWidget(self.key_btn); krow.addWidget(self.sheet_btn); krow.addStretch()
-        el.addLayout(krow)
+        krow2 = QHBoxLayout(); krow2.addWidget(self.key_copy_btn); krow2.addWidget(self.kit_copy_btn); krow2.addWidget(self.sheet_copy_btn); krow2.addStretch()
+        el.addLayout(krow); el.addLayout(krow2)
         kf = QFormLayout(); kf.addRow(tr("Eigene Schlüsseldatei"), self.f_key); kf.addRow("Master-Public-Key", self.f_master)
         el.addLayout(kf)
 
@@ -400,14 +406,14 @@ class MainWindow(QMainWindow):
             text, can_export = tr("Verschlüsselung ist aus: Backups liegen unverschlüsselt auf dem Server."), False
         self.key_info.setText(text)
         self.key_btn.setEnabled(can_export)
+        for b_ in (self.key_copy_btn, self.kit_copy_btn):
+            b_.setEnabled(can_export)
+        self.sheet_copy_btn.setVisible(p.backup_mode == FULL)
         self.sheet_btn.setVisible(p.backup_mode == FULL)
 
     def _offer_key_export(self, p: Profile) -> None:
         """Ohne Schlüssel sind verschlüsselte Backups unwiederbringlich verloren: Kopie anbieten."""
-        QMessageBox.information(
-            self, tr("Schlüssel sichern"),
-            tr("Für '{0}' wurde ein Verschlüsselungs-Schlüssel erzeugt (Fingerprint {1}).\n\nGeht er verloren (z. B. Festplattendefekt), sind alle Backups UNWIDERRUFLICH unlesbar. Bitte jetzt eine Kopie an einem sicheren Ort ablegen (Passwortmanager, USB-Stick).", p.name, p.key_fingerprint))
-        self.export_key_dialog()
+        self._ask_key_backup(p, tr("Für '{0}' wurde ein Verschlüsselungs-Schlüssel erzeugt (Fingerprint {1}).\n\nGeht er verloren (z. B. Festplattendefekt), sind alle Backups UNWIDERRUFLICH unlesbar. Bitte jetzt eine Kopie an einem sicheren Ort ablegen: am einfachsten in die Zwischenablage kopieren und im Passwortmanager einfügen.", p.name, p.key_fingerprint))
 
     def save_sheet(self) -> None:
         p = self.current
@@ -417,6 +423,48 @@ class MainWindow(QMainWindow):
         if dest:
             Path(dest).write_text(render_sheet(p))
             self.statusBar().showMessage(tr("Notfallblatt gespeichert: {0} (enthält keine Geheimnisse)", dest))
+
+    CLIPBOARD_CLEAR_MS = 120_000
+
+    def copy_key(self, what: str) -> bool:
+        """Schlüssel, Notfallblatt oder beides in die Zwischenablage; Schlüssel/Set zählen als gesicherter Export.
+
+        Die Zwischenablage wird nach zwei Minuten geleert, falls sie noch unseren Text enthält.
+        """
+        p = self.current
+        if not p:
+            return False
+        try:
+            text = {"key": lambda: self.mgr.key_text(p), "kit": lambda: self.mgr.emergency_kit(p), "sheet": lambda: render_sheet(p)}[what]()
+        except Exception as e:
+            QMessageBox.warning(self, tr("Kopieren fehlgeschlagen"), str(e))
+            return False
+        cb = QApplication.clipboard()
+        cb.setText(text)
+        if what != "sheet":
+            self.mgr.mark_key_exported(p)
+            self.refresh_key_info()
+            QTimer.singleShot(self.CLIPBOARD_CLEAR_MS, lambda: cb.text() == text and cb.clear())
+            self.statusBar().showMessage(tr("Kopiert. Jetzt im Passwortmanager einfügen und speichern (die Zwischenablage wird in 2 Minuten geleert)."))
+        else:
+            self.statusBar().showMessage(tr("Notfallblatt kopiert (enthält keine Geheimnisse)"))
+        return True
+
+    def _ask_key_backup(self, p: Profile, text: str | None = None) -> bool:
+        """Vollbackup ist gesperrt, bis der Schlüssel gesichert ist: Zwischenablage oder Datei anbieten. True = gesichert."""
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("Schlüssel zuerst sichern"))
+        box.setText(text or tr("Dieses verschlüsselte Vollbackup startet, sobald der Verschlüsselungs-Schlüssel gesichert ist. Ohne Kopie ließe sich das System auf einem neuen PC nicht wiederherstellen.\n\nAm einfachsten: Schlüssel und Notfallblatt in die Zwischenablage kopieren und im Passwortmanager einfügen. Danach startet das Backup."))
+        copy_btn = box.addButton(tr("Schlüssel + Notfallblatt kopieren"), QMessageBox.ButtonRole.AcceptRole)
+        file_btn = box.addButton(tr("In Datei speichern …"), QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is copy_btn:
+            return self.copy_key("kit")
+        if clicked is file_btn:
+            self.export_key_dialog()
+        return not needs_key_export(self.mgr.profiles_store.load(p.name))
 
     def export_key_dialog(self) -> None:
         p = self.current
@@ -438,12 +486,8 @@ class MainWindow(QMainWindow):
         if not p or not self.save_profile():
             return
         if needs_key_export(p):   # Vollbackup ist gesperrt, bis der Schlüssel exportiert ist: erklären und Export anbieten
-            QMessageBox.information(
-                self, tr("Schlüssel zuerst sichern"),
-                tr("Dieses verschlüsselte Vollbackup startet erst, wenn der Verschlüsselungs-Schlüssel exportiert wurde. Ohne Kopie ließe sich das System auf einem neuen PC nicht wiederherstellen.\n\nIm nächsten Schritt wählst du, wohin die Schlüsseldatei gespeichert wird (sicherer Ort, nicht nur dieser Rechner)."))
-            self.export_key_dialog()
-            if needs_key_export(self.mgr.profiles_store.load(p.name)):
-                return                                       # Export abgebrochen: nichts starten
+            if not self._ask_key_backup(p):
+                return                                       # abgebrochen: nichts starten
             p = self.mgr.profiles_store.load(p.name)
             self.current = p
         self.log.clear()

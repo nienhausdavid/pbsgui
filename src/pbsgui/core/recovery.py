@@ -173,6 +173,14 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
     return out
 
 
+def render_kit(profile: Profile, key_json: str) -> str:
+    """Notfall-Set für den Passwortmanager: Notfallblatt plus der geheime Schlüssel (key.json)."""
+    return (tr("ACHTUNG: Dieser Text enthält den geheimen Verschlüsselungs-Schlüssel. Nur im Passwortmanager oder an einem sicheren Ort ablegen, nie ungeschützt weitergeben.")
+            + "\n\n" + render_sheet(profile)
+            + "\n" + tr("SCHLÜSSEL (Inhalt von key.json; als Datei speichern und bei der Wiederherstellung angeben)") + "\n"
+            + key_json.strip() + "\n")
+
+
 def render_sheet(profile: Profile) -> str:
     """Notfallblatt zum Ausdrucken. Enthält bewusst KEIN Token-Secret und keinen Schlüssel."""
     ns = tr(" --ns {0}", profile.namespace) if profile.namespace else ""

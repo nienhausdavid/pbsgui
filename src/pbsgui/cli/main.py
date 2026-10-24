@@ -616,6 +616,18 @@ def cmd_key(a, mgr) -> int:
         print(tr("Schlüsseldatei {0} stimmt mit dem Profil überein; Export vermerkt ({1}).", a.dest, p.key_exported_at))
         _activate_pending(mgr, p)
         return 0
+    if a.action in ("copy", "copy-kit", "copy-sheet"):
+        from ..core.clipboard import ClipboardError, copy_text
+        text = {"copy": lambda: mgr.key_text(p), "copy-kit": lambda: mgr.emergency_kit(p), "copy-sheet": lambda: render_sheet(p)}[a.action]()
+        try:
+            tool = copy_text(text)
+        except ClipboardError as e:
+            raise CliError(str(e))
+        print(tr("In die Zwischenablage kopiert ({0}). Jetzt im Passwortmanager einfügen und speichern.", tool))
+        if a.action != "copy-sheet":
+            mgr.mark_key_exported(p)
+            _activate_pending(mgr, p)
+        return 0
     if not a.dest:
         raise CliError(tr("Zieldatei angeben: pbsgui key export NAME ZIELDATEI"))
     if Path(a.dest).exists():
@@ -893,7 +905,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help=tr("wöchentlich zusätzlich alles neu lesen (Modus data); braucht metadata und einen Zeitplan"))
     sp.add_argument("--data-schedule", metavar="AUSDRUCK", help=tr("Zeitpunkt dieses Laufs (OnCalendar)"))
     add("status", cmd_status, tr("Zeitplan- und Laufstatus"), "name")
-    sp = add("key", cmd_key, tr("Schlüssel anzeigen / exportieren / bereits gesicherte Datei bestätigen (info|export|confirm)"), "action")
+    sp = add("key", cmd_key, tr("Schlüssel anzeigen / exportieren / kopieren / bereits gesicherte Datei bestätigen (info|export|copy|copy-kit|copy-sheet|confirm)"), "action")
     sp.add_argument("name"); sp.add_argument("dest", nargs="?")
     sp = add("remove", cmd_remove, tr("Profil entfernen"), "name"); sp.add_argument("--yes", action="store_true")
     sp = add("recovery", cmd_recovery, tr("Wiederherstellung auf neuem PC: Checkliste, Notfallblatt"), "name")

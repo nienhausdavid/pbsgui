@@ -99,12 +99,13 @@ pbsgui mounts Server --set /boot --set /data   # change the selection of a full-
 pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id user@pbs!tok  # way B
 pbsgui server Laptop --server pbs2.example.org --fetch-fingerprint --datastore backup   # change the server afterwards
 pbsgui key export Laptop ~/laptop-key.json                       # back up the key!
+pbsgui key copy-kit Laptop                                       # or: copy key + emergency sheet to the clipboard (password manager)
 pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
 pbsgui language en                             # choose the interface language (en, de, auto)
 ```
 Secrets are never accepted as an argument: prompt or `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
-TUI keys: a add, b backup, r snapshots, t restore, f files, x compare, w restore test, g search all snapshots, e dashboard, h history, i change server, s schedule, m mode, v encryption, k back up key, o sources, u drives, p DB dumps, n emergency sheet, d remove, q quit. In the file browser: p preview, v versions.
+TUI keys: a add, b backup, r snapshots, t restore, f files, x compare, w restore test, g search all snapshots, e dashboard, h history, i change server, s schedule, m mode, v encryption, k back up key to a file, y copy key + emergency sheet to the clipboard, o sources, u drives, p DB dumps, n emergency sheet, d remove, q quit. In the file browser: p preview, v versions.
 
 ## Development
 ```bash

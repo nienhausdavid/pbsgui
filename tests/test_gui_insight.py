@@ -317,3 +317,40 @@ def test_window_shows_server_and_edit_button(app, world):
     mgr, prof, *_ = world
     w = window_mod.MainWindow(mgr)
     assert "127.0.0.1:1" in w.f_server.text() and w.server_btn.isEnabled()
+
+
+# -- Schlüssel und Notfall-Set in die Zwischenablage ---------------------------------------------------------------------
+def test_gui_copy_buttons_fill_clipboard_and_unlock_full_backup(app, world, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    from pbsgui.core.recovery import needs_key_export
+    mgr, prof, *_ = world
+    monkeypatch.setattr(type(mgr), "_admin", lambda self, request: None)           # kein pkexec im Test
+    prof.encrypt, prof.backup_mode, prof.scope, prof.sources = True, "full", "system", []
+    mgr.enable_encryption(prof)
+    mgr.profiles_store.save(prof)
+    w = window_mod.MainWindow(mgr)
+    assert w.key_copy_btn.isEnabled() and w.kit_copy_btn.isEnabled()
+    assert needs_key_export(mgr.profiles_store.load("Laptop"))
+    assert w.copy_key("sheet")                                                      # Notfallblatt allein: Schlüssel bleibt ungesichert
+    assert "data" not in QApplication.clipboard().text() and needs_key_export(mgr.profiles_store.load("Laptop"))
+    assert w.copy_key("kit")
+    text = QApplication.clipboard().text()
+    assert json.loads(mgr.key_text(prof))["data"] in text and not needs_key_export(mgr.profiles_store.load("Laptop"))
+    assert "Extern gesichert am" in w.key_info.text()
+
+
+def test_gui_backup_gate_offers_clipboard_instead_of_file_dialog(app, world, monkeypatch):
+    from pbsgui.core.recovery import needs_key_export
+    mgr, prof, *_ = world
+    monkeypatch.setattr(type(mgr), "_admin", lambda self, request: None)
+    prof.encrypt, prof.backup_mode, prof.scope, prof.sources = True, "full", "system", []
+    mgr.enable_encryption(prof)
+    mgr.profiles_store.save(prof)
+    w = window_mod.MainWindow(mgr)
+    monkeypatch.setattr(w, "_ask_key_backup", lambda p, text=None: w.copy_key("kit"))
+    monkeypatch.setattr(w, "save_profile", lambda *a, **k: True)
+    started = []
+    fake_worker = type("W", (), {"failed": type("S", (), {"connect": lambda self, f: None})()})()
+    monkeypatch.setattr(w, "run_async", lambda *a, **k: started.append(1) or fake_worker)
+    w.backup_now()
+    assert started == [1] and not needs_key_export(mgr.profiles_store.load("Laptop"))      # Backup läuft nach dem Kopieren los

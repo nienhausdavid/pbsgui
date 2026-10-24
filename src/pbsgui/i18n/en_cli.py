@@ -30,7 +30,7 @@ EN = {
     'Datenbank-Dumps: erkannte Container, Zugänge, ein/aus, Testlauf': 'Database dumps: detected containers, access, on/off, test run',
     'Änderungserkennung: nur Geändertes lesen (metadata) oder alles (legacy)': 'Change detection: read only changes (metadata) or everything (legacy)',
     'Zeitplan- und Laufstatus': 'Schedule and run status',
-    'Schlüssel anzeigen / exportieren / bereits gesicherte Datei bestätigen (info|export|confirm)': 'Show / export the key / confirm an already saved file (info|export|confirm)',
+    'Schlüssel anzeigen / exportieren / kopieren / bereits gesicherte Datei bestätigen (info|export|copy|copy-kit|copy-sheet|confirm)': 'Show / export / copy the key / confirm an already saved file (info|export|copy|copy-kit|copy-sheet|confirm)',
     'Profil entfernen': 'Remove a profile',
     'Wiederherstellung auf neuem PC: Checkliste, Notfallblatt': 'Restore on a new PC: checklist, emergency sheet',
     'VPN zum Backup-Server: status | find | up | down (WireGuard, OpenVPN, NetBird)': 'VPN to the backup server: status | find | up | down (WireGuard, OpenVPN, NetBird)',
@@ -402,4 +402,8 @@ EN.update({
     "Partitionen und Volumes verkleinern ('Größe anpassen')? [j/N] ": "Shrink partitions and volumes ('resize')? [y/N] ",
     'Sprache: {0} (Einstellung: {1}; Umgebungsvariable PBSGUI_LANG hat Vorrang)': 'Language: {0} (setting: {1}; the environment variable PBSGUI_LANG takes precedence)',
     'Sprache der Oberfläche anzeigen oder wählen (de, en, auto)': 'Show or choose the interface language (de, en, auto)',
+})
+
+EN.update({
+    'In die Zwischenablage kopiert ({0}). Jetzt im Passwortmanager einfügen und speichern.': 'Copied to the clipboard ({0}). Now paste it into your password manager and save it.',
 })

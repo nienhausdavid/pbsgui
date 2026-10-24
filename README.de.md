@@ -99,12 +99,13 @@ pbsgui mounts Server --set /boot --set /data   # Auswahl eines Vollbackup-Profil
 pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id user@pbs!tok  # Weg B
 pbsgui server Laptop --server pbs2.example.org --fetch-fingerprint --datastore backup   # Server nachträglich ändern
 pbsgui key export Laptop ~/laptop-key.json                       # Schlüssel sichern!
+pbsgui key copy-kit Laptop                                       # oder: Schlüssel + Notfallblatt in die Zwischenablage (Passwortmanager)
 pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
 pbsgui language de                             # Sprache der Oberfläche wählen (de, en, auto)
 ```
 Geheimnisse werden nie als Argument akzeptiert: Prompt oder `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
-TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, f Dateien, x Vergleich, w Restore-Test, g Suche in allen Snapshots, e Dashboard, h Verlauf, i Server ändern, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, u Laufwerke, p DB-Dumps, n Notfallblatt, d Entfernen, q Beenden. Im Dateibrowser: p Vorschau, v Fassungen.
+TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, f Dateien, x Vergleich, w Restore-Test, g Suche in allen Snapshots, e Dashboard, h Verlauf, i Server ändern, s Zeitplan, m Modus, v Verschlüsselung, k Key in Datei sichern, y Key + Notfallblatt in die Zwischenablage kopieren, o Quellen, u Laufwerke, p DB-Dumps, n Notfallblatt, d Entfernen, q Beenden. Im Dateibrowser: p Vorschau, v Fassungen.
 
 ## Entwickeln
 ```bash

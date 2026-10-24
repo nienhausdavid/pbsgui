@@ -209,3 +209,9 @@ EN = {
     'NEIN – Backups liegen unverschlüsselt auf dem Server': 'NO – backups are stored unencrypted on the server',
     'wöchentlich alles neu lesen: ': 're-read everything weekly: ',
 }
+
+EN.update({
+    'Kein Programm für die Zwischenablage gefunden (wl-clipboard, xclip oder xsel installieren)': 'No clipboard program found (install wl-clipboard, xclip or xsel)',
+    'ACHTUNG: Dieser Text enthält den geheimen Verschlüsselungs-Schlüssel. Nur im Passwortmanager oder an einem sicheren Ort ablegen, nie ungeschützt weitergeben.': 'WARNING: This text contains the secret encryption key. Store it only in your password manager or another safe place, never pass it on unprotected.',
+    'SCHLÜSSEL (Inhalt von key.json; als Datei speichern und bei der Wiederherstellung angeben)': 'KEY (content of key.json; save it as a file and provide it during the restore)',
+})

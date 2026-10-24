@@ -8,7 +8,7 @@ from rich.markup import escape
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import (Checkbox, DataTable, Footer, Header, Input, OptionList, ProgressBar, RichLog, Static, TabbedContent,
+from textual.widgets import (Button, Checkbox, DataTable, Footer, Header, Input, OptionList, ProgressBar, RichLog, Static, TabbedContent,
                              TabPane)
 from textual.widgets.option_list import Option
 
@@ -38,7 +38,7 @@ class PbsTui(App):
     """
     BINDINGS = [("a", "add", tr("Hinzufügen")), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
                 ("t", "restore", tr("Restore")), ("f", "files", tr("Dateien")), ("s", "schedule", tr("Zeitplan")), ("m", "scope", tr("Modus")),
-                ("v", "encrypt", tr("Verschl.")), ("k", "key", tr("Key sichern")), ("n", "sheet", tr("Notfallblatt")), ("o", "sources", tr("Quellen")), ("u", "mounts", tr("Laufwerke")), ("p", "dbdump", "DB-Dumps"), ("c", "detect", tr("Änderungen")),
+                ("v", "encrypt", tr("Verschl.")), ("k", "key", tr("Key sichern")), ("y", "copy_key", tr("Key kopieren")), ("n", "sheet", tr("Notfallblatt")), ("o", "sources", tr("Quellen")), ("u", "mounts", tr("Laufwerke")), ("p", "dbdump", "DB-Dumps"), ("c", "detect", tr("Änderungen")),
                 ("i", "server", tr("Server ändern")), ("x", "diff", tr("Vergleich")), ("w", "restore_test", "Restore-Test"), ("g", "find_all", tr("Suche alle")),
                 ("e", "dashboard", "Dashboard"), ("h", "history", tr("Verlauf")),
                 ("d", "delete", tr("Entfernen")), ("q", "quit", tr("Beenden"))]
@@ -69,6 +69,11 @@ class PbsTui(App):
             with TabbedContent(id="main"):
                 with TabPane(tr("Übersicht"), id="tab-overview"):
                     yield Static("", id="overview", markup=False)
+                    with Horizontal(id="key-buttons"):
+                        yield Button(tr("Schlüssel kopieren"), id="btn-copy-key")
+                        yield Button(tr("Schlüssel + Notfallblatt kopieren"), id="btn-copy-kit", variant="primary")
+                        yield Button(tr("Notfallblatt kopieren"), id="btn-copy-sheet")
+                        yield Button(tr("In Datei speichern …"), id="btn-key-file")
                 with TabPane("Snapshots", id="tab-snaps"):
                     yield DataTable(id="snaps", cursor_type="row")
                 with TabPane("Dashboard", id="tab-dashboard"):
@@ -209,6 +214,15 @@ class PbsTui(App):
 
     def action_backup(self) -> None:
         p = self._need()
+        if p and needs_key_export(p):          # gesperrt, bis der Schlüssel gesichert ist: per Zwischenablage gleich erledigen
+            def answered(yes):
+                if yes:
+                    self.copy_what("kit")
+                    if not needs_key_export(self.mgr.profiles_store.load(p.name)):
+                        self.current = self.mgr.profiles_store.load(p.name)
+                        self.action_backup()
+            self.push_screen(ConfirmScreen(tr("Dieses Vollbackup startet, sobald der Schlüssel gesichert ist. Schlüssel und Notfallblatt jetzt in die Zwischenablage kopieren (im Passwortmanager einfügen) und das Backup starten?")), answered)
+            return
         if not p or not self._start():
             return
         self._q("#log", RichLog).clear()
@@ -554,6 +568,40 @@ class PbsTui(App):
         self.push_screen(PromptScreen(tr("Schlüssel exportieren nach:"), str(Path.home() / f"{p.slug}-key.json"),
                                       tr("Ohne Kopie sind verschlüsselte Backups bei Verlust nicht wiederherstellbar.")), got)
 
+    def action_copy_key(self) -> None:
+        self.copy_what("kit")
+
+    def on_button_pressed(self, e: Button.Pressed) -> None:
+        what = {"btn-copy-key": "key", "btn-copy-kit": "kit", "btn-copy-sheet": "sheet"}.get(e.button.id or "")
+        if what:
+            self.copy_what(what)
+        elif e.button.id == "btn-key-file":
+            self.action_key()
+
+    def copy_what(self, what: str) -> None:
+        """Schlüssel, Notfallblatt oder beides in die Zwischenablage; Schlüssel und Set zählen als gesicherter Export."""
+        p = self._need()
+        if not p:
+            return
+        try:
+            text = {"key": lambda: self.mgr.key_text(p), "kit": lambda: self.mgr.emergency_kit(p), "sheet": lambda: render_sheet(p)}[what]()
+        except Exception as e:
+            self._notify(str(e), severity="error")
+            return
+        from ..core.clipboard import ClipboardError, copy_text
+        try:
+            copy_text(text)
+        except ClipboardError:
+            self.copy_to_clipboard(text)           # Textual: Terminal-Zwischenablage (OSC 52), wenn das Terminal es kann
+        if what == "sheet":
+            self._notify(tr("Notfallblatt kopiert (enthält keine Geheimnisse)"))
+            return
+        self.mgr.mark_key_exported(p)
+        self._notify(tr("Schlüssel und Notfallblatt kopiert. Jetzt im Passwortmanager einfügen und speichern!") if what == "kit"
+                     else tr("Schlüssel kopiert. Jetzt im Passwortmanager einfügen und speichern!"), severity="warning", timeout=12)
+        self._activate_schedule(p)
+        self.show_overview()
+
     def action_sheet(self) -> None:
         p = self._need()
         if not p:
@@ -609,7 +657,7 @@ class PbsTui(App):
 
     def _start_first_backup(self, p: Profile) -> None:
         if needs_key_export(p):  # Vollbackup ist bis zum Schlüssel-Export gesperrt: erklären statt scheitern
-            self._notify(tr("Das erste Backup startet noch nicht: erst den Schlüssel mit [k] sichern, dann [b]."),
+            self._notify(tr("Das erste Backup startet noch nicht: erst den Schlüssel sichern ([y] kopieren oder [k] Datei), dann [b]."),
                          severity="warning", timeout=15)
             return
         self.action_backup()

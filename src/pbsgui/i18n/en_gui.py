@@ -243,3 +243,17 @@ EN.update({
     'Sprache der Oberfläche; gilt ab dem nächsten Start von pbsgui.': 'Interface language; applies from the next start of pbsgui.',
     'Die Sprache gilt ab dem nächsten Start von pbsgui.': 'The language applies from the next start of pbsgui.',
 })
+
+EN.update({
+    'Schlüssel kopieren': 'Copy key',
+    'Schlüssel in die Zwischenablage kopieren (z. B. in den Passwortmanager einfügen)': 'Copy the key to the clipboard (e.g. paste it into your password manager)',
+    'Schlüssel + Notfallblatt kopieren': 'Copy key + emergency sheet',
+    'Notfallblatt und Schlüssel in einem Text in die Zwischenablage kopieren': 'Copy the emergency sheet and the key as one text to the clipboard',
+    'Notfallblatt kopieren': 'Copy emergency sheet',
+    'Kopieren fehlgeschlagen': 'Copying failed',
+    'Kopiert. Jetzt im Passwortmanager einfügen und speichern (die Zwischenablage wird in 2 Minuten geleert).': 'Copied. Now paste it into your password manager and save it (the clipboard is cleared in 2 minutes).',
+    'Notfallblatt kopiert (enthält keine Geheimnisse)': 'Emergency sheet copied (contains no secrets)',
+    'Dieses verschlüsselte Vollbackup startet, sobald der Verschlüsselungs-Schlüssel gesichert ist. Ohne Kopie ließe sich das System auf einem neuen PC nicht wiederherstellen.\n\nAm einfachsten: Schlüssel und Notfallblatt in die Zwischenablage kopieren und im Passwortmanager einfügen. Danach startet das Backup.': 'This encrypted full backup starts as soon as the encryption key has been backed up. Without a copy the system could not be restored on a new PC.\n\nEasiest: copy the key and emergency sheet to the clipboard and paste them into your password manager. The backup starts afterwards.',
+    'In Datei speichern …': 'Save to a file …',
+    "Für '{0}' wurde ein Verschlüsselungs-Schlüssel erzeugt (Fingerprint {1}).\n\nGeht er verloren (z. B. Festplattendefekt), sind alle Backups UNWIDERRUFLICH unlesbar. Bitte jetzt eine Kopie an einem sicheren Ort ablegen: am einfachsten in die Zwischenablage kopieren und im Passwortmanager einfügen.": "An encryption key was created for '{0}' (fingerprint {1}).\n\nIf it is lost (e.g. disk failure), all backups become IRREVERSIBLY unreadable. Please store a copy in a safe place now: the easiest way is to copy it to the clipboard and paste it into your password manager.",
+})

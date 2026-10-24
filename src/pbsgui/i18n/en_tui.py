@@ -356,3 +356,22 @@ EN.update({
     '{0} Schlüsseldatei(en) gefunden, die erste wurde eingetragen: {1}': '{0} key file(s) found, the first one was entered: {1}',
     'Keine Schlüsseldatei gefunden. USB-Stick einstecken und erneut suchen oder den Pfad von Hand eintragen.': 'No key file found. Plug in a USB stick and search again, or enter the path manually.',
 })
+
+EN.update({
+    'Key kopieren': 'Copy key',
+    'Schlüssel und Notfallblatt kopiert. Jetzt im Passwortmanager einfügen und speichern!': 'Key and emergency sheet copied. Now paste them into your password manager and save them!',
+    'Das erste Backup startet noch nicht: erst den Schlüssel sichern ([y] kopieren oder [k] Datei), dann [b].': 'The first backup does not start yet: back up the key first ([y] copy or [k] file), then [b].',
+})
+
+EN.update({
+    'Schlüssel kopieren': 'Copy key',
+    'Schlüssel + Notfallblatt kopieren': 'Copy key + emergency sheet',
+    'Notfallblatt kopieren': 'Copy emergency sheet',
+    'In Datei speichern …': 'Save to a file …',
+    'Notfallblatt kopiert (enthält keine Geheimnisse)': 'Emergency sheet copied (contains no secrets)',
+    'Schlüssel kopiert. Jetzt im Passwortmanager einfügen und speichern!': 'Key copied. Now paste it into your password manager and save it!',
+})
+
+EN.update({
+    'Dieses Vollbackup startet, sobald der Schlüssel gesichert ist. Schlüssel und Notfallblatt jetzt in die Zwischenablage kopieren (im Passwortmanager einfügen) und das Backup starten?': 'This full backup starts as soon as the key is backed up. Copy the key and emergency sheet to the clipboard now (paste them into your password manager) and start the backup?',
+})

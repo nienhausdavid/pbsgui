@@ -7,6 +7,17 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **Schlüssel und Notfall-Set in die Zwischenablage kopieren:** GUI-Knöpfe „Schlüssel kopieren“, „Schlüssel + Notfallblatt kopieren“ und „Notfallblatt kopieren“,
+  dieselben Knöpfe in der Übersicht der TUI (und Taste `y`), `pbsgui key copy|copy-kit|copy-sheet NAME` (braucht `wl-copy`, `xclip` oder `xsel`;
+  der Text geht über stdin). Das Notfall-Set enthält das Notfallblatt und den geheimen Schlüssel; die GUI leert die Zwischenablage nach 2 Minuten.
+  Schlüssel und Set gelten als gesicherter Export und lösen die Sperre des verschlüsselten Vollbackups.
+- **Backup startet nach dem Sichern von selbst:** Ist das Vollbackup noch gesperrt, bietet die GUI (und die TUI mit `b`) an, Schlüssel und Notfallblatt
+  gleich in die Zwischenablage zu kopieren; danach läuft das Backup ohne weiteren Export-Dialog los.
+
+### Behoben
+- Tray: Das Untermenü „Jetzt sichern“ konnte verschwinden (Referenz wurde nicht gehalten).
+
 ## [0.9.0] - 2026-10-24
 
 ### Hinzugefügt
