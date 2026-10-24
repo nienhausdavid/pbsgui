@@ -57,7 +57,7 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates curl gh python3 \
-            live-build debootstrap xorriso squashfs-tools mtools dosfstools grub-pc-bin grub-efi-amd64-bin grub-common \
+            live-build debootstrap xorriso squashfs-tools mtools dosfstools grub-pc-bin grub-efi-amd64-bin grub-common gnupg \
             isolinux syslinux-utils
       - uses: actions/checkout@v4
         with:
