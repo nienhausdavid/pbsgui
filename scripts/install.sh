@@ -14,7 +14,7 @@
 #   --no-client   proxmox-backup-client nicht installieren (z. B. wenn schon vorhanden)
 #   --version V   bestimmte pbsgui-Version installieren (z. B. 0.4.0)
 #   --uninstall   pbsgui und die beiden Repository-Einträge entfernen (Profile in ~/.config/pbsgui bleiben)
-#   -y, --yes     keine Rückfragen von apt
+#   -y, --yes     keine Rückfragen von apt (automatisch, wenn stdin kein Terminal ist)
 #   -h, --help    diese Hilfe
 set -eu
 
@@ -36,21 +36,31 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
+# Bei "curl | sh" ist stdin die Pipe: apt könnte nicht antworten und bricht ab.
+[ -t 0 ] || yes="-y"
+
+step=0
+total=5; [ "$client" = 1 ] || total=4
+say() { step=$((step+1)); printf '\n\033[1m==> [%s/%s] %s\033[0m\n' "$step" "$total" "$*"; }
+info() { printf '    %s\n' "$*"; }
+run() { printf '    \033[2m$ %s\033[0m\n' "$*"; "$@"; }
 die() { echo "Fehler: $*" >&2; exit 1; }
 
 [ "$(id -u)" = 0 ] || die "bitte als root ausführen (sudo)."
 command -v apt-get >/dev/null 2>&1 || die "apt nicht gefunden: nur Debian und Ubuntu werden unterstützt."
 
 if [ "$uninstall" = 1 ]; then
-  say "pbsgui entfernen"
-  apt-get remove $yes pbsgui pbstui || true
-  rm -f /etc/apt/sources.list.d/pbsgui.list /usr/share/keyrings/pbsgui.gpg
+  printf '\n\033[1m==> pbsgui entfernen\033[0m\n'
+  # shellcheck disable=SC2086
+  run apt-get remove $yes pbsgui pbstui || true
+  info "Repository-Eintrag und Schlüssel von pbsgui löschen"
+  run rm -fv /etc/apt/sources.list.d/pbsgui.list /usr/share/keyrings/pbsgui.gpg
   echo "Proxmox-Client-Repository und proxmox-backup-client bleiben erhalten (apt remove proxmox-backup-client)."
   exit 0
 fi
 
 . /etc/os-release
+printf '\033[1mSystem:\033[0m %s, Architektur %s\n' "${PRETTY_NAME:-?}" "$(dpkg --print-architecture 2>/dev/null || uname -m)"
 case "${ID:-}" in
   debian)
     [ "${VERSION_ID:-0}" -ge 13 ] 2>/dev/null || die "Debian 13 oder neuer wird benötigt (gefunden: ${PRETTY_NAME:-?})." ;;
@@ -66,16 +76,24 @@ case "${ID:-}" in
 esac
 
 say "Voraussetzungen installieren"
-apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg >/dev/null
+info "ca-certificates (HTTPS), curl (Downloads), gnupg (Signaturprüfung)"
+run apt-get update
+export DEBIAN_FRONTEND=noninteractive
+run apt-get install -y ca-certificates curl gnupg
 
-say "pbsgui-Repository einbinden ($REPO_URL)"
-curl -fsSL "$REPO_URL/pbsgui.gpg" -o /usr/share/keyrings/pbsgui.gpg
+say "pbsgui-Repository einbinden"
+info "Quelle: $REPO_URL"
+info "Signaturschlüssel  -> /usr/share/keyrings/pbsgui.gpg"
+info "Repository-Eintrag -> /etc/apt/sources.list.d/pbsgui.list"
+run curl -fsSL "$REPO_URL/pbsgui.gpg" -o /usr/share/keyrings/pbsgui.gpg
 echo "deb [signed-by=/usr/share/keyrings/pbsgui.gpg] $REPO_URL stable main" > /etc/apt/sources.list.d/pbsgui.list
 
 if [ "$client" = 1 ]; then
   say "Proxmox-Client-Repository einbinden"
-  curl -fsSL "$PBS_KEY_URL" -o /usr/share/keyrings/proxmox-archive-keyring.gpg
+  info "Quelle: $PBS_REPO_URL (Suite trixie, Komponente main)"
+  info "Signaturschlüssel  -> /usr/share/keyrings/proxmox-archive-keyring.gpg"
+  info "Repository-Eintrag -> /etc/apt/sources.list.d/pbs-client.sources"
+  run curl -fsSL "$PBS_KEY_URL" -o /usr/share/keyrings/proxmox-archive-keyring.gpg
   cat > /etc/apt/sources.list.d/pbs-client.sources <<EOF
 Types: deb
 URIs: $PBS_REPO_URL
@@ -85,7 +103,9 @@ Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
 EOF
 fi
 
-apt-get update -qq
+
+say "Paketlisten aktualisieren"
+run apt-get update
 
 if [ "$gui" = 1 ]; then
   pkgs="pbsgui${version:+=$version}"          # die GUI zieht pbstui (Terminal-Oberfläche, Kommandozeile) mit
@@ -96,17 +116,23 @@ fi
 # Zusätzlich zu den Empfehlungen: Werkzeuge für Vollbackup und Dateibrowser (FUSE)
 pkgs="$pkgs fdisk gdisk efibootmgr fuse3"
 if [ "$gui" = 0 ]; then
-  say "Installiere (ohne Qt-GUI): $pkgs"
+  say "Pakete installieren (ohne Qt-GUI)"
+  info "Pakete: $pkgs"
+  info "pbstui = Terminal-Oberfläche + Kommandozeile, fdisk/gdisk/efibootmgr = Vollbackup, fuse3 = Dateibrowser"
   # shellcheck disable=SC2086
-  apt-get install $yes $pkgs systemd polkitd pkexec 2>/dev/null \
-    || apt-get install $yes $pkgs systemd
+  run apt-get install $yes $pkgs systemd polkitd pkexec 2>/dev/null \
+    || { info "polkitd/pkexec nicht verfügbar, installiere ohne"; run apt-get install $yes $pkgs systemd; }
 else
-  say "Installiere: $pkgs"
+  say "Pakete installieren"
+  info "Pakete: $pkgs"
+  info "pbsgui = Qt-GUI (zieht pbstui mit), fdisk/gdisk/efibootmgr = Vollbackup, fuse3 = Dateibrowser"
+  info "Die Qt-Abhängigkeiten sind groß (mehrere hundert MB)."
   # shellcheck disable=SC2086
-  apt-get install $yes $pkgs
+  run apt-get install $yes $pkgs
 fi
 
-say "Fertig"
+printf '\n\033[1m==> Fertig\033[0m\n'
+info "Installierte Version:"
 pbsgui --version || true
 cat <<'MSG'
 
