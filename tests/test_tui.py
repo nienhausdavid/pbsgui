@@ -465,6 +465,7 @@ async def test_create_with_db_dump_opens_db_screen_and_sets_up_mariadb_user(mgr,
         prof = next(p for p in mgr.profiles() if p.name == "NeuerServer")
         assert prof.db_dump is True
         scr = pilot.app.screen
+        assert await wait_for(pilot, lambda: len(scr.query("#db-list")) > 0)   # der Bildschirm ist aktiv, bevor er aufgebaut ist
         lst = scr.query_one("#db-list", OptionList)
         assert await wait_for(pilot, lambda: lst.option_count == 3)
         labels = [str(lst.get_option_at_index(i).prompt) for i in range(3)]
