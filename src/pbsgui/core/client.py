@@ -180,6 +180,32 @@ class PbsClient:
             if p.returncode != 0:
                 raise ClientError((p.stderr or p.stdout).strip() or f"Client-Exitcode {p.returncode}")
 
+    def restore_text(self, snapshot: Snapshot, archive: str) -> str:
+        """Liest eine kleine Datei (z. B. qemu-server.conf) eines Snapshots und gibt den Inhalt zurück."""
+        with self._keyfile() as kf:
+            return self._run(["restore", snapshot.path, archive, "-", *self._ns(), *(["--keyfile", kf] if kf else [])])
+
+    def restore_image(self, snapshot: Snapshot, archive: str, target: str, on_line=None) -> None:
+        """Schreibt ein Abbild-Archiv (.img) auf ein Blockgerät oder in eine Datei; die Ausgabe des Clients geht zeilenweise an on_line."""
+        if not target or target == "/" or target == "-":
+            raise ClientError("Ungültiges Wiederherstellungsziel")
+        with self._keyfile() as kf:
+            args = ["restore", snapshot.path, archive, target, *self._ns(), *(["--keyfile", kf] if kf else [])]
+            if on_line is None:
+                self._run(args, timeout=None)
+                return
+            proc = subprocess.Popen([self.binary, *args], env=self._env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, text=True, bufsize=1)
+            if proc.stdout is None:
+                raise ClientError("Kein Ausgabestrom vom Client")
+            tail: list[str] = []
+            for line in proc.stdout:
+                line = line.rstrip("\n")
+                tail = (tail + [line])[-8:]
+                on_line(line)
+            if proc.wait() != 0:
+                raise ClientError(("\n".join(tail)).strip() or "restore fehlgeschlagen")
+
     def restore(self, snapshot: Snapshot, archive: str, target: str) -> None:
         """Stellt in einen (neuen) Zielordner wieder her; überschreibt nie das Original."""
         if not target or target == "/":

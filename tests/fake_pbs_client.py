@@ -87,6 +87,21 @@ elif args[:1] == ["mount"]:
         sys.exit(1)
     target.rmdir()
     os.symlink(src, target)   # Testersatz für FUSE: der Einhängepunkt zeigt auf den Dateibaum
+elif args[:1] == ["restore"] and args[3] == "-":     # Konfiguration eines VM-Snapshots auf stdout (qemu-server.conf)
+    conf = os.environ.get("FAKE_PBS_VMCONF")
+    if not conf or args[2] != "qemu-server.conf":
+        print(f"Error: archive {args[2]} not found", file=sys.stderr)
+        sys.exit(1)
+    sys.stdout.write(Path(conf).read_text())
+elif args[:1] == ["restore"] and args[2].endswith(".img"):    # VM-Abbild auf ein Gerät oder in eine Datei schreiben
+    src = Path(os.environ.get("FAKE_PBS_IMAGES", "")) / args[2]
+    if not src.is_file():
+        print(f"Error: archive {args[2]} not found", file=sys.stderr)
+        sys.exit(1)
+    data = src.read_bytes()
+    with open(args[3], "r+b" if Path(args[3]).exists() else "wb") as f:
+        f.write(data)
+    print(f"restore complete ({len(data)} bytes processed)")
 elif args[:1] == ["restore"]:
     target = Path(args[3])
     target.mkdir(parents=True, exist_ok=True)

@@ -106,6 +106,7 @@ class Snapshot:
     backup_time: int
     size: int = 0
     files: list[str] = field(default_factory=list)
+    file_sizes: dict[str, int] = field(default_factory=dict)   # Dateiname -> Größe (bei Abbild-Archiven: Größe des Abbilds)
 
     @property
     def archives(self) -> list[str]:
@@ -139,4 +140,5 @@ class Snapshot:
             backup_time=int(d["backup-time"]),
             size=int(d.get("size") or 0),
             files=files,
+            file_sizes={f["filename"]: int(f.get("size") or 0) for f in d.get("files", []) if isinstance(f, dict) and "filename" in f},
         )
