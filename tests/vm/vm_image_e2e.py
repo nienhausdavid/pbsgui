@@ -132,13 +132,13 @@ def verify(a) -> None:
         ok = all(x in out for x in ("quell-pc", "root/marker.txt: OK", "home/vmuser/data.bin: OK", "Daten der zweiten Platte"))
         orig = json.loads(Path(a.source_image).with_suffix(".lsblk.json").read_text())
         flat = lambda nodes: [x for n in nodes for x in [n, *flat(n.get("children", []))]]
-        old_root = next(n["size"] for n in flat(orig["blockdevices"]) if "/" in (n.get("mountpoints") or []))
+        old_root = next((n["size"] for n in flat(orig["blockdevices"]) if n.get("type") == "lvm" and n["name"].endswith("root")), 0)
         section = out.rsplit("ROOTSIZE", 1)[1].split("VDA", 1)[0]       # letzte Fundstelle: die erste steht im Echo des Befehls
         line = next((l for l in section.splitlines() if l.rstrip().endswith(" /")), "")
         new_root = int(line.split()[1]) if len(line.split()) > 1 else 0
         log(f"Root-Dateisystem: {old_root >> 20} MiB -> {new_root >> 20} MiB")
         assert ok, "Dateien oder Datenplatte stimmen nicht"
-        assert new_root > old_root + 800 * 2**20, f"Root nicht vergrößert ({old_root} -> {new_root})"
+        assert new_root > max(old_root + 800 * 2**20, int(6.5 * 2**30)), f"Root nicht vergrößert ({old_root} -> {new_root})"
         log("VERIFIKATION ERFOLGREICH: VM-Abbild auf größere Platten wiederhergestellt, System bootet, Dateien stimmen, Root vergrößert")
         vm.send("poweroff\n")
         try:

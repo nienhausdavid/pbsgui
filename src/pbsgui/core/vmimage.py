@@ -265,12 +265,25 @@ class _Ctx:
         for key, dev in self.mapping.items():
             if self.sizes[key] <= self.images[key].image_size + GROW_SLACK:
                 continue
+            pt = self.sh(["blkid", "-p", "-o", "export", dev], None, ok=(0, 2))
+            kind = dict(l.split("=", 1) for l in pt.splitlines() if "=" in l)
+            if kind.get("PTTYPE") not in ("gpt", "dos"):
+                # Kein Partitionsschema: entweder ein Dateisystem direkt auf der Platte oder etwas Unbekanntes. sgdisk würde hier
+                # eine NEUE GPT über den Anfang schreiben und das Dateisystem zerstören: nie anfassen.
+                fs = kind.get("TYPE", "")
+                if fs.startswith("ext"):
+                    on_line(f"{dev}: Dateisystem {fs} direkt auf der Platte, vergrößere es")
+                    self.sh(["e2fsck", "-fy", dev], on_line, ok=(0, 1))
+                    self.sh(["resize2fs", dev], on_line)
+                else:
+                    on_line(f"{dev}: kein Partitionsschema ({fs or 'unbekannter Inhalt'}), nicht vergrößert")
+                continue
             on_line(f"{dev}: Platte ist größer als das Abbild, passe die Partitionstabelle an")
             self.sh(["sgdisk", "-e", dev], on_line)
             tab = json.loads(self.sh(["sfdisk", "-J", dev]) or "{}").get("partitiontable", {})
             parts = tab.get("partitions", [])
             if not parts or tab.get("label") not in ("gpt", "dos"):
-                on_line(f"{dev}: keine bekannte Partitionstabelle, nicht vergrößert")
+                on_line(f"{dev}: Partitionstabelle nicht lesbar, nicht vergrößert")
                 continue
             last = max(parts, key=lambda p: p["start"])
             if tab["label"] == "dos" and last.get("type") in ("5", "f", "85"):

@@ -319,3 +319,40 @@ def test_network_wildcard_patterns_are_never_rewritten(tmp_path):
     root = guest(tmp_path, {"etc/systemd/network/20-wired.network": "[Match]\nName=en*\n\n[Network]\nDHCP=yes\n"})
     assert vm.rewrite_network(root, ["enp3s0"]) == []
     assert "Name=en*" in (root / "etc/systemd/network/20-wired.network").read_text()
+
+
+def _grow_ctx(blkid_out: str, calls: list):
+    def fake_run(argv, **kw):
+        calls.append(list(argv))
+        out = blkid_out if argv[0] == "blkid" else ('{"partitiontable": {"label": "gpt", "partitions": [{"node": "/dev/vdb1", "start": 2048}]}}'
+                                                      if argv[:2] == ["sfdisk", "-J"] else "")
+        return subprocess.CompletedProcess(argv, 0, out, "")
+    ctx = vm._Ctx(cfg=None, snap=None, vmcfg=None, mapping={"scsi1": "/dev/vdb"}, boot="scsi0", opts=vm.RepairOptions(), run=fake_run,
+                  mount_root="/mnt/x", uefi_live=True, sizes={"scsi1": 200 * 2**20}, images={"scsi1": vm.VmDisk("scsi1", "drive-scsi1.img", 96 * 2**20)})
+    return ctx
+
+
+def test_disk_without_partition_table_is_never_touched_by_sgdisk():
+    """Regression (QEMU-Test): `sgdisk -e` auf eine Platte mit Dateisystem direkt darauf schreibt eine GPT über den ext4-Superblock."""
+    calls: list = []
+    ctx = _grow_ctx("TYPE=ext4\nUUID=abc\n", calls)
+    log: list = []
+    ctx.grow_partitions(log.append)
+    names = [c[0] for c in calls]
+    assert "sgdisk" not in names and "sfdisk" not in names
+    assert ["resize2fs", "/dev/vdb"] in calls and any("direkt auf der Platte" in l for l in log)
+
+
+def test_unknown_content_without_partition_table_is_left_alone():
+    calls: list = []
+    ctx = _grow_ctx("", calls)
+    log: list = []
+    ctx.grow_partitions(log.append)
+    assert [c[0] for c in calls] == ["blkid"] and any("nicht vergrößert" in l for l in log)
+
+
+def test_gpt_disk_is_grown_with_sgdisk_and_sfdisk():
+    calls: list = []
+    ctx = _grow_ctx("PTTYPE=gpt\n", calls)
+    ctx.grow_partitions(lambda l: None)
+    assert ["sgdisk", "-e", "/dev/vdb"] in calls and ["sfdisk", "-N", "1", "--no-reread", "-q", "/dev/vdb"] in calls
