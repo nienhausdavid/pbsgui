@@ -7,6 +7,17 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **Dark Mode** in der GUI: Umschalter oben rechts mit „System“ (folgt dem Desktop, auch bei Wechsel zur Laufzeit), „Hell“ und
+  „Dunkel“; die Wahl wird gemerkt.
+- **Eigene Titelleiste mit Minimieren, Maximieren/Wiederherstellen und Schließen** oben rechts (GNOME zeigt Minimieren und
+  Maximieren sonst nicht an). Verschieben per Ziehen der Leiste, Doppelklick maximiert, Vergrößern an allen Rändern
+  und Ecken. Mit `PBSGUI_NATIVE_FRAME=1` bleibt der Rahmen des Systems.
+
+### Geändert
+- **Höherer Kontrast** in der GUI: Text mindestens 7:1, Nebentext mindestens 4,5:1, Rahmen mindestens 3:1 (per Test
+  abgesichert); Haken, Auswahl und Tabs deutlicher, einheitliche Farben auch in Dialogen.
+
 ## [0.8.0] - 2026-10-24
 
 ### Hinzugefügt

@@ -426,3 +426,55 @@ def test_db_dialog_passwordless_setup(app, fake_env, profile, paths, dock, monke
     assert pump(app, lambda: "ohne Passwort (Socket)" in d.list.item(maria).text())
     assert dock.data()["events"][0] == "stop firefly_db" and dock.data()["events"][-1] == "start firefly_db"
     assert mgr.db_credentials(d.profile) == {} and not d.socket_btn.isEnabled()
+
+
+# -- Titelleiste und Farbmodus ----------------------------------------------------------------------------------
+def _contrast(a: str, b: str) -> float:
+    def lum(h):
+        r, g, bl = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(bl)
+    la, lb = sorted((lum(a), lum(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def test_theme_contrast_is_high_enough():
+    from pbsgui.gui.style import THEMES
+    for name, t in THEMES.items():
+        assert _contrast(t["text"], t["bg"]) >= 7, name
+        assert _contrast(t["text"], t["surface"]) >= 7, name
+        assert _contrast(t["muted"], t["bg"]) >= 4.5, name
+        assert _contrast(t["accent_text"], t["accent"]) >= 4.5, name
+        assert _contrast(t["border"], t["bg"]) >= 3, name
+
+
+
+
+def test_titlebar_buttons_and_theme_switch(app, fake_env, paths, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    from pbsgui.gui import style
+    QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, str(tmp_path / "qs"))
+    monkeypatch.delenv("PBSGUI_NATIVE_FRAME", raising=False)
+    mgr = ProfileManager(paths, FileStore(paths.creds))
+    w = window_mod.MainWindow(mgr)
+    w.show(); app.processEvents()
+    assert w.titlebar is not None
+    for b in (w.titlebar.min_btn, w.titlebar.max_btn, w.titlebar.close_btn):
+        assert b.isVisible()
+    w.titlebar.toggle_max(); pump(app, w.isMaximized)
+    assert w.isMaximized()
+    w.titlebar.toggle_max(); pump(app, lambda: not w.isMaximized())
+    assert not w.isMaximized()
+    for mode in ("dark", "light", "system"):
+        w.set_theme_mode(mode)
+        assert style.current_mode() == mode
+    w.set_theme_mode("dark")
+    assert app.property("pbsgui_theme") == "dark"
+    assert w.minimumSizeHint().width() < 800 and w.minimumSizeHint().height() < 600
+    w.close()
+
+
+def test_native_frame_can_be_kept(app, fake_env, paths, monkeypatch):
+    monkeypatch.setenv("PBSGUI_NATIVE_FRAME", "1")
+    w = window_mod.MainWindow(ProfileManager(paths, FileStore(paths.creds)))
+    assert w.titlebar is None

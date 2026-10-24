@@ -1,13 +1,14 @@
 """Hauptfenster: Profilliste und Tabs Backup, Snapshots, Zeitplan."""
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QEvent, QSettings, Qt
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGroupBox, QHeaderView, QProgressBar, QCheckBox, QComboBox,
                                QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
-                               QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
+                               QApplication, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from ..core.manager import ProfileManager, can_use_admin
@@ -21,6 +22,8 @@ from .add_server import AddServerDialog
 from .db_dialog import DbDumpDialog
 from .files_dialog import FilesDialog
 from .mounts_widget import MountList
+from . import style
+from .titlebar import Shell, TitleBar
 from .workers import Worker
 
 PRESETS = [("Vorlage wählen …", ""), ("Täglich 02:00", "*-*-* 02:00:00"), ("Stündlich", "hourly"), ("Wöchentlich (Mo 03:00)", "Mon *-*-* 03:00:00"),
@@ -67,13 +70,46 @@ class MainWindow(QMainWindow):
         split = QSplitter(); split.addWidget(left); split.addWidget(right)
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1); split.setSizes([230, 850])
         split.setChildrenCollapsible(False); split.setHandleWidth(3)
-        self.setCentralWidget(split)
+        self._native = bool(os.environ.get("PBSGUI_NATIVE_FRAME"))
+        if self._native:
+            self.setCentralWidget(split); self.titlebar = None
+        else:
+            self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)   # eigene Titelleiste mit Fensterknöpfen
+            shell = Shell(self); sl = QVBoxLayout(shell); sl.setSpacing(0)
+            frame = QFrame(); frame.setObjectName("frame"); fl = QVBoxLayout(frame); fl.setContentsMargins(0, 0, 0, 0); fl.setSpacing(0)
+            self.titlebar = TitleBar(self, f"pbsgui {__version__}", style.MODE_LABELS)
+            self.titlebar.modeChosen.connect(self.set_theme_mode)
+            fl.addWidget(self.titlebar); fl.addWidget(split, 1)
+            sl.addWidget(frame); self._shell = shell
+            shell.set_margins(False)
+            self.setCentralWidget(shell)
         self.statusBar().showMessage("Bereit")
         self.plist.currentRowChanged.connect(self._select)
         self.reload()
         geo = QSettings("pbsgui", "pbsgui").value("geometry")   # Fenstergröße und -lage merken
         if geo:
             self.restoreGeometry(geo)
+
+    def set_theme_mode(self, mode: str) -> None:
+        """Farbmodus wählen (system/hell/dunkel), anwenden und merken."""
+        style.save_mode(mode)
+        style.apply(QApplication.instance(), mode)
+        self._refresh_chrome()
+
+    def _refresh_chrome(self) -> None:
+        if self.titlebar is not None:
+            theme = QApplication.instance().property("pbsgui_theme") or "light"
+            self.titlebar.refresh_icons(theme, style.current_mode())
+            self._shell.set_margins(self.isMaximized())
+
+    def changeEvent(self, ev) -> None:
+        super().changeEvent(ev)
+        if ev.type() == QEvent.Type.WindowStateChange:
+            self._refresh_chrome()
+
+    def showEvent(self, ev) -> None:
+        super().showEvent(ev)
+        self._refresh_chrome()
 
     def closeEvent(self, ev) -> None:
         QSettings("pbsgui", "pbsgui").setValue("geometry", self.saveGeometry())

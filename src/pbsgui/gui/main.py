@@ -14,6 +14,15 @@ def main() -> int:
     app.setDesktopFileName("pbsgui")  # Wayland: ordnet Fenster dem Starter und Icon zu
     style.apply(app)
     win = MainWindow()
+
+    def follow_system(*_):   # Farbwechsel des Desktops übernehmen, solange der Modus „System“ ist
+        if style.current_mode() == "system":
+            style.apply(app, "system")
+            win._refresh_chrome()
+    try:
+        app.styleHints().colorSchemeChanged.connect(follow_system)
+    except AttributeError:
+        pass
     win.show()
     return app.exec()
 
