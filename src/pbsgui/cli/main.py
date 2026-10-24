@@ -753,6 +753,14 @@ def cmd_update(a, mgr) -> int:
     return 0 if res.state in ("fertig", "offline") else 1
 
 
+def cmd_tray(a, mgr) -> int:
+    try:
+        from ..gui.main import main as gui_main
+    except ImportError:
+        raise CliError("Die grafische Oberfläche ist nicht installiert (Debian: `sudo apt install pbsgui`).")
+    return gui_main(start_hidden=True)
+
+
 def cmd_tui(a, mgr) -> int:
     from ..tui.app import run
     run()
@@ -873,6 +881,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("recovery", cmd_recovery, "Wiederherstellung auf neuem PC: Checkliste, Notfallblatt", "name")
     sp.add_argument("--sheet", metavar="DATEI", help="Notfallblatt (ohne Geheimnisse) speichern")
     sp.add_argument("--collect", metavar="VERZEICHNIS", help="Datenträger-Metadaten jetzt sammeln (braucht root)")
+    from .insight import add_arguments as add_insight
+    add_insight(sub)
     from .rescue_cli import add_arguments as add_rescue
     add_rescue(sub)
     sp = add("vpn", cmd_vpn, "VPN zum Backup-Server: status | find | up | down (WireGuard, OpenVPN, NetBird)", "action")
@@ -886,6 +896,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("update", cmd_update, "Programme der Rettungs-ISO aktualisieren (pbstui, Proxmox-Client, VPN-Werkzeuge)")
     sp.add_argument("--wait", type=float, default=25, help="so lange auf das Netzwerk warten (Sekunden)")
     sp.add_argument("--quiet", action="store_true"); sp.add_argument("--boot", action="store_true", help=argparse.SUPPRESS)
+    add("tray", cmd_tray, "Oberfläche im Hintergrund starten (Symbol im Systembereich mit Status und „Jetzt sichern“)")
     add("tui", cmd_tui, "Terminal-Oberfläche starten")
     return ap
 

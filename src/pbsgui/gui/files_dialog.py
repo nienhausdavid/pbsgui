@@ -5,11 +5,13 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
+                               QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
 from ..core.files import Catalog, CatalogEntry, FilesError, map_to_original
 from ..core.manager import ProfileManager
 from ..core.models import Profile, Snapshot
+from ..core.versions import PreviewSession
+from .insight import PreviewPane, Runner, SearchAllDialog, VersionsDialog
 from .workers import Worker
 
 
@@ -28,7 +30,9 @@ class FilesDialog(QDialog):
         self.cats: dict[str, Catalog] = {}
         self._worker: Worker | None = None
         self.setWindowTitle(f"Dateien in {snapshot.path}")
-        self.resize(820, 620)
+        self.resize(1100, 640)
+        self._sessions: dict[str, PreviewSession] = {}
+        self._closed = False
 
         self.archive = QComboBox()
         self.search = QLineEdit(); self.search.setPlaceholderText("Suchen (Namen, * und ? als Platzhalter), Enter")
@@ -38,11 +42,20 @@ class FilesDialog(QDialog):
         self.info = QLabel("Lade Dateiliste …"); self.info.setWordWrap(True)
         self.btn_folder = QPushButton("In Ordner wiederherstellen …")
         self.btn_over = QPushButton("Am Originalort überschreiben (nur Home) …")
+        self.btn_versions = QPushButton("Fassungen …"); self.btn_versions.setToolTip("Alle Fassungen dieser Datei aus allen Snapshots")
+        self.btn_all = QPushButton("In allen Snapshots suchen …")
+        self.preview = PreviewPane()
         close = QPushButton("Schließen")
         top = QHBoxLayout(); top.addWidget(QLabel("Archiv:")); top.addWidget(self.archive, 1); top.addWidget(self.search, 2)
-        bot = QHBoxLayout(); bot.addWidget(self.btn_folder); bot.addWidget(self.btn_over); bot.addStretch(); bot.addWidget(close)
+        bot = QHBoxLayout()
+        for w in (self.btn_folder, self.btn_over, self.btn_versions, self.btn_all):
+            bot.addWidget(w)
+        bot.addStretch(); bot.addWidget(close)
+        split = QSplitter(); split.addWidget(self.tree); split.addWidget(self.preview)
+        split.setStretchFactor(0, 3); split.setStretchFactor(1, 2); split.setChildrenCollapsible(False)
         lay = QVBoxLayout(self)
-        lay.addLayout(top); lay.addWidget(self.tree, 1); lay.addWidget(self.info); lay.addLayout(bot)
+        lay.addLayout(top); lay.addWidget(split, 1); lay.addWidget(self.info); lay.addLayout(bot)
+        self._previews = Runner(self, lambda m: self.preview.clear(f"Vorschau nicht möglich: {m}"))
 
         self.archive.currentTextChanged.connect(self._show_root)
         self.search.returnPressed.connect(self._do_search)
@@ -50,8 +63,12 @@ class FilesDialog(QDialog):
         self.tree.itemSelectionChanged.connect(self._selection_changed)
         self.btn_folder.clicked.connect(self._restore_folder)
         self.btn_over.clicked.connect(self._restore_original)
+        self.btn_versions.clicked.connect(self._versions)
+        self.btn_all.clicked.connect(lambda: SearchAllDialog(self.mgr, self.profile, self.search.text().strip(), self).exec())
+        self.tree.itemSelectionChanged.connect(self._preview_selected)
+        self.finished.connect(lambda _r: self._close_sessions(final=True))
         close.clicked.connect(self.accept)
-        self.btn_folder.setEnabled(False); self.btn_over.setEnabled(False)
+        self.btn_folder.setEnabled(False); self.btn_over.setEnabled(False); self.btn_versions.setEnabled(False)
         self._run(lambda _l: self.mgr.catalogs(self.profile, self.snapshot), self._loaded)
 
     # -- Hilfen -------------------------------------------------------------
@@ -83,6 +100,8 @@ class FilesDialog(QDialog):
         self._show_root()
 
     def _show_root(self, *_a) -> None:
+        self._close_sessions()
+        self.preview.clear()
         cat = self._cat()
         self.tree.clear()
         if cat:
@@ -104,6 +123,46 @@ class FilesDialog(QDialog):
         found = cat.search(text)
         self.tree.addTopLevelItems([self._item(e, e.path) for e in found])
         self.info.setText(f"{len(found)} Treffer" + (" (Anzeige begrenzt)" if len(found) >= 500 else ""))
+
+    def _close_sessions(self, final: bool = False) -> None:
+        self._closed = self._closed or final
+        sessions, self._sessions = list(self._sessions.values()), {}
+        for s in sessions:
+            s.close()
+
+    def _single_file(self) -> tuple[str, str] | None:
+        items = self.tree.selectedItems()
+        if len(items) != 1:
+            return None
+        path, kind = items[0].data(0, Qt.ItemDataRole.UserRole), items[0].data(0, Qt.ItemDataRole.UserRole + 1)
+        return (path, kind) if path and kind else None
+
+    def _preview_selected(self) -> None:
+        one = self._single_file()
+        self.btn_versions.setEnabled(bool(one and one[1] != "d"))
+        if one is None:
+            self.preview.clear("Eine einzelne Datei wählen, um den Inhalt zu sehen.")
+            return
+        path, kind = one
+        if kind == "d":
+            self.preview.clear("Ordner")
+            return
+        archive = self.archive.currentText()
+        self.preview.clear("Lade Vorschau …")
+
+        def work(_l):
+            ps = self._sessions.get(archive)
+            if self._closed:
+                raise RuntimeError("Dialog geschlossen")
+            if ps is None:
+                ps = self._sessions[archive] = self.mgr.preview_session(self.profile, self.snapshot, archive)
+            return ps.preview(path)
+        self._previews.run(work, self.preview.show_preview)
+
+    def _versions(self) -> None:
+        one = self._single_file()
+        if one and one[1] != "d":
+            VersionsDialog(self.mgr, self.profile, one[0], self.archive.currentText(), self).exec()
 
     def selected_paths(self) -> list[str]:
         paths = [i.data(0, Qt.ItemDataRole.UserRole) for i in self.tree.selectedItems()]

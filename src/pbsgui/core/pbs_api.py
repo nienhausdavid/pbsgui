@@ -197,6 +197,11 @@ class PbsApi:
         data = self._request("GET", "/admin/datastore")
         return sorted(d["store"] for d in (data or []) if isinstance(d, dict) and d.get("store"))  # type: ignore[union-attr]
 
+    def datastore_status(self, datastore: str) -> dict:
+        """Belegung (`total`, `used`, `avail`) und, falls vorhanden, `gc-status` des Datastores. Braucht Audit-/Backup-Recht auf dem Datastore."""
+        data = self._request("GET", f"/admin/datastore/{_q(datastore)}/status")
+        return data if isinstance(data, dict) else {}
+
     def list_namespaces(self, datastore: str) -> list[str]:
         """Vorhandene Namespaces (ohne Wurzel), auch verschachtelte wie `a/b`."""
         data = self._request("GET", f"/admin/datastore/{urllib.parse.quote(datastore, safe='')}/namespace")

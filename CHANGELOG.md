@@ -8,6 +8,33 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Restore und Suche über alle Snapshots** (GUI, TUI, Kommandozeile):
+  - **Dateiversionen:** `pbsgui versions NAME /Pfad/datei` zeigt alle Fassungen einer Datei aus allen Snapshots (gleiche Größe und
+    Änderungszeit = dieselbe Fassung), `--restore NR --target ORDNER` holt eine davon. GUI: Dateibrowser → „Fassungen …“ mit Vorschau
+    jeder Fassung; TUI: `v` im Dateibrowser.
+  - **Suche in allen Snapshots:** `pbsgui find NAME MUSTER` findet auch längst gelöschte Dateien (Spalte „Im neuesten“). GUI:
+    Snapshots → „Suche in allen Snapshots …“; TUI: `g`. Die Dateilisten werden pro Snapshot zwischengespeichert
+    (`~/.cache/pbsgui/catalogs`, nur für den Benutzer lesbar; bei verschlüsselten Backups stehen dort Dateinamen im Klartext),
+    der erste Durchlauf ist langsam, weitere gehen schnell.
+  - **Vergleich zweier Snapshots:** `pbsgui diff NAME [ALT] [NEU]` (Standard: vorheriger gegen neuesten), neue/geänderte/gelöschte
+    Dateien, ganze Ordner zusammengefasst. GUI: „Vergleichen …“; TUI: `x`.
+  - **Vorschau** im Dateibrowser (GUI: Text, Bilder, Hexdump rechts neben dem Baum; TUI: `p`; `pbsgui preview NAME PFAD`), ohne
+    wiederherzustellen. Symbolische Links werden nie verfolgt.
+  - **Restore-Test:** `pbsgui restore-test NAME` holt zufällige Dateien in einen Wegwerf-Ordner (im Arbeitsspeicher) und prüft
+    Lesbarkeit, Größe und, wenn das Original unverändert ist, den SHA-256. Exitcode 1 bei Fehler, damit sich der Test per Zeitplan
+    nutzen lässt. GUI: „Restore-Test …“; TUI: `w`. Das letzte Ergebnis erscheint im Dashboard.
+- **Überblick und Betrieb:**
+  - **Dashboard** (`pbsgui dashboard`, GUI-Tab, TUI `e`): je Profil Status, letztes Backup, Dauer, Größe, Zuwachs gegenüber dem
+    vorherigen Snapshot und vor 30 Tagen, Zahl der Snapshots, Warnungen (überfälliges Backup, Fehler, Schlüssel nicht gesichert);
+    dazu Belegung des Datastores und Deduplizierungsfaktor (Stand der letzten Müllsammlung), falls der Token sie lesen darf.
+    Die Deduplizierung pro Profil lässt sich vom Client aus nicht genau ermitteln, deshalb gilt der Wert für den ganzen Datastore.
+  - **Verlauf** (`pbsgui history`, GUI-Tab, TUI `h`): jeder Lauf (Zeitplan oder manuell) wird mit Ausgabe gespeichert
+    (`<state>/history`, je Profil die letzten 200), filterbar nach Profil, „nur Fehler“, Zeitraum und Text.
+  - **Tray-Icon:** zeigt „läuft“, „Fehler“ oder „in Ordnung“, Menü „Jetzt sichern“ je Profil, meldet neue Fehler auf dem Desktop.
+    Wahlweise läuft die Oberfläche beim Schließen im Hintergrund weiter und startet beim Anmelden (`pbsgui tray`, beides im
+    Tray-Menü einstellbar). Die Zeitpläne laufen weiter unabhängig davon über systemd.
+
+### Hinzugefügt
 - **Web-Oberfläche für die Wiederherstellung** (Rettungs-ISO, für VPS und Server ohne bequeme Konsole): `pbsgui web --daemon`, `F5` oder
   Knopf „Web“ im Assistenten. Zeigt Adresse, ein zufälliges Passwort (4 Wörter, jedes mit einer Zahl dahinter, etwa 78 Bit) und den TLS-Fingerabdruck.
   Im Browser dieselben Schritte wie im Terminal-Assistenten: VPN, Server, Snapshot, Platte und Verschlüsselung, Plan, Bestätigung

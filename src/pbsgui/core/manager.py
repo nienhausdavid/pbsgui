@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 
 from .client import PbsClient
+from .dashboard import DatastoreUsage, Overview, build_overview, datastore_usage
+from .history import RunRecord, find_run, list_runs, load_restore_test, save_restore_test
 from .dbdump import Database, check_credentials, create_dump_user, dump_credentials, parse_credentials
 from .files import Catalog, CopyResult, load_catalog, restore_to_folder, restore_to_original
 from .keys import export_key, generate_key
@@ -28,6 +30,8 @@ from .privilege import PrivilegeError, require_trusted_code
 from .scheduler import SchedulerError, SystemdScheduler
 from .secrets import SecretStore, best_store
 from .store import ProfileStore
+from .versions import (CatalogCache, DiffResult, PreviewSession, RestoreTestResult, SearchResult, VersionsResult,
+                       diff_snapshots, file_versions, profile_snapshots, restore_test, search_snapshots)
 
 
 def can_use_admin() -> bool:
@@ -62,6 +66,70 @@ class ProfileManager:
     def catalogs(self, profile: Profile, snapshot: Snapshot) -> dict[str, Catalog]:
         """Dateibäume aller Datei-Archive des Snapshots (Name ohne .didx)."""
         return {k: v for k, v in load_catalog(self.client(profile), snapshot).items() if k.endswith(".pxar")}
+
+    # -- Über Snapshots hinweg ------------------------------------------------
+    def cache(self) -> CatalogCache:
+        if getattr(self, "_cache", None) is None:
+            self._cache = CatalogCache()
+        return self._cache
+
+    def _loader(self, profile: Profile):
+        return self.cache().loader(self.client(profile), profile)
+
+    def all_snapshots(self, profile: Profile) -> list[Snapshot]:
+        """Snapshots dieses Profils (gleiche Backup-ID), neueste zuerst; räumt dabei den Katalog-Zwischenspeicher auf."""
+        raw = self.snapshots(profile)
+        self.cache().prune(profile, raw)
+        return profile_snapshots(profile, raw)
+
+    def file_versions(self, profile: Profile, path: str, archive: str | None = None, on_progress=None) -> VersionsResult:
+        return file_versions(self.all_snapshots(profile), self._loader(profile), path, archive, on_progress)
+
+    def search_all(self, profile: Profile, pattern: str, archive: str | None = None, on_progress=None) -> SearchResult:
+        return search_snapshots(self.all_snapshots(profile), self._loader(profile), pattern, archive, on_progress=on_progress)
+
+    def diff(self, profile: Profile, old: Snapshot, new: Snapshot, archive: str | None = None) -> list[DiffResult]:
+        return diff_snapshots(self._loader(profile), old, new, archive)
+
+    def preview_session(self, profile: Profile, snapshot: Snapshot, archive: str) -> PreviewSession:
+        return PreviewSession(self.client(profile), snapshot, archive)
+
+    def run_restore_test(self, profile: Profile, snapshot: Snapshot, archive: str, count: int = 5,
+                         on_line=lambda _l: None) -> RestoreTestResult:
+        cat = self._loader(profile)(snapshot).get(archive)
+        if cat is None:
+            raise SchedulerError(f"Archiv {archive} nicht im Snapshot")
+        res = restore_test(self.client(profile), profile, snapshot, archive, cat, count, on_line=on_line)
+        save_restore_test(self.paths, profile, res.to_dict())
+        return res
+
+    # -- Überblick und Verlauf --------------------------------------------------
+    def _scopes(self) -> list[Paths]:
+        """Verzeichnisse mit Läufen: Benutzer (dieses Manager-Objekts) und System."""
+        return [self.paths, Paths.for_scope("system")]
+
+    def history(self, profile: Profile | None = None, **kw) -> list[RunRecord]:
+        return list_runs(self._scopes(), profile.slug if profile else None, **kw)
+
+    def history_run(self, run_id: str, profile: Profile | None = None) -> RunRecord | None:
+        return find_run(self._scopes(), run_id, profile.slug if profile else None)
+
+    def last_restore_test(self, profile: Profile) -> dict | None:
+        return load_restore_test(self._scopes(), profile)
+
+    def overview(self, profile: Profile, online: bool = True) -> Overview:
+        """Status eines Profils. online=False: nur lokale Daten (Verlauf, Sperre), keine Netzwerkabfrage."""
+        snaps, err = None, ""
+        if online:
+            try:
+                snaps = self.snapshots(profile)
+            except Exception as e:
+                err = str(e)
+        return build_overview(profile, snaps, self._scopes(), error=err)
+
+    def usage(self, profile: Profile) -> DatastoreUsage | None:
+        token = self.secrets.get(profile.slug, "token")
+        return datastore_usage(profile, token) if token else None
 
     def restore_files(self, profile: Profile, snapshot: Snapshot, archive: str, rels: list[str],
                       target: str | None = None, overwrite_home: bool = False, on_line=lambda _l: None) -> CopyResult:

@@ -45,3 +45,22 @@ def run_lock(path: Path, on_line: Callable[[str], None] = lambda _l: None, wait:
         yield
     finally:
         os.close(fd)   # schließt auch die Sperre
+
+
+def is_locked(path: Path) -> bool:
+    """Läuft gerade ein Backup, das diese Sperre hält? Nicht lesbare oder fehlende Sperrdateien gelten als frei."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        except OSError:
+            return False
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)

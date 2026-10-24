@@ -48,6 +48,22 @@ pbsgui restore NAME --path /Dokumente --overwrite                 # NUR Home: am
 ```
 Der Dateibaum kommt aus `catalog dump` (der Client entschlüsselt ihn selbst, geht also auch bei verschlüsselten Backups), die Daten per schreibgeschütztem FUSE-`mount`. **Überschreiben** ist nur für Pfade im eigenen Home-Verzeichnis erlaubt (sonst Abbruch), ersetzt nur vorhandene Dateien, löscht nichts und sichert die alten Fassungen vorher nach `~/.local/share/pbsgui/overwritten/<Zeit>/`. Braucht FUSE (`fusermount3`).
 
+## Über alle Snapshots: Fassungen, Suche, Vergleich, Restore-Test
+```bash
+pbsgui versions NAME /Dokumente/a.txt [--restore 2 --target ~/zurueck]   # alle Fassungen einer Datei
+pbsgui find NAME "*.odt"                                                 # in allen Snapshots suchen, auch Gelöschtes
+pbsgui diff NAME [ALT] [NEU]                                             # neu / geändert / gelöscht (Standard: die letzten zwei)
+pbsgui preview NAME /Dokumente/a.txt --snapshot 3                        # Inhalt ansehen, ohne wiederherzustellen
+pbsgui restore-test NAME --count 5                                       # Stichprobe zurückholen und prüfen (Exitcode 1 bei Fehler)
+```
+GUI: Dateibrowser mit Vorschau und „Fassungen …“; im Snapshots-Tab „Vergleichen …“, „Restore-Test …“ und „Suche in allen Snapshots …“.
+
+## Überblick: Dashboard, Verlauf, Tray
+`pbsgui dashboard` (auch `--json`, `--offline`) zeigt je Profil Status, Dauer, Größe, Zuwachs und die Belegung des Datastores; `pbsgui history`
+(`--failed`, `--search TEXT`, `--show LAUF`) die gespeicherten Läufe mit Ausgabe. In der GUI sind das die Tabs „Dashboard“ und „Verlauf“.
+`pbsgui tray` startet die GUI als Symbol im Systembereich (Status, „Jetzt sichern“, Fehlermeldungen); im Tray-Menü lässt sich einstellen,
+dass sie beim Schließen weiterläuft und beim Anmelden startet.
+
 ## Wiederherstellung auf einem neuen PC (Vollbackup)
 Stand: Vorbereitung **und** geführte Wiederherstellung (`pbsgui rescue`, Rettungs-ISO) sind eingebaut; Anleitung mit Screenshots: [docs/WIEDERHERSTELLUNG.md](docs/WIEDERHERSTELLUNG.md).
 - Bei jedem Vollbackup (als root) sammelt die App Datenträger-Metadaten nach `/var/lib/pbsgui/recovery/<profil>/` und sichert sie damit im Backup mit: Partitionstabellen (sfdisk/sgdisk), LVM-Metadaten, LUKS-Header (nur bei verschlüsseltem Backup), UUIDs, EFI-Einträge, Paketliste, `MANIFEST.json`.
@@ -80,7 +96,7 @@ pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore
 ```
 Geheimnisse werden nie als Argument akzeptiert: Prompt oder `PBSGUI_TOKEN_SECRET` / `PBSGUI_ROOT_PASSWORD`.
-TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, u Laufwerke, p DB-Dumps, n Notfallblatt, d Entfernen, q Beenden.
+TUI-Tasten: a Hinzufügen, b Backup, r Snapshots, t Restore, f Dateien, x Vergleich, w Restore-Test, g Suche in allen Snapshots, e Dashboard, h Verlauf, s Zeitplan, m Modus, v Verschlüsselung, k Key sichern, o Quellen, u Laufwerke, p DB-Dumps, n Notfallblatt, d Entfernen, q Beenden. Im Dateibrowser: p Vorschau, v Fassungen.
 
 ## Entwickeln
 ```bash

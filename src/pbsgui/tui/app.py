@@ -8,16 +8,19 @@ from rich.markup import escape
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import DataTable, Footer, Header, OptionList, ProgressBar, RichLog, Static, TabbedContent, TabPane
+from textual.widgets import (Checkbox, DataTable, Footer, Header, Input, OptionList, ProgressBar, RichLog, Static, TabbedContent,
+                             TabPane)
 from textual.widgets.option_list import Option
 
-from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text
+from ..cli.insight import OVERVIEW_HEADER, overview_details, overview_row, run_row, usage_text
+from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text, table
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import METADATA, Profile
 from ..core.modes import FULL, describe, plan_mounts
 from ..core.recovery import needs_key_export, render_sheet
 from ..core.scheduler import SchedulerError, validate_calendar
 from .files import FilesScreen
+from .insight import DiffScreen, RestoreTestScreen, SearchAllScreen
 from .screens import AddServerScreen, ConfirmScreen, DbDumpScreen, DetectScreen, MountsScreen, PromptScreen
 
 
@@ -34,6 +37,8 @@ class PbsTui(App):
     BINDINGS = [("a", "add", "Hinzufügen"), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
                 ("t", "restore", "Restore"), ("f", "files", "Dateien"), ("s", "schedule", "Zeitplan"), ("m", "scope", "Modus"),
                 ("v", "encrypt", "Verschl."), ("k", "key", "Key sichern"), ("n", "sheet", "Notfallblatt"), ("o", "sources", "Quellen"), ("u", "mounts", "Laufwerke"), ("p", "dbdump", "DB-Dumps"), ("c", "detect", "Änderungen"),
+                ("x", "diff", "Vergleich"), ("w", "restore_test", "Restore-Test"), ("g", "find_all", "Suche alle"),
+                ("e", "dashboard", "Dashboard"), ("h", "history", "Verlauf"),
                 ("d", "delete", "Entfernen"), ("q", "quit", "Beenden")]
 
     def __init__(self, manager: ProfileManager | None = None):
@@ -64,6 +69,15 @@ class PbsTui(App):
                     yield Static("", id="overview", markup=False)
                 with TabPane("Snapshots", id="tab-snaps"):
                     yield DataTable(id="snaps", cursor_type="row")
+                with TabPane("Dashboard", id="tab-dashboard"):
+                    yield Static("", id="dashboard", markup=False)
+                with TabPane("Verlauf", id="tab-history"):
+                    with Horizontal(id="hist-filter", classes="hint"):
+                        yield Input(placeholder="Text in Meldung oder Ausgabe (Enter)", id="hist-text")
+                        yield Checkbox("Nur Fehler", id="hist-failed")
+                        yield Checkbox("Alle Profile", id="hist-all")
+                    yield DataTable(id="hist-table", cursor_type="row")
+                    yield RichLog(id="hist-log", wrap=True, markup=False)
                 with TabPane("Log", id="tab-log"):
                     yield ProgressBar(total=100, show_eta=False, id="bar")
                     yield Static("", id="bar-text", markup=False)
@@ -74,6 +88,8 @@ class PbsTui(App):
         from .. import __version__
         self.sub_title = f"Version {__version__}"
         self._q("#snaps", DataTable).add_columns("#", "Zeit", "ID", "Größe", "Dateien")
+        self._q("#hist-table", DataTable).add_columns("Lauf", "Start", "Profil", "Ergebnis", "Dauer", "Meldung")
+        self._runs: list = []
         self.reload()
 
     # -- Profile ------------------------------------------------------------------
@@ -267,6 +283,122 @@ class PbsTui(App):
             self.notify("Erst mit [r] Snapshots laden und einen auswählen", severity="warning")
             return
         self.push_screen(FilesScreen(self.mgr, p, self._snaps[t.cursor_row]))
+
+    # -- Snapshots vergleichen, prüfen, durchsuchen --------------------------------------
+    def _selected_snapshot(self):
+        p = self._need()
+        t = self._q("#snaps", DataTable)
+        if not p:
+            return None
+        if not self._snaps or t.cursor_row >= len(self._snaps):
+            self._notify("Erst mit [r] Snapshots laden und einen auswählen", severity="warning")
+            return None
+        return p, t.cursor_row
+
+    def action_diff(self) -> None:
+        sel = self._selected_snapshot()
+        if not sel:
+            return
+        p, row = sel
+        if row + 1 >= len(self._snaps):
+            self._notify("Zum Vergleichen braucht es einen älteren Snapshot", severity="warning")
+            return
+        self.push_screen(DiffScreen(self.mgr, p, self._snaps[row + 1], self._snaps[row]))
+
+    def action_restore_test(self) -> None:
+        sel = self._selected_snapshot()
+        if sel:
+            self.push_screen(RestoreTestScreen(self.mgr, sel[0], self._snaps[sel[1]]))
+
+    def action_find_all(self) -> None:
+        p = self._need()
+        if not p:
+            return
+        self.push_screen(PromptScreen("In allen Snapshots suchen", "", "Name oder Muster mit * und ?; findet auch gelöschte Dateien."),
+                         lambda text: text and text.strip() and self.push_screen(SearchAllScreen(self.mgr, p, text.strip())))
+
+    # -- Dashboard und Verlauf --------------------------------------------------------------
+    def action_dashboard(self) -> None:
+        self._q(TabbedContent).active = "tab-dashboard"
+        self._q("#dashboard", Static).update("Lade …")
+
+        def work():
+            try:
+                profiles = self.mgr.profiles()
+                ovs = [self.mgr.overview(p) for p in profiles]
+                usages, seen = [], set()
+                for p in profiles:
+                    key = (p.server, p.port, p.datastore)
+                    if key not in seen:
+                        seen.add(key)
+                        usages.append(usage_text(p, self.mgr.usage(p)))
+                tests = {p.slug: self.mgr.last_restore_test(p) for p in profiles}
+            except Exception as e:
+                self.call_from_thread(self._q("#dashboard", Static).update, f"Fehler: {e}")
+                return
+            self.call_from_thread(self._show_dashboard, ovs, usages, tests)
+
+        self.run_worker(work, thread=True)
+
+    def _show_dashboard(self, ovs, usages, tests) -> None:
+        if not ovs:
+            self._q("#dashboard", Static).update("Keine Profile. Mit [a] einen Server hinzufügen.")
+            return
+        lines = [table([overview_row(o) for o in ovs], OVERVIEW_HEADER), ""]
+        for o in ovs:
+            lines += overview_details(o)
+            t = tests.get(o.profile.slug)
+            lines.append(f"{o.profile.name}: " + (f"letzter Restore-Test {fmt_time(t['time'])}: {t['summary']}" if t
+                                                   else "noch kein Restore-Test (mit [w] im Snapshot-Tab)"))
+        self._q("#dashboard", Static).update("\n".join([*lines, "", *usages]))
+
+    def action_history(self) -> None:
+        self._q(TabbedContent).active = "tab-history"
+        self.reload_history()
+
+    def reload_history(self) -> None:
+        text = self._q("#hist-text", Input).value.strip()
+        failed = self._q("#hist-failed", Checkbox).value
+        everyone = self._q("#hist-all", Checkbox).value or self.current is None
+        prof = None if everyone else self.current
+        names = {p.slug: p.name for p in self.mgr.profiles()}
+        self._runs = self.mgr.history(prof, failed_only=failed, text=text, limit=200, with_log=True)
+        t = self._q("#hist-table", DataTable)
+        t.clear()
+        for r in self._runs:
+            t.add_row(*run_row(r, names))
+        self._q("#hist-log", RichLog).clear()
+        if self._runs:
+            self._show_run_log(0)
+        else:
+            self._q("#hist-log", RichLog).write("Keine passenden Läufe.")
+
+    def _show_run_log(self, row: int) -> None:
+        log = self._q("#hist-log", RichLog)
+        log.clear()
+        if 0 <= row < len(self._runs):
+            for line in self._runs[row].log:
+                log.write(line)
+
+    def on_data_table_row_highlighted(self, e: DataTable.RowHighlighted) -> None:
+        if e.data_table.id == "hist-table":
+            self._show_run_log(e.cursor_row)
+
+    def on_tabbed_content_tab_activated(self, e: TabbedContent.TabActivated) -> None:
+        if e.tabbed_content.id != "main" or not self.screen_stack or self._q("#hist-table", DataTable) is None:
+            return
+        if e.pane.id == "tab-history":
+            self.reload_history()
+        elif e.pane.id == "tab-dashboard" and not str(self._q("#dashboard", Static).render()).strip():
+            self.action_dashboard()
+
+    def on_input_submitted(self, e: Input.Submitted) -> None:
+        if e.input.id == "hist-text":
+            self.reload_history()
+
+    def on_checkbox_changed(self, e: Checkbox.Changed) -> None:
+        if e.checkbox.id in ("hist-failed", "hist-all"):
+            self.reload_history()
 
     def action_restore(self) -> None:
         p = self._need()

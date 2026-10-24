@@ -47,6 +47,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, [{"store": "store1"}, {"store": "store2"}])
         if api_path.endswith("/namespace") and method == "GET":
             return self._send(200, [{"ns": ""}, {"ns": "a"}, {"ns": "a/b"}])
+        if api_path.startswith("/admin/datastore/") and api_path.endswith("/status") and method == "GET":
+            return self._send(200, {"total": 4 * 1024 ** 4, "used": 1024 ** 4, "avail": 3 * 1024 ** 4,
+                                    "gc-status": {"index-data-bytes": 6 * 1024 ** 3, "disk-bytes": 2 * 1024 ** 3}})
         self._send(200, None)
 
     do_GET = lambda self: self._handle("GET")

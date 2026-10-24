@@ -14,6 +14,7 @@ from textual.widgets import Footer, Static, Tree
 from ..core.files import Catalog, FilesError, map_to_original
 from ..core.manager import ProfileManager
 from ..core.models import Profile, Snapshot
+from .insight import PreviewScreen, VersionsScreen
 from .screens import ConfirmScreen, PromptScreen
 
 
@@ -29,7 +30,8 @@ class FilesScreen(ModalScreen[None]):
     # Leertaste mit Vorrang: der Baum belegt sie sonst selbst (Auf-/Zuklappen). "m" geht ebenfalls.
     BINDINGS = [("escape", "close", "Schließen"), Binding("space", "toggle", "Markieren", priority=True),
                 Binding("m", "toggle", "Markieren", show=False), ("r", "to_folder", "In Ordner"),
-                ("o", "to_original", "Überschreiben (nur Home)"), ("slash", "search", "Suchen")]
+                ("o", "to_original", "Überschreiben (nur Home)"), ("slash", "search", "Suchen"),
+                ("p", "preview", "Vorschau"), ("v", "versions", "Fassungen")]
     DEFAULT_CSS = """
     FilesScreen { align: center middle; }
     #files-box { width: 100; height: 90%; border: thick $accent; background: $surface; padding: 0 1; }
@@ -41,6 +43,7 @@ class FilesScreen(ModalScreen[None]):
         self.mgr, self.profile, self.snapshot = mgr, profile, snapshot
         self.cats: dict[str, Catalog] = {}
         self.marks: set[tuple[str, str]] = set()   # (Archiv, Pfad)
+        self._sessions: dict = {}                  # Archiv -> PreviewSession (einmal eingehängt, bis der Dialog zu ist)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="files-box"):
@@ -194,5 +197,38 @@ class FilesScreen(ModalScreen[None]):
             "Alte Fassungen werden vorher nach ~/.local/share/pbsgui/overwritten/<Zeit>/ gesichert."),
             lambda yes: yes and self._restore(overwrite_home=True))
 
+    def _cursor_file(self) -> tuple[str, str] | None:
+        node = self.query_one("#files-tree", Tree).cursor_node
+        if not node or node.data is None or node.data[1] == "/":
+            self.app.notify("Erst eine Datei auswählen", severity="warning")
+            return None
+        archive, path = node.data
+        entry = self.cats[archive].by_path.get(path)
+        if entry is None or entry.kind == "d":
+            self.app.notify("Das ist ein Ordner: bitte eine Datei wählen", severity="warning")
+            return None
+        return archive, path
+
+    def action_preview(self) -> None:
+        one = self._cursor_file()
+        if not one:
+            return
+        archive, path = one
+
+        def fetch():
+            ps = self._sessions.get(archive)
+            if ps is None:
+                ps = self._sessions[archive] = self.mgr.preview_session(self.profile, self.snapshot, archive)
+            return ps.preview(path)
+        self.app.push_screen(PreviewScreen(path, fetch))
+
+    def action_versions(self) -> None:
+        one = self._cursor_file()
+        if one:
+            self.app.push_screen(VersionsScreen(self.mgr, self.profile, one[1], one[0]))
+
     def action_close(self) -> None:
+        sessions, self._sessions = list(self._sessions.values()), {}
+        for s in sessions:
+            s.close()
         self.dismiss(None)

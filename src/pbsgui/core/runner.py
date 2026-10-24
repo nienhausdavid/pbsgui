@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from .client import ClientError, PbsClient
+from .history import LogCapture, record_run
 from .dbdump import parse_credentials, run_dumps
 from .models import DATA, Profile
 from .runlock import LockTimeout, run_lock
@@ -51,13 +52,19 @@ def run_profile(profile: Profile, paths: Paths, store: SecretStore | None = None
     mode="data": einmalig alles neu lesen (prüft auch Dateien, deren Metadaten unverändert sind).
     Pro Profil läuft immer nur ein Backup; ein zweiter Aufruf wartet auf den ersten.
     """
+    start = time.time()
+    on_line = LogCapture(on_line)
     try:
         with run_lock(paths.state / f"{profile.slug}.lock", on_line):
-            return _run_profile(profile, paths, store, on_line, binary, progress, mode)
+            start = time.time()                    # Wartezeit auf ein vorheriges Backup zählt nicht zur Dauer
+            code = _run_profile(profile, paths, store, on_line, binary, progress, mode)
     except LockTimeout as e:
         on_line(f"Fehler: {e}")
         write_status(paths, profile, False, 5, "vorheriges Backup läuft noch")
-        return 5
+        code = 5
+    st = read_status(paths, profile) or {}
+    record_run(paths, profile, start, time.time(), code, st.get("message", ""), on_line.lines, mode)
+    return code
 
 
 def _run_profile(profile: Profile, paths: Paths, store: SecretStore | None, on_line: Callable[[str], None],

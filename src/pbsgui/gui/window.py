@@ -21,6 +21,7 @@ from ..core.scheduler import enable_linger, linger_enabled
 from .add_server import AddServerDialog
 from .db_dialog import DbDumpDialog
 from .files_dialog import FilesDialog
+from .insight import DashboardTab, DiffDialog, HistoryTab, RestoreTestDialog, SearchAllDialog
 from .mounts_widget import MountList
 from . import style
 from .titlebar import Shell, TitleBar
@@ -49,6 +50,9 @@ class MainWindow(QMainWindow):
         self.admin_ok = can_use_admin()
         self.current: Profile | None = None
         self._workers: set[Worker] = set()
+        self.running_profiles: set[str] = set()      # Namen der Profile, deren Backup diese Oberfläche gerade ausführt
+        self.allow_close = False                      # True: Schließen beendet das Programm (nie in den Hintergrund)
+        self.tray = None                              # TrayController, gesetzt von gui.main
 
         self.plist = QListWidget(); self.plist.setObjectName("profiles")
         add = QPushButton("＋  Server hinzufügen"); add.setObjectName("primary"); add.clicked.connect(self.add_server)
@@ -64,6 +68,10 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_backup_tab(), "Backup")
         self.tabs.addTab(self._build_snapshots_tab(), "Snapshots")
         self.tabs.addTab(self._build_schedule_tab(), "Zeitplan")
+        self.dashboard = DashboardTab(self.mgr); self.history = HistoryTab(self.mgr)
+        self.dashboard.profileChosen.connect(self.choose_profile)
+        self.tabs.addTab(self.dashboard, "Dashboard")
+        self.tabs.addTab(self.history, "Verlauf")
         right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(6, 12, 12, 8); rl.setSpacing(2)
         rl.addWidget(self.head); rl.addWidget(self.subhead); rl.addSpacing(6); rl.addWidget(self.tabs, 1)
 
@@ -113,7 +121,34 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, ev) -> None:
         QSettings("pbsgui", "pbsgui").setValue("geometry", self.saveGeometry())
+        from .tray import background_enabled
+        if not self.allow_close and self.tray is not None and self.tray.available and background_enabled():
+            ev.ignore()                                         # im Hintergrund weiterlaufen: nur das Fenster verstecken
+            self.hide()
+            self.tray.tray.showMessage("pbsgui läuft im Hintergrund", "Über das Symbol im Systembereich geht es weiter oder zu Ende.")
+            return
         super().closeEvent(ev)
+        QApplication.quit()
+
+    def choose_profile(self, name: str) -> None:
+        names = [p.name for p in self.mgr.profiles()]
+        if name in names:
+            self.plist.setCurrentRow(names.index(name))
+            self.tabs.setCurrentIndex(0)
+
+    def show_history(self) -> None:
+        self.tabs.setCurrentWidget(self.history)
+        self.history.show_profile(None)
+
+    def show_dashboard(self) -> None:
+        self.tabs.setCurrentWidget(self.dashboard)
+        self.dashboard.refresh()
+
+    def start_backup_of(self, name: str) -> None:
+        """Vom Tray-Menü: Profil wählen und sein Backup starten (der Ablauf ist derselbe wie mit dem Knopf)."""
+        self.choose_profile(name)
+        if self.current and self.current.name == name and self.backup_btn.isEnabled():
+            self.backup_now()
 
     # -- Hilfen -------------------------------------------------------------
     def run_async(self, fn, on_done=None, on_line=None) -> Worker:
@@ -144,7 +179,9 @@ class MainWindow(QMainWindow):
         profiles = self.mgr.profiles()
         self.current = profiles[row] if 0 <= row < len(profiles) else None
         for i in range(self.tabs.count()):
-            self.tabs.widget(i).setEnabled(self.current is not None)
+            w = self.tabs.widget(i)
+            if w not in (self.dashboard, self.history):          # Überblick und Verlauf gelten für alle Profile
+                w.setEnabled(self.current is not None)
         p = self.current
         if not p:
             self.head.setText("Kein Profil"); self.subhead.setText("Mit „Server hinzufügen“ ein Backup-Ziel einrichten.")
@@ -391,6 +428,9 @@ class MainWindow(QMainWindow):
             p = self.mgr.profiles_store.load(p.name)
             self.current = p
         self.log.clear()
+        self.running_profiles.add(p.name)
+        if self.tray:
+            self.tray.poll()
         self.backup_btn.setEnabled(False)
         self.bar.setVisible(True); self.bar_text.setVisible(True)
         self.bar.setRange(0, 0)                       # unbestimmt, bis die erste Messung da ist
@@ -401,6 +441,9 @@ class MainWindow(QMainWindow):
             return self.mgr.run_backup(p, on_line)
 
         def done(code):
+            self.running_profiles.discard(p.name)
+            if self.tray:
+                self.tray.poll()
             self.backup_btn.setEnabled(True)
             self.bar.setRange(0, 100); self.bar.setValue(100 if code == 0 else self.bar.value())
             self.bar_text.setText("Fertig." if code == 0 else "Fehlgeschlagen.")
@@ -409,7 +452,8 @@ class MainWindow(QMainWindow):
             self.refresh_snapshots()
 
         w = self.run_async(work, done, self.backup_line)
-        w.failed.connect(lambda _m: (self.backup_btn.setEnabled(True), self.bar.setVisible(False), self.bar_text.setVisible(False)))
+        w.failed.connect(lambda _m: (self.running_profiles.discard(p.name), self.backup_btn.setEnabled(True),
+                                     self.bar.setVisible(False), self.bar_text.setVisible(False)))
 
     def backup_line(self, line: str) -> None:
         """Fortschrittszeilen aktualisieren den Balken, alles andere kommt ins Log."""
@@ -432,7 +476,16 @@ class MainWindow(QMainWindow):
         r = QPushButton("Aktualisieren"); r.clicked.connect(self.refresh_snapshots)
         rs = QPushButton("Wiederherstellen …"); rs.clicked.connect(self.restore_selected)
         rf = QPushButton("Dateien durchsuchen …"); rf.clicked.connect(self.browse_files)
-        row.addWidget(r); row.addWidget(rs); row.addWidget(rf); row.addStretch()
+        rd = QPushButton("Vergleichen …"); rd.setToolTip("Gewählten Snapshot mit dem vorherigen vergleichen"); rd.clicked.connect(self.compare_snapshots)
+        rt = QPushButton("Restore-Test …"); rt.setToolTip("Zufällige Dateien wiederherstellen und prüfen"); rt.clicked.connect(self.restore_test)
+        ra = QPushButton("Suche in allen Snapshots …"); ra.clicked.connect(self.search_all)
+        for b in (r, rs, rf):
+            row.addWidget(b)
+        row.addStretch()
+        row2 = QHBoxLayout()               # zweite Zeile: das Fenster soll weiter schmal bleiben können
+        for b in (rd, rt, ra):
+            row2.addWidget(b)
+        row2.addStretch()
         self.snap_table = QTableWidget(0, 4)
         self.snap_table.setHorizontalHeaderLabels(["Zeit", "ID", "Größe", "Archive"])
         hh = self.snap_table.horizontalHeader(); hh.setStretchLastSection(True)
@@ -443,7 +496,7 @@ class MainWindow(QMainWindow):
         self.snap_table.setShowGrid(False)
         self.snap_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.snap_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        lay.addLayout(row); lay.addWidget(self.snap_table)
+        lay.addLayout(row); lay.addLayout(row2); lay.addWidget(self.snap_table)
         self._snaps = []
         return w
 
@@ -471,6 +524,27 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Dateien durchsuchen", "Bitte einen Snapshot auswählen.")
             return
         FilesDialog(self.mgr, self.current, self._snaps[row], self).exec()
+
+    def _selected_snapshot(self, title: str) -> int | None:
+        row = self.snap_table.currentRow()
+        if not self.current or not (0 <= row < len(self._snaps)):
+            QMessageBox.information(self, title, "Bitte einen Snapshot auswählen (erst „Aktualisieren“).")
+            return None
+        return row
+
+    def compare_snapshots(self) -> None:
+        row = self._selected_snapshot("Vergleichen")
+        if row is not None:
+            DiffDialog(self.mgr, self.current, self._snaps, row, self).exec()
+
+    def restore_test(self) -> None:
+        row = self._selected_snapshot("Restore-Test")
+        if row is not None:
+            RestoreTestDialog(self.mgr, self.current, self._snaps[row], self).exec()
+
+    def search_all(self) -> None:
+        if self.current:
+            SearchAllDialog(self.mgr, self.current, "", self).exec()
 
     def restore_selected(self) -> None:
         row = self.snap_table.currentRow()
