@@ -685,20 +685,25 @@ def _cmd_master(a, mgr: ProfileManager, p: Profile) -> int:
                 raise CliError(tr("Es ist schon ein Master-Schlüssel eingetragen (Fingerprint {0})", p.master_fingerprint))
             if not (a.output or a.clipboard):
                 raise CliError(tr("Ziel angeben: --output DATEI oder --clipboard (geheime Schlüssel werden nie auf der Konsole ausgegeben)"))
-            pw = secret_from("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels (mindestens 8 Zeichen)"))
-            if sys.stdin.isatty() and not os.environ.get("PBSGUI_MASTER_PASSPHRASE") and getpass.getpass(tr("Passphrase wiederholen: ")) != pw:
-                raise CliError(tr("Die Passphrasen stimmen nicht überein"))
+            if a.no_passphrase:
+                pw = ""
+                print(tr("Ohne Passphrase schützt nur die Datei selbst den privaten Schlüssel: besonders gut verwahren."))
+            else:
+                pw = secret_from("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels (mindestens 8 Zeichen)"))
+                if sys.stdin.isatty() and not os.environ.get("PBSGUI_MASTER_PASSPHRASE") and getpass.getpass(tr("Passphrase wiederholen: ")) != pw:
+                    raise CliError(tr("Die Passphrasen stimmen nicht überein"))
             print(tr("Erzeuge den Master-Schlüssel (4096 Bit, dauert einen Moment) …"), flush=True)
             key = mgr.setup_master_key(p, pw, all_profiles=not a.this_only)
             _deliver_secret(a, key.private_pem, tr("Privater Master-Schlüssel"))
             mgr.confirm_master_key_backup(p)
-            print(tr("Fingerprint: {0}\nJetzt den privaten Schlüssel UND die Passphrase getrennt vom Rechner sichern (Passwortmanager, Tresor). Ab dem nächsten Backup enthält jeder Snapshot die Schlüsselkopie.", key.fingerprint))
+            print(tr("Fingerprint: {0}\nJetzt den privaten Schlüssel (und die Passphrase, falls vergeben) getrennt vom Rechner sichern (Passwortmanager, Tresor). Ab dem nächsten Backup enthält jeder Snapshot die Schlüsselkopie.", key.fingerprint))
             return 0
         # recover
         if not a.master_key:
             raise CliError(tr("Privaten Master-Schlüssel angeben: --master-key DATEI"))
         pem = Path(a.master_key).read_text()
-        pw = secret_from("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels"))
+        pem_is_protected = "ENCRYPTED" in (pem.splitlines() or [""])[0]
+        pw = secret_from("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels")) if pem_is_protected else ""
         snaps = mgr.snapshots(p)
         if a.snapshot is not None:
             snap = _pick_snapshot(mgr, p, a.snapshot)
@@ -991,6 +996,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--master-key", metavar="DATEI", help=tr("privater Master-Schlüssel (für recover)"))
     sp.add_argument("--snapshot", help=tr("Snapshot für recover (Standard: neuester mit Schlüsselkopie)"))
     sp.add_argument("--install", action="store_true", help=tr("recover: den Schlüssel gleich im Profil einsetzen (nur wenn der alte Schlüssel verloren ist)"))
+    sp.add_argument("--no-passphrase", action="store_true", help=tr("master-create: privaten Schlüssel ohne Passphrase erzeugen (die Datei selbst muss dann besonders gut verwahrt werden)"))
     sp.add_argument("--this-only", action="store_true", help=tr("master-create: nur dieses Profil, nicht alle verschlüsselten Profile"))
     sp = add("remove", cmd_remove, tr("Profil entfernen"), "name"); sp.add_argument("--yes", action="store_true")
     sp = add("recovery", cmd_recovery, tr("Wiederherstellung auf neuem PC: Checkliste, Notfallblatt"), "name")

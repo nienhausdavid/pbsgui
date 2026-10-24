@@ -117,7 +117,7 @@ elif args[:2] == ["key", "import-with-master-key"]:
     master = Path(args[args.index("--master-keyfile") + 1]).read_text()
     enc = Path(args[args.index("--encrypted-keyfile") + 1]).read_bytes()
     sys.stdout.write("Master Key Password: "); sys.stdout.flush(); pw = sys.stdin.readline().strip()
-    if "fake:" + pw not in master or not enc:
+    if ("ENCRYPTED" in master and "fake:" + pw not in master) or not enc:
         print("Error: failed to read PEM-formatted private key - bad decrypt", file=sys.stderr)
         sys.exit(1)
     Path(args[2]).write_text(enc.decode())            # Test: die "verschlüsselte" Kopie ist der Klartext des Schlüssels

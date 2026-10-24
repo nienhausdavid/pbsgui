@@ -50,12 +50,12 @@ class MasterKeySetupDialog(QDialog):
         self.pw2 = QLineEdit(); self.pw2.setEchoMode(QLineEdit.EchoMode.Password)
         self.all = QCheckBox(tr("Gleichen Master-Schlüssel für alle verschlüsselten Profile verwenden")); self.all.setChecked(True)
         form = QFormLayout()
-        form.addRow(tr("Passphrase (mindestens 8 Zeichen)"), self.pw); form.addRow(tr("Passphrase wiederholen"), self.pw2)
+        form.addRow(tr("Passphrase (mindestens 8 Zeichen, leer = ohne Passphrase)"), self.pw); form.addRow(tr("Passphrase wiederholen"), self.pw2)
         self.make = QPushButton(tr("Erzeugen")); self.make.setObjectName("primary")
         self.status = QLabel(""); self.status.setWordWrap(True)
         self.out = QPlainTextEdit(); self.out.setReadOnly(True); self.out.setVisible(False); self.out.setMaximumHeight(120)
         self.copy_btn = QPushButton(tr("Privaten Schlüssel kopieren")); self.file_btn = QPushButton(tr("In Datei speichern …"))
-        self.ack = QCheckBox(tr("Ich habe den privaten Master-Schlüssel UND die Passphrase gesichert"))
+        self.ack = QCheckBox(tr("Ich habe den privaten Master-Schlüssel (und die Passphrase, falls vergeben) gesichert"))
         self.finish_btn = QPushButton(tr("Fertig")); self.finish_btn.setEnabled(False)
         for w in (self.copy_btn, self.file_btn, self.ack):
             w.setVisible(False)
@@ -76,6 +76,10 @@ class MasterKeySetupDialog(QDialog):
         if self.pw.text() != self.pw2.text():
             self.status.setText(tr("Die Passphrasen stimmen nicht überein"))
             return
+        if not self.pw.text() and QMessageBox.question(
+                self, tr("Ohne Passphrase"),
+                tr("Ohne Passphrase schützt nur die Datei selbst den privaten Master-Schlüssel: Wer sie hat, kann alle deine Backups entschlüsseln. Sie muss deshalb besonders gut verwahrt werden (Passwortmanager, Tresor). Trotzdem ohne Passphrase erzeugen?")) != QMessageBox.StandardButton.Yes:
+            return
         pw, share = self.pw.text(), self.all.isChecked()
         self.make.setEnabled(False)
         self.status.setText(tr("Erzeuge den Master-Schlüssel (4096 Bit, dauert einen Moment) …"))
@@ -87,7 +91,7 @@ class MasterKeySetupDialog(QDialog):
         self.out.setPlainText(key.private_pem); self.out.setVisible(True)
         for w in (self.copy_btn, self.file_btn, self.ack):
             w.setVisible(True)
-        self.status.setText(tr("Fertig erzeugt (Fingerprint {0}). Jetzt den PRIVATEN Schlüssel sichern und die Passphrase getrennt notieren.", key.fingerprint))
+        self.status.setText(tr("Fertig erzeugt (Fingerprint {0}). Jetzt den PRIVATEN Schlüssel sichern und die Passphrase (falls vergeben) getrennt notieren.", key.fingerprint))
 
     def _copy(self) -> None:
         if self.key:
@@ -147,7 +151,7 @@ class RecoverKeyDialog(QDialog):
             w.setVisible(False)
         form = QFormLayout()
         prow = QHBoxLayout(); prow.addWidget(self.priv, 1); prow.addWidget(pick)
-        form.addRow(tr("Snapshot"), self.snap); form.addRow(tr("Privater Master-Schlüssel"), prow); form.addRow(tr("Passphrase"), self.pw)
+        form.addRow(tr("Snapshot"), self.snap); form.addRow(tr("Privater Master-Schlüssel"), prow); form.addRow(tr("Passphrase (leer, wenn keine vergeben)"), self.pw)
         brow = QHBoxLayout(); brow.addWidget(self.copy_btn); brow.addWidget(self.file_btn); brow.addWidget(self.install_btn); brow.addStretch()
         lay = QVBoxLayout(self); lay.addWidget(info); lay.addLayout(form); lay.addWidget(self.go); lay.addWidget(self.status); lay.addLayout(brow)
         self.runner = Runner(self, lambda m: (self.status.setText(tr("Fehler: {0}", m)), self.go.setEnabled(True)))

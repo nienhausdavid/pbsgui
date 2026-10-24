@@ -110,16 +110,36 @@ def run_with_prompts(argv: list[str], answers: list[str], cwd: str | None = None
     return code, text
 
 
+def _create_unprotected(work: str) -> tuple[Path, Path]:
+    """Schlüsselpaar ohne Passphrase: Der Client verlangt beim Erzeugen eine Passphrase, deshalb erzeugt openssl das Paar im selben Format."""
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise MasterKeyError(tr("Für einen Master-Schlüssel ohne Passphrase wird openssl gebraucht (Paket openssl)"))
+    priv, pub = Path(work) / "master-private.pem", Path(work) / "master-public.pem"
+    for argv in ([openssl, "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:4096", "-out", str(priv)],
+                 [openssl, "pkey", "-in", str(priv), "-pubout", "-out", str(pub)]):
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=300, check=False)     # noqa: S603  # nosec B603
+        if r.returncode != 0:
+            raise MasterKeyError(tr("Master-Schlüssel konnte nicht erzeugt werden: {0}", r.stderr.strip()[-300:]))
+    os.chmod(priv, 0o600)
+    return pub, priv
+
+
 def create_master_key(passphrase: str, binary: str) -> MasterKey:
-    """Erzeugt ein 4096-Bit-RSA-Schlüsselpaar mit dem Client (`key create-master-key`); der private Teil ist mit `passphrase` geschützt."""
-    if len(passphrase) < 8:
+    """Erzeugt ein 4096-Bit-RSA-Schlüsselpaar; der private Teil ist mit `passphrase` geschützt (`key create-master-key`).
+
+    Eine leere Passphrase erzeugt einen ungeschützten privaten Schlüssel (dann ist die Datei selbst das Geheimnis)."""
+    if passphrase and len(passphrase) < 8:
         raise MasterKeyError(tr("Die Passphrase des Master-Schlüssels ist zu kurz (mindestens 8 Zeichen)"))
     work = tempfile.mkdtemp(prefix="pbsgui-master-", dir=_ram_dir())
     try:
-        code, out = run_with_prompts([binary, "key", "create-master-key"], [passphrase, passphrase], cwd=work)
-        pub, priv = Path(work) / "master-public.pem", Path(work) / "master-private.pem"
-        if code != 0 or not pub.is_file() or not priv.is_file():
-            raise MasterKeyError(tr("Master-Schlüssel konnte nicht erzeugt werden: {0}", out.strip()[-300:]))
+        if passphrase:
+            code, out = run_with_prompts([binary, "key", "create-master-key"], [passphrase, passphrase], cwd=work)
+            pub, priv = Path(work) / "master-public.pem", Path(work) / "master-private.pem"
+            if code != 0 or not pub.is_file() or not priv.is_file():
+                raise MasterKeyError(tr("Master-Schlüssel konnte nicht erzeugt werden: {0}", out.strip()[-300:]))
+        else:
+            pub, priv = _create_unprotected(work)
         public_pem = check_public_pem(pub.read_text())
         return MasterKey(public_pem, priv.read_text(), pem_fingerprint(public_pem))
     finally:
@@ -128,6 +148,9 @@ def create_master_key(passphrase: str, binary: str) -> MasterKey:
 
 def recover_key(binary: str, encrypted_key: bytes, master_private_pem: str, passphrase: str) -> str:
     """Holt den Verschlüsselungs-Schlüssel (key.json als Text) aus der RSA-verschlüsselten Kopie zurück (`key import-with-master-key`)."""
+    protected = "ENCRYPTED" in master_private_pem.splitlines()[0] if master_private_pem.strip() else False
+    if protected and not passphrase:
+        raise MasterKeyError(tr("Dieser private Master-Schlüssel ist durch eine Passphrase geschützt"))
     work = tempfile.mkdtemp(prefix="pbsgui-recover-", dir=_ram_dir())
     try:
         (Path(work) / "master.pem").write_text(master_private_pem)
@@ -136,7 +159,7 @@ def recover_key(binary: str, encrypted_key: bytes, master_private_pem: str, pass
         out_file = Path(work) / "key.json"
         code, out = run_with_prompts([binary, "key", "import-with-master-key", str(out_file), "--master-keyfile", str(Path(work) / "master.pem"),
                                       "--encrypted-keyfile", str(Path(work) / "rsa-encrypted.key"), "--kdf", "none"],
-                                     [passphrase], cwd=work)
+                                     [passphrase if protected else "unused"], cwd=work)      # ungeschützter Schlüssel: Antwort wird ignoriert
         if code != 0 or not out_file.is_file():
             raise MasterKeyError(tr("Schlüssel konnte nicht zurückgeholt werden (falsche Passphrase oder falscher Master-Schlüssel?): {0}", out.strip()[-300:]))
         return out_file.read_text()

@@ -9,6 +9,9 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Master-Schlüssel ohne Passphrase: Passphrase leer lassen (GUI, TUI) oder `pbsgui key master-create NAME --no-passphrase`; das Paar erzeugt openssl, die private Datei ist dann der einzige Schutz.
+
 ### Behoben
 - APT-Repository: Indizes für amd64 und arm64 ergänzt; `apt update` meldet nicht mehr, das Depot unterstütze amd64 nicht.
 

@@ -223,6 +223,8 @@ EN.update({
     'Der private Master-Schlüssel ist noch nicht als gesichert bestätigt': 'The private master key has not been confirmed as backed up yet',
     'Der zurückgeholte Schlüssel ({0}…) passt nicht zum vorhandenen Schlüssel des Profils ({1}…)': 'The recovered key ({0}…) does not match the existing key of the profile ({1}…)',
     'Das ist kein öffentlicher Master-Schlüssel (erwartet: -----BEGIN PUBLIC KEY-----)': 'This is not a public master key (expected: -----BEGIN PUBLIC KEY-----)',
+    'Für einen Master-Schlüssel ohne Passphrase wird openssl gebraucht (Paket openssl)': 'A master key without a passphrase needs openssl (package openssl)',
+    'Dieser private Master-Schlüssel ist durch eine Passphrase geschützt': 'This private master key is protected by a passphrase',
     'Die Passphrase des Master-Schlüssels ist zu kurz (mindestens 8 Zeichen)': 'The passphrase of the master key is too short (at least 8 characters)',
     'Das ist kein gültiger öffentlicher Schlüssel (PEM)': 'This is not a valid public key (PEM)',
     'Master-Schlüssel konnte nicht erzeugt werden: {0}': 'The master key could not be created: {0}',

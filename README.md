@@ -101,7 +101,7 @@ pbsgui add --name Laptop --server pbs.example.org --datastore main --token-id us
 pbsgui server Laptop --server pbs2.example.org --fetch-fingerprint --datastore backup   # change the server afterwards
 pbsgui key export Laptop ~/laptop-key.json                       # back up the key!
 pbsgui key copy-kit Laptop                                       # or: copy key + emergency sheet to the clipboard (password manager)
-pbsgui key master-create Laptop --output ~/master-private.pem   # master key: insurance against losing the key (then store the file + passphrase safely)
+pbsgui key master-create Laptop --output ~/master-private.pem   # master key: insurance against losing the key (then store the file + passphrase safely; `--no-passphrase` creates it without a passphrase, then the file alone must be kept very safe)
 pbsgui key recover Laptop --master-key ~/master-private.pem --output ~/key.json   # get the key back from a snapshot
 pbsgui schedule Laptop --calendar daily --scope user
 pbsgui backup Laptop && pbsgui snapshots Laptop && pbsgui restore Laptop --target ~/restore

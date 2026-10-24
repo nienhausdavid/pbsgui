@@ -27,7 +27,7 @@ class MasterScreen(ModalScreen[bool]):
         with VerticalScroll(id="dialog"):
             yield Label(tr("Master-Schlüssel einrichten"), markup=False)
             yield Static(tr("Versicherung gegen Schlüsselverlust: Jedes Backup enthält danach eine Kopie des Verschlüsselungs-Schlüssels, die nur der PRIVATE Master-Schlüssel öffnet. Den privaten Teil und die Passphrase getrennt vom Rechner aufbewahren (Passwortmanager, Tresor); pbsgui speichert ihn nie."), classes="hint", markup=False)
-            yield Label(tr("Passphrase (mindestens 8 Zeichen)"), markup=False); yield Input("", id="mk-pw", password=True)
+            yield Label(tr("Passphrase (mindestens 8 Zeichen, leer = ohne Passphrase)"), markup=False); yield Input("", id="mk-pw", password=True)
             yield Label(tr("Passphrase wiederholen"), markup=False); yield Input("", id="mk-pw2", password=True)
             yield Checkbox(tr("Gleichen Master-Schlüssel für alle verschlüsselten Profile verwenden"), True, id="mk-all")
             yield Button(tr("Erzeugen"), variant="primary", id="mk-make")
@@ -36,7 +36,7 @@ class MasterScreen(ModalScreen[bool]):
             yield Button(tr("Privaten Schlüssel kopieren"), id="mk-copy", disabled=True)
             yield Input("", id="mk-path", placeholder=tr("Datei zum Speichern (neue Datei, Rechte 0600)"), disabled=True)
             yield Button(tr("In Datei speichern"), id="mk-save", disabled=True)
-            yield Checkbox(tr("Ich habe den privaten Master-Schlüssel UND die Passphrase gesichert"), False, id="mk-ack", disabled=True)
+            yield Checkbox(tr("Ich habe den privaten Master-Schlüssel (und die Passphrase, falls vergeben) gesichert"), False, id="mk-ack", disabled=True)
             yield Button(tr("Fertig"), id="mk-done", disabled=True)
             yield Button(tr("Abbrechen"), id="mk-cancel")
 
@@ -89,7 +89,8 @@ class MasterScreen(ModalScreen[bool]):
             return
         share = self.query_one("#mk-all", Checkbox).value
         self.query_one("#mk-make", Button).disabled = True
-        self._say(tr("Erzeuge den Master-Schlüssel (4096 Bit, dauert einen Moment) …"))
+        self._say(tr("Erzeuge den Master-Schlüssel (4096 Bit, dauert einen Moment) …")
+                  + ("\n" + tr("Ohne Passphrase schützt nur die Datei selbst den privaten Schlüssel: besonders gut verwahren.") if not pw else ""))
 
         def work() -> None:
             try:
@@ -113,4 +114,4 @@ class MasterScreen(ModalScreen[bool]):
         out.text = key.private_pem
         for wid in ("#mk-copy", "#mk-path", "#mk-save", "#mk-ack"):
             self.query_one(wid).disabled = False
-        self._say(tr("Fertig erzeugt (Fingerprint {0}). Jetzt den PRIVATEN Schlüssel sichern und die Passphrase getrennt notieren.", key.fingerprint))
+        self._say(tr("Fertig erzeugt (Fingerprint {0}). Jetzt den PRIVATEN Schlüssel sichern und die Passphrase (falls vergeben) getrennt notieren.", key.fingerprint))

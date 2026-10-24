@@ -9,6 +9,9 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Added
+- Master key without a passphrase: leave the passphrase empty (GUI, TUI) or use `pbsgui key master-create NAME --no-passphrase`; the pair is created with openssl and the private file is then the only protection.
+
 ### Fixed
 - APT repository: indexes for amd64 and arm64 added; `apt update` no longer reports that the repository does not support amd64.
 

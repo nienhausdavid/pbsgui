@@ -1,6 +1,7 @@
 """Master-Schlüssel: erzeugen, einbinden, Schlüssel aus dem Snapshot zurückholen (Fake-Client über ein Pseudo-Terminal)."""
 import json
 import os
+import shutil
 import stat
 
 import pytest
@@ -175,3 +176,23 @@ def test_rescue_recover_key_without_profile(env, capsys, server, monkeypatch, tm
     assert code == 0 and json.loads(out.read_text())["fingerprint"] == "aa:bb:cc:dd" and stat.S_IMODE(out.stat().st_mode) == 0o600
     assert main(["rescue", "recover-key", "--server", "127.0.0.1", "--port", str(server), "--datastore", "store1", "--auth-id", "u@pbs!t",
                  "--fingerprint", "AA", "--master-key", str(priv), "--output", str(out)]) == 1                     # Ziel existiert schon
+
+
+@pytest.mark.skipif(not shutil.which("openssl"), reason="openssl fehlt")
+def test_master_key_without_passphrase_can_be_created_and_used_to_recover(env, capsys, server, monkeypatch, tmp_path):
+    k = masterkey.create_master_key("", os.environ["PBSGUI_CLIENT"])
+    assert k.private_pem.startswith("-----BEGIN PRIVATE KEY-----") and k.public_pem.startswith("-----BEGIN PUBLIC KEY-----")
+    assert masterkey.recover_key(os.environ["PBSGUI_CLIENT"], b'{"fingerprint": "aa:bb"}', k.private_pem, "")
+    protected = masterkey.create_master_key("passphrase-123", os.environ["PBSGUI_CLIENT"])
+    with pytest.raises(MasterKeyError, match="geschützt"):
+        masterkey.recover_key(os.environ["PBSGUI_CLIENT"], b"x", protected.private_pem, "")
+
+
+@pytest.mark.skipif(not shutil.which("openssl"), reason="openssl fehlt")
+def test_cli_master_create_no_passphrase(env, capsys, server, tmp_path):
+    assert add_b(capsys, server)[0] == 0
+    out_file = tmp_path / "priv.pem"
+    code, out, err = run(capsys, "key", "master-create", "Test", "--no-passphrase", "--output", str(out_file))
+    assert code == 0, err
+    assert out_file.read_text().startswith("-----BEGIN PRIVATE KEY-----") and "BEGIN PRIVATE KEY" not in out
+    assert mgr_for(env).profiles()[0].master_pubkey
