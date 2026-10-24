@@ -237,6 +237,7 @@ class _Ctx:
     sizes: dict[str, int]
     images: dict[str, VmDisk]
     opened: list[str] = field(default_factory=list)       # geöffnete LUKS-Container (Mapper-Namen)
+    luks: list[tuple[str, str]] = field(default_factory=list)   # (Mapper-Name, Partition) der geöffneten Container
     vgs: list[str] = field(default_factory=list)
     mounted: list[str] = field(default_factory=list)      # Einhängepunkte in Reihenfolge
     root_dev: str = ""
@@ -245,7 +246,9 @@ class _Ctx:
 
     # -- kleine Helfer
     def sh(self, argv: list[str], on_line: Callable[[str], None] | None = None, ok=(0,), input_: str | None = None) -> str:
-        r = self.run(argv, capture_output=True, text=True, input=input_)
+        # ohne Eingabe ausdrücklich leere stdin: ein Werkzeug darf nie auf dem Terminal nach einem Passwort fragen und hängen
+        extra = {"input": input_} if input_ is not None else {"stdin": subprocess.DEVNULL}
+        r = self.run(argv, capture_output=True, text=True, **extra)
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         if on_line and out:
             for line in out.splitlines()[-20:]:
@@ -301,6 +304,7 @@ class _Ctx:
                 name = f"pbsgui-luks{i}"
                 self.sh(["cryptsetup", "open", "--type", "luks", "--key-file=-", n["path"], name], input_=self.cfg.passphrase)
                 self.opened.append(name)
+                self.luks.append((name, n["path"]))
                 on_line(f"{n['path']}: LUKS geöffnet")
         self.sh(["vgscan", "--mknodes"], None, ok=(0, 5))
         out = self.sh(["vgs", "--noheadings", "-o", "vg_name"], None, ok=(0, 5))
@@ -332,6 +336,7 @@ class _Ctx:
         self.sh(["mount", self.root_dev, self.mount_root])
         self.mounted.append(self.mount_root)
         on_line(f"Root-Dateisystem: {self.root_dev} ({self.root_fstype})")
+        self.align_crypttab(on_line)
         # 3. weitere Einhängepunkte aus der fstab des Gastes (/boot, /boot/efi)
         for spec, point in _fstab_mounts(Path(self.mount_root) / "etc/fstab"):
             if point not in ("/boot", "/boot/efi", "/usr", "/var"):
@@ -351,6 +356,25 @@ class _Ctx:
             if point == "/boot/efi":
                 self.esp = True
             on_line(f"{point}: {dev}")
+
+    def align_crypttab(self, on_line: Callable[[str], None]) -> None:
+        """Benennt geöffnete LUKS-Container so um, wie sie in der crypttab des Gastes heißen.
+
+        Der cryptsetup-Hook von initramfs-tools sucht den Namen des Mapper-Geräts unter dem Root-Dateisystem in /etc/crypttab;
+        heißt es anders (hier: pbsgui-luks0), fehlt im neuen Initramfs die Entsperr-Abfrage und das System bootet nicht.
+        """
+        entries = [(f[0], f[1]) for f in (ln.split() for ln in _read_lines(Path(self.mount_root) / "etc/crypttab")) if len(f) >= 2
+                   and not f[0].startswith("#")]
+        for i, (name, dev) in enumerate(list(self.luks)):
+            uuid = self.sh(["blkid", "-s", "UUID", "-o", "value", dev]).strip()
+            want = next((n for n, spec in entries if spec in (f"UUID={uuid}", dev)), "")
+            if want and want != name:
+                self.sh(["dmsetup", "rename", name, want])
+                self.opened[self.opened.index(name)] = want
+                self.luks[i] = (want, dev)
+                on_line(f"{dev}: Mapper-Name {name} -> {want} (wie in der crypttab des Gastes)")
+        if self.luks and not entries:
+            on_line("WARNUNG: der Gast hat Verschlüsselung, aber keine /etc/crypttab: das neue Initramfs fragt evtl. nicht nach der Passphrase")
 
     def _resolve(self, spec: str) -> str:
         if spec.startswith("/dev/"):
@@ -375,7 +399,7 @@ class _Ctx:
         for kind, d in chain:
             if kind == "luks":
                 name = Path(d).name
-                self.sh(["cryptsetup", "resize", name], on_line, ok=(0,))
+                self.sh(["cryptsetup", "resize", "--key-file=-", name], on_line, input_=self.cfg.passphrase)
                 on_line(f"{d}: LUKS auf die neue Größe gebracht")
             elif kind == "pv":
                 self.sh(["pvresize", d], on_line)
@@ -492,6 +516,13 @@ def _os_id(root: Path) -> str:
     return re.sub(r"[^A-Za-z0-9_-]", "", m.group(1).strip('"')) if m else ""
 
 
+def _read_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text().splitlines()
+    except OSError:
+        return []
+
+
 def _fstab_mounts(path: Path) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     try:
@@ -531,6 +562,7 @@ def _referenced_names(text: str) -> set[str]:
     names: set[str] = set()
     for rx in _NAME_PATTERNS:
         names.update(rx.findall(text))
+    names = {n for n in names if not any(ch in n for ch in "*?[")}          # Muster wie `Name=en*` (systemd-networkd) gelten für alle Karten: nie ändern
     return {n for n in names if n not in ("lo", "ethernets", "network", "version", "renderer", "wifis", "bridges", "bonds", "vlans")
             and not n.endswith(":") and not n.startswith(("br", "bond", "wg", "tun", "tap", "docker", "veth", "virbr", "vmbr"))}
 

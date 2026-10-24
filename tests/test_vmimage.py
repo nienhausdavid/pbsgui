@@ -293,3 +293,29 @@ def test_cli_vm_run_needs_confirmation_and_mapping(fake_env, tmp_path, monkeypat
     assert rc == 2 and "Bestätigung stimmt nicht" in err
     rc, out, err = cli(["vm-run", "--vmid", "100", "--dry-run"], monkeypatch, fake_env, tmp_path, capsys)
     assert rc == 1 and "Ziel fehlt" in err
+
+
+def test_align_crypttab_renames_the_luks_mapper_like_the_guest(tmp_path):
+    root = guest(tmp_path / "gast", {"etc/crypttab": "# c\nvmcrypt UUID=abc-123 none luks\nswap /dev/vda4 /dev/urandom swap\n"})
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append(list(argv))
+        out = "abc-123\n" if argv[0] == "blkid" else ""
+        return subprocess.CompletedProcess(argv, 0, out, "")
+    ctx = vm._Ctx(cfg=None, snap=None, vmcfg=None, mapping={}, boot="", opts=vm.RepairOptions(), run=fake_run,
+                  mount_root=str(root), uefi_live=True, sizes={}, images={})
+    ctx.opened, ctx.luks = ["pbsgui-luks0"], [("pbsgui-luks0", "/dev/vda3")]
+    log = []
+    ctx.align_crypttab(log.append)
+    assert ["dmsetup", "rename", "pbsgui-luks0", "vmcrypt"] in calls
+    assert ctx.opened == ["vmcrypt"] and ctx.luks == [("vmcrypt", "/dev/vda3")] and "vmcrypt" in log[0]
+    calls.clear()
+    ctx.align_crypttab(log.append)                                                        # schon richtig benannt: nichts tun
+    assert not any(c[0] == "dmsetup" for c in calls)
+
+
+def test_network_wildcard_patterns_are_never_rewritten(tmp_path):
+    root = guest(tmp_path, {"etc/systemd/network/20-wired.network": "[Match]\nName=en*\n\n[Network]\nDHCP=yes\n"})
+    assert vm.rewrite_network(root, ["enp3s0"]) == []
+    assert "Name=en*" in (root / "etc/systemd/network/20-wired.network").read_text()

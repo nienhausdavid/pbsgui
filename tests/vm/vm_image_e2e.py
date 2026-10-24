@@ -84,6 +84,13 @@ def restore(a) -> None:
         vm.expect(r"root@[\w-]+:[~/]\S*# ", 300)
         vm.send("\n"); vm.run("true", 30)
         vm.run("pkill -f '[p]bsgui rescue' || true; unset HISTFILE", 10)
+        for rel in a.patch:          # neuere Quelldateien ohne ISO-Neubau einspielen (nur zum Entwickeln)
+            data = base64.b64encode((Path("src") / rel).read_bytes()).decode()
+            vm.run(": > /tmp/p.b64", 10)
+            for i in range(0, len(data), 1500):
+                vm.run(f"printf %s {data[i:i + 1500]} >> /tmp/p.b64", 20)
+            vm.run(f"base64 -d /tmp/p.b64 > /usr/lib/python3/dist-packages/{rel}; find /usr/lib/python3/dist-packages/pbsgui -name '*.pyc' -delete", 20)
+            log(f"Datei eingespielt: {rel}")
         wait_network(vm)
         vm.run("stty -echo", 10)                                   # Secret nicht im Terminal-Echo (Log)
         vm.send(f"export PBSGUI_TOKEN_SECRET='{secret}'\n")
@@ -164,6 +171,7 @@ def main() -> None:
     ap.add_argument("phase", choices=["backup", "restore", "verify", "cleanup", "all"])
     ap.add_argument("--iso", required=False, default="")
     ap.add_argument("--source-image", default=str(WORK / "source.img"))
+    ap.add_argument("--patch", action="append", default=[], metavar="DATEI", help="Datei unter src/ vor dem Test in die ISO kopieren")
     a = ap.parse_args()
     phases = ["backup", "restore", "verify"] if a.phase == "all" else [a.phase]
     try:
