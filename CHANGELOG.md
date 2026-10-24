@@ -7,6 +7,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-24
+
 ### Sicherheit
 Prüfung mit `ruff`, `bandit`, `pip-audit` und Durchsicht der sicherheitskritischen Stellen; keine schweren Funde, aber diese Härtungen:
 - **Kein Root-Code aus Benutzerordnern:** Vollbackup (`pkexec`) und Systemzeitpläne starten Python nur noch als root, wenn Code
@@ -172,7 +174,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.2
 [0.8.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.1
 [0.8.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.0
 [0.7.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.7.0
