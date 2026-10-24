@@ -23,8 +23,31 @@ erscheint der Wiederherstellungs-Assistent automatisch auf der ersten Konsole.
 
 ![Der Assistent startet automatisch](images/01-start.png)
 
-Kein Netzwerk? Mit `n` startet `nmtui` (WLAN/LAN einrichten). Lässt sich der Assistent später neu starten:
+Kein Netzwerk? Mit `F2` (oder dem Knopf „Netzwerk“) startet `nmtui` (WLAN/LAN einrichten). Lässt sich der Assistent später neu starten:
 `pbsgui rescue`. Die Tastatur ist auf Deutsch gestellt.
+
+## VPN und Updates (Tasten `F3` und `F4`)
+
+**Updates beim Start:** Kurz nach dem Booten prüft die ISO (wenn ein Netzwerk da ist), ob es neuere Versionen von
+`pbstui`, `proxmox-backup-client`, WireGuard, OpenVPN und NetBird gibt, und installiert sie. Der Assistent wartet dafür
+bis zu 45 Sekunden (eine Taste überspringt das Warten). Ohne Netzwerk wird alles übersprungen und alle 2 Minuten erneut
+versucht; von Hand geht es mit `F4` im Assistenten oder `pbsgui update`. Wurde `pbstui` selbst aktualisiert, bietet der
+Assistent „Neu starten“ an.
+
+**VPN zum Backup-Server:** Liegt der Server hinter einem VPN, richtest du es vor dem ersten Schritt mit `F3` (oder dem Knopf „VPN“) ein
+(oder auf der Kommandozeile mit `pbsgui vpn`):
+
+| Typ | Was du brauchst | Kommandozeile |
+|---|---|---|
+| WireGuard | `wg0.conf` vom USB-Stick (Dateiname = Schnittstelle, höchstens 15 Zeichen) | `pbsgui vpn up wireguard /media/usb/wg0.conf` |
+| OpenVPN | `client.ovpn` (Zertifikate daneben oder eingebettet), optional Benutzer und Passwort | `pbsgui vpn up openvpn /media/usb/client.ovpn --user NAME` |
+| NetBird | Setup-Key, bei eigener Instanz die Management-URL | `NB_SETUP_KEY=… pbsgui vpn up netbird --management-url https://netbird.example.org` |
+
+`pbsgui vpn find` sucht Konfigurationen auf USB-Sticks, `pbsgui vpn status` zeigt die Tunnel, `pbsgui vpn down` trennt sie.
+Passwörter und Setup-Keys gehen nie als Programmargument; OpenVPN-Zugangsdaten liegen nur kurz im RAM und werden beim
+Trennen gelöscht. Danach die Verbindung zum Server wie gewohnt prüfen.
+
+![VPN einrichten (F3)](images/11-vpn.png)
 
 ## 2. Verbindung zum Backup-Server
 

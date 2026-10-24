@@ -2,6 +2,7 @@
 set -e
 systemctl enable NetworkManager.service || true
 systemctl enable serial-getty@ttyS0.service || true
+systemctl enable pbsgui-update.timer || true
 # Root ohne Passwort nur lokal auf der Konsole (Live-Medium); kein SSH-Server enthalten
 sed -i 's/^#\?de_DE.UTF-8 UTF-8/de_DE.UTF-8 UTF-8/' /etc/locale.gen 2>/dev/null || true
 locale-gen || true

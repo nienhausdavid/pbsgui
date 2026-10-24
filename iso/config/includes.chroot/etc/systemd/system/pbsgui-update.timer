@@ -1,0 +1,9 @@
+[Unit]
+Description=pbsgui-Updates beim Start und danach alle 2 Minuten, bis das Netzwerk da ist
+
+[Timer]
+OnBootSec=3s
+OnUnitInactiveSec=120s
+
+[Install]
+WantedBy=timers.target

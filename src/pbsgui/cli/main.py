@@ -27,6 +27,7 @@ from ..core.recovery import collect_recovery, missing_recovery_tools, needs_key_
 from ..core.pbs_api import ApiError, TokenExistsError, fetch_fingerprint
 from ..core.runner import read_latest_status
 from ..core.scheduler import SchedulerError, validate_calendar
+from ..core.vpn import VpnError
 
 
 class CliError(Exception):
@@ -689,6 +690,63 @@ def cmd_remove(a, mgr) -> int:
     return 0
 
 
+def cmd_vpn(a, mgr) -> int:
+    """VPN-Tunnel zum Backup-Server (WireGuard, OpenVPN, NetBird), vor allem auf der Rettungs-ISO."""
+    import getpass
+    from ..core import vpn
+    if a.action == "status":
+        for kind, text in vpn.status().items():
+            print(f"{vpn.LABELS[kind]:10} {text}")
+        return 0
+    if a.action == "find":
+        for kind in ([a.kind] if a.kind else ("wireguard", "openvpn")):
+            for f in vpn.find_configs(kind, mount=True):
+                print(f"{vpn.LABELS[kind]:10} {f}")
+        return 0
+    if a.action == "down":
+        res = []
+        if a.kind in (None, "wireguard"):
+            res.append(vpn.wireguard_down())
+        if a.kind in (None, "openvpn"):
+            res.append(vpn.openvpn_down())
+        if a.kind in (None, "netbird"):
+            res.append(vpn.netbird_down())
+        for r in res:
+            if r.text:
+                print(r.text)
+        return 0 if all(r.ok for r in res) else 1
+    if not a.kind:
+        raise CliError("Welcher Typ? wireguard, openvpn oder netbird")
+    if a.kind == "wireguard":
+        if not a.file:
+            raise CliError("Konfigurationsdatei fehlt (z. B. /media/usb/wg0.conf); `pbsgui vpn find` sucht auf USB-Sticks")
+        r = vpn.wireguard_up(a.file)
+    elif a.kind == "openvpn":
+        if not a.file:
+            raise CliError("Konfigurationsdatei fehlt (z. B. /media/usb/client.ovpn)")
+        pw = os.environ.get("PBSGUI_VPN_PASSWORD", "")
+        if a.user and not pw:
+            pw = getpass.getpass("OpenVPN-Passwort: ")
+        r = vpn.openvpn_up(a.file, a.user or "", pw)
+    else:
+        key = os.environ.get("NB_SETUP_KEY", "")
+        if not key and a.setup_key_prompt:
+            key = getpass.getpass("NetBird-Setup-Key: ")
+        r = vpn.netbird_up(key, a.management_url or "")
+    print(r.text)
+    return 0 if r.ok else 1
+
+
+def cmd_update(a, mgr) -> int:
+    """Programme der Rettungs-ISO aktualisieren (pbstui, proxmox-backup-client, VPN-Werkzeuge)."""
+    from ..core import update as upd
+    res = upd.update(wait=a.wait, on_line=(lambda _l: None) if a.quiet else print, write_state=a.boot)
+    print(res.text)
+    if res.restart_needed:
+        print("pbstui wurde aktualisiert: den Assistenten neu starten (pbsgui rescue).")
+    return 0 if res.state in ("fertig", "offline") else 1
+
+
 def cmd_tui(a, mgr) -> int:
     from ..tui.app import run
     run()
@@ -811,6 +869,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--collect", metavar="VERZEICHNIS", help="Datenträger-Metadaten jetzt sammeln (braucht root)")
     from .rescue_cli import add_arguments as add_rescue
     add_rescue(sub)
+    sp = add("vpn", cmd_vpn, "VPN zum Backup-Server: status | find | up | down (WireGuard, OpenVPN, NetBird)", "action")
+    sp.add_argument("kind", nargs="?", choices=["wireguard", "openvpn", "netbird"])
+    sp.add_argument("file", nargs="?", help="Konfigurationsdatei (WireGuard .conf, OpenVPN .ovpn)")
+    sp.add_argument("--user", help="OpenVPN-Benutzername (Passwort: PBSGUI_VPN_PASSWORD oder Abfrage)")
+    sp.add_argument("--management-url", help="NetBird: Management-URL, z. B. https://netbird.example.org")
+    sp.add_argument("--setup-key-prompt", action="store_true", help="NetBird: Setup-Key abfragen (sonst Umgebung NB_SETUP_KEY)")
+    sp = add("update", cmd_update, "Programme der Rettungs-ISO aktualisieren (pbstui, Proxmox-Client, VPN-Werkzeuge)")
+    sp.add_argument("--wait", type=float, default=25, help="so lange auf das Netzwerk warten (Sekunden)")
+    sp.add_argument("--quiet", action="store_true"); sp.add_argument("--boot", action="store_true", help=argparse.SUPPRESS)
     add("tui", cmd_tui, "Terminal-Oberfläche starten")
     return ap
 
@@ -835,7 +902,7 @@ def main(argv: list[str] | None = None) -> int:
     except CliError as e:
         print(f"Fehler: {e}", file=sys.stderr)
         return e.code
-    except (ApiError, ClientError, SchedulerError, DumpError) as e:
+    except (ApiError, ClientError, SchedulerError, DumpError, VpnError) as e:
         print(f"Fehler: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

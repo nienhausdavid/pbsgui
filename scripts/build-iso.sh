@@ -24,6 +24,15 @@ cp "$work"/deb/pbstui_*_all.deb "$work/config/packages.chroot/"   # nur Terminal
 key="$work/proxmox-archive-keyring.gpg"
 [ -s "$key" ] || curl -fsSL https://enterprise.proxmox.com/debian/proxmox-archive-keyring-trixie.gpg -o "$key"
 cp "$key" "$work/config/archives/pbs-client.key.chroot"   # live-build legt ihn nach /etc/apt/trusted.gpg.d
+cp "$key" "$work/config/archives/pbs-client.key.binary"   # auch im fertigen Live-System (Updates beim Start)
+
+# NetBird- und pbsgui-Repository: Schlüssel holen (binär, ohne gpg-Armor), im Bau und im Live-System verwenden
+nbkey="$work/netbird.gpg"
+[ -s "$nbkey" ] || curl -fsSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor > "$nbkey"
+cp "$nbkey" "$work/config/archives/netbird.key.chroot"; cp "$nbkey" "$work/config/archives/netbird.key.binary"
+pgkey="$work/pbsgui.gpg"
+[ -s "$pgkey" ] || curl -fsSL https://nienhausdavid.github.io/pbsgui/pbsgui.gpg -o "$pgkey"
+cp "$pgkey" "$work/config/archives/pbsgui.key.chroot"; cp "$pgkey" "$work/config/archives/pbsgui.key.binary"
 
 # Optional: nicht geheime Verbindungsdaten eines Profils einbauen (Server, Fingerprint, Datastore, Namespace)
 if [ -n "$profile" ]; then
@@ -42,11 +51,13 @@ fi
 
 cd "$work"
 lb clean --purge >/dev/null 2>&1 || true
+# ca-certificates schon im Basissystem: die https-Quellen (NetBird, pbsgui) brauchen sie beim ersten apt update
 lb config noauto \
   --distribution trixie --archive-areas "main contrib non-free-firmware" \
   --parent-archive-areas "main contrib non-free-firmware" \
   --binary-images iso-hybrid --bootloaders "grub-efi,syslinux" \
   --debian-installer none --apt-recommends false --memtest none \
+  --debootstrap-options "--include=ca-certificates,gnupg" \
   --chroot-squashfs-compression-type "$comp" \
   --iso-application "pbsgui Rettungsmedium" --iso-volume "PBSGUI-RESCUE" --iso-publisher "pbsgui" \
   --bootappend-live "boot=live components quiet noautologin locales=de_DE.UTF-8 keyboard-layouts=de timezone=Europe/Berlin" \

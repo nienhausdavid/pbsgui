@@ -1,0 +1,10 @@
+[Unit]
+Description=pbsgui-Programme aktualisieren (pbstui, Proxmox-Client, VPN-Werkzeuge)
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+# Nach einem erfolgreichen Lauf nicht wiederholen (Exit 1 bei ExecCondition = überspringen, kein Fehler)
+ExecCondition=/bin/sh -c '! grep -q "^fertig" /run/pbsgui-update.state 2>/dev/null'
+ExecStart=/usr/bin/pbsgui update --boot --wait 20 --quiet
+TimeoutStartSec=600

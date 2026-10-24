@@ -44,3 +44,8 @@ firmware-iwlwifi
 firmware-realtek
 firmware-atheros
 firmware-misc-nonfree
+# VPN zum Backup-Server (WireGuard, OpenVPN, NetBird; NetBird kommt aus dem NetBird-Repository)
+wireguard-tools
+openvpn
+openresolv
+netbird

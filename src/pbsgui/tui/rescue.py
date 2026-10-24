@@ -13,11 +13,12 @@ import time
 from pathlib import Path
 
 from textual.app import App, ComposeResult
-from textual.containers import Vertical, VerticalScroll
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Checkbox, DataTable, Footer, Input, Label, RadioButton, RadioSet, RichLog, Static
 
-from ..core import rescue
+from ..core import rescue, update as updater, vpn
 from ..core.pbs_api import ApiError, fetch_fingerprint
 from ..core.rescue import RescueConfig, RescueError
 
@@ -55,14 +56,22 @@ class Say(Static):
 
 
 class ConnectScreen(Screen):
-    BINDINGS = [("n", "network", "Netzwerk (nmtui)"), ("q", "app.quit", "Beenden")]
+    # Funktionstasten statt Buchstaben: in einem Eingabefeld würde "n" oder "v" sonst einfach getippt
+    BINDINGS = [Binding("f2", "network", "Netzwerk (nmtui)", priority=True), Binding("f3", "vpn", "VPN", priority=True),
+                Binding("f4", "update", "Updates", priority=True), Binding("n", "network", show=False),
+                ("q", "app.quit", "Beenden")]
 
     def compose(self) -> ComposeResult:
         c: RescueConfig = self.app.cfg
         with VerticalScroll(id="panel"):
             yield Label("Schritt 1 von 4: Verbindung zum Backup-Server", classes="title", markup=False)
-            yield Static("Wiederherstellung eines Vollbackups auf diesem Computer. Mit [n] richtest du zuerst das "
-                         "Netzwerk ein (WLAN/LAN).", classes="hint", markup=False)
+            yield Static("Wiederherstellung eines Vollbackups auf diesem Computer. Zuerst bei Bedarf Netzwerk (F2, "
+                         "WLAN/LAN), VPN (F3: WireGuard, OpenVPN, NetBird) und Updates (F4) einrichten; die Knöpfe gehen auch.",
+                         classes="hint", markup=False)
+            with Horizontal(id="tools"):
+                yield Button("Netzwerk (F2)", id="t-net")
+                yield Button("VPN (F3)", id="t-vpn")
+                yield Button("Updates (F4)", id="t-upd")
             yield Input(value=c.server, placeholder="Server, z. B. pbs.example.org", id="server")
             yield Input(value=str(c.port), placeholder="Port", id="port")
             yield Input(value=c.datastore, placeholder="Datastore", id="datastore")
@@ -100,8 +109,20 @@ class ConnectScreen(Screen):
         with self.app.suspend():
             subprocess.run(["nmtui"])
 
+    def action_vpn(self) -> None:
+        self.app.push_screen(VpnScreen())
+
+    def action_update(self) -> None:
+        self.app.push_screen(UpdateScreen())
+
     async def on_button_pressed(self, e: Button.Pressed) -> None:
-        if e.button.id == "fp":
+        if e.button.id == "t-net":
+            self.action_network()
+        elif e.button.id == "t-vpn":
+            self.action_vpn()
+        elif e.button.id == "t-upd":
+            self.action_update()
+        elif e.button.id == "fp":
             self._say("Hole Fingerprint …")
             try:
                 fp = await asyncio.to_thread(fetch_fingerprint, self._v("server"), int(self._v("port") or 8007))
@@ -147,6 +168,133 @@ class ConnectScreen(Screen):
             return
         self.app.snaps = snaps
         self.app.push_screen(SnapshotScreen())
+
+
+class VpnScreen(Screen):
+    """VPN-Tunnel zum Backup-Server aufbauen, bevor die Verbindung geprüft wird."""
+    BINDINGS = [("escape", "back", "Zurück")]
+
+    def compose(self) -> ComposeResult:
+        have = vpn.tools_available()
+        with VerticalScroll(id="panel"):
+            yield Label("VPN zum Backup-Server", classes="title", markup=False)
+            yield Static("Konfiguration vom USB-Stick (WireGuard .conf, OpenVPN .ovpn) oder NetBird mit Setup-Key. "
+                         "Danach zurück und die Verbindung zum Server prüfen.", classes="hint", markup=False)
+            with RadioSet(id="kind"):
+                for k in vpn.KINDS:
+                    yield RadioButton(vpn.LABELS[k] + ("" if have.get(k) else " (nicht installiert)"), value=(k == "wireguard"))
+            yield Input(placeholder="Konfigurationsdatei, z. B. /media/usb/wg0.conf", id="file")
+            yield Button("Auf USB-Stick suchen", id="find")
+            yield Input(placeholder="OpenVPN: Benutzername (leer = keiner)", id="user")
+            yield Input(placeholder="OpenVPN: Passwort", password=True, id="pw")
+            yield Input(placeholder="NetBird: Management-URL (leer = netbird.io)", id="url")
+            yield Input(placeholder="NetBird: Setup-Key", password=True, id="setupkey")
+            yield Button("Verbinden", variant="primary", id="up")
+            yield Button("Trennen", id="down")
+            yield Button("Status", id="state")
+            yield Say(id="status")
+            yield Button("Zurück", id="back")
+        yield Footer()
+
+    def _kind(self) -> str:
+        idx = self.query_one("#kind", RadioSet).pressed_index
+        return vpn.KINDS[idx if idx >= 0 else 0]
+
+    def _v(self, wid: str) -> str:
+        return self.query_one(f"#{wid}", Input).value.strip()
+
+    def _say(self, text: str) -> None:
+        self.query_one("#status", Say).update(text)
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
+
+    async def on_button_pressed(self, e: Button.Pressed) -> None:
+        bid = e.button.id
+        if bid == "back":
+            self.app.pop_screen()
+        elif bid == "find":
+            kind = self._kind()
+            if kind == "netbird":
+                self._say("NetBird braucht keine Datei, nur Setup-Key (und bei eigener Instanz die Management-URL).")
+                return
+            self._say("Suche auf USB-Sticks …")
+            found = await asyncio.to_thread(vpn.find_configs, kind, None, True)
+            if found:
+                self.query_one("#file", Input).value = found[0]
+                self._say(f"{len(found)} Konfiguration(en) gefunden, die erste wurde eingetragen: {found[0]}")
+            else:
+                self._say("Keine passende Konfiguration gefunden. USB-Stick einstecken und erneut suchen oder Pfad eintragen.")
+        elif bid == "state":
+            st = await asyncio.to_thread(vpn.status)
+            self._say("   ".join(f"{vpn.LABELS[k]}: {v}" for k, v in st.items()))
+        elif bid == "down":
+            self._say("Trenne …")
+            kind = self._kind()
+            fn = {"wireguard": vpn.wireguard_down, "openvpn": vpn.openvpn_down, "netbird": vpn.netbird_down}[kind]
+            r = await asyncio.to_thread(fn)
+            self._say((r.text or "getrennt")[-300:])
+        elif bid == "up":
+            await self._up()
+
+    async def _up(self) -> None:
+        kind = self._kind()
+        self._say(f"Verbinde {vpn.LABELS[kind]} …")
+        try:
+            if kind == "wireguard":
+                r = await asyncio.to_thread(vpn.wireguard_up, self._v("file"))
+            elif kind == "openvpn":
+                r = await asyncio.to_thread(vpn.openvpn_up, self._v("file"), self._v("user"), self.query_one("#pw", Input).value)
+            else:
+                r = await asyncio.to_thread(vpn.netbird_up, self.query_one("#setupkey", Input).value.strip(), self._v("url"))
+        except vpn.VpnError as ex:
+            self._say(f"Fehler: {ex}")
+            return
+        self.query_one("#pw", Input).value = ""
+        self.query_one("#setupkey", Input).value = ""      # Geheimnisse nicht länger als nötig in der Oberfläche halten
+        self._say((("Verbunden. " if r.ok else "Fehler: ") + (r.text or ""))[-400:])
+
+
+class UpdateScreen(Screen):
+    """Programme aktualisieren (pbstui, Proxmox-Client, VPN-Werkzeuge)."""
+    BINDINGS = [("escape", "back", "Zurück")]
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="panel"):
+            yield Label("Programme aktualisieren", classes="title", markup=False)
+            yield RichLog(id="log", wrap=True, markup=False, highlight=False)
+            yield Say(id="status")
+            yield Button("Neu starten", variant="primary", id="restart", disabled=True)
+            yield Button("Zurück", id="back")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.run_worker(self._work, thread=True)
+
+    def _log(self, line: str) -> None:
+        self.app.call_from_thread(self.query_one("#log", RichLog).write, line)
+
+    def _work(self) -> None:
+        res = updater.update(on_line=self._log, wait=15)
+        self._log(res.text)
+        self.app.call_from_thread(self._done, res)
+
+    def _done(self, res) -> None:
+        self.query_one("#status", Say).update(
+            "Der Assistent wurde aktualisiert: bitte neu starten." if res.restart_needed else
+            ("Kein Netzwerk: [n] Netzwerk oder [v] VPN einrichten, dann erneut versuchen." if res.state == "offline" else
+             ("Fehler beim Aktualisieren." if res.state == "fehler" else "Fertig.")))
+        self.query_one("#restart", Button).disabled = not res.restart_needed
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
+
+    def on_button_pressed(self, e: Button.Pressed) -> None:
+        if e.button.id == "restart":
+            self.app.restart = True
+            self.app.exit()
+        else:
+            self.app.pop_screen()
 
 
 class SnapshotScreen(Screen):
@@ -381,6 +529,7 @@ class RescueApp(App):
         super().__init__()
         self.cfg = cfg or RescueConfig(server="", datastore="", auth_id="")
         self.snaps, self.snap, self.rec, self.plan, self.dry_run = [], None, None, None, False
+        self.restart = False      # nach einem Update von pbstui: Assistent mit dem neuen Code neu starten
 
     def on_mount(self) -> None:
         self.push_screen(ConnectScreen())
@@ -396,4 +545,7 @@ def run() -> None:
             print(f"Hinweis: {DEFAULT_CONFIG} nicht lesbar ({e}); Felder bleiben leer.")
     if os.geteuid() != 0:
         print("Hinweis: Ohne root ist nur der Trockenlauf möglich.")
-    RescueApp(cfg).run()
+    app = RescueApp(cfg)
+    app.run()
+    if app.restart:
+        os.execvp("pbsgui", ["pbsgui", "rescue"])  # noqa: S606  # nosec B606 - feste Argumente

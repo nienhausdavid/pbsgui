@@ -246,3 +246,36 @@ async def test_smaller_disk_offers_shrink_option(lab, monkeypatch):
         s.query_one("#next", Button).press()
         assert await wait_for(pilot, lambda: app.screen.__class__.__name__ == "PlanScreen")
         assert app.plan.resizes and any("->" in l for l in app.plan.summary)
+
+
+async def test_vpn_and_update_screens_open_with_function_keys_even_from_an_input(monkeypatch):
+    from pbsgui.core import update as upd
+    monkeypatch.setattr(upd, "update", lambda **kw: upd.UpdateResult("offline", text="kein Netzwerk: Updates übersprungen"))
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 60)) as pilot:
+        await pilot.pause()
+        assert await wait_for(pilot, lambda: pilot.app.screen.query_one("#server", Input).has_focus)
+        await pilot.press("f3")                       # Fokus steht im Eingabefeld: die Taste darf nicht getippt werden
+        assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ == "VpnScreen")
+        assert await wait_for(pilot, lambda: len(pilot.app.screen.query("#file")) > 0)
+        await pilot.press("escape")
+        assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ == "ConnectScreen")
+        assert pilot.app.screen.query_one("#server", Input).value == ""
+        await pilot.press("f4")
+        assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ == "UpdateScreen")
+        assert await wait_for(pilot, lambda: "Kein Netzwerk" in str(pilot.app.screen.query_one("#status").render()))
+
+
+async def test_vpn_screen_connects_wireguard_with_entered_file(monkeypatch, tmp_path):
+    from pbsgui.core import vpn
+    calls = []
+    monkeypatch.setattr(vpn, "wireguard_up", lambda path, *a, **k: calls.append(path) or vpn.Result(True, "wg0 ist oben"))
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 60)) as pilot:
+        await pilot.pause()
+        await pilot.press("f3")
+        assert await wait_for(pilot, lambda: len(pilot.app.screen.query("#file")) > 0)
+        pilot.app.screen.query_one("#file", Input).value = "/media/usb/wg0.conf"
+        pilot.app.screen.query_one("#up", Button).press()
+        assert await wait_for(pilot, lambda: calls == ["/media/usb/wg0.conf"])
+        assert await wait_for(pilot, lambda: "Verbunden" in str(pilot.app.screen.query_one("#status").render()))

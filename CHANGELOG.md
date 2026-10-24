@@ -7,6 +7,17 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **Rettungs-ISO mit VPN:** WireGuard, OpenVPN und NetBird sind enthalten (NetBird aus dem NetBird-Repository). Im Assistenten mit `F3` oder dem Knopf „VPN“
+  (Konfiguration vom USB-Stick suchen, verbinden, trennen, Status), auf der Kommandozeile mit `pbsgui vpn status|find|up|down`.
+  Passwörter und Setup-Keys gehen nie als Programmargument (OpenVPN-Zugangsdaten nur kurz in einer 0600-Datei im RAM, NetBird per
+  Umgebung `NB_SETUP_KEY`).
+- **Programme aktualisieren sich beim Start der ISO:** `pbsgui-update.timer` startet beim Booten (und wiederholt alle 2 Minuten, bis es
+  klappt) `pbsgui update`: Paketlisten holen und `pbstui`, `proxmox-backup-client`, `netbird`, `wireguard-tools`, `openvpn`
+  nur aktualisieren, wenn installiert. Quellen: pbsgui-Repository, Proxmox, NetBird, Debian (jetzt auch im fertigen Live-System).
+  Der Assistent wartet beim Start bis zu 45 s auf das Ergebnis (eine Taste überspringt); von Hand mit `F4` im Assistenten oder
+  `pbsgui update`; nach einem Update von `pbstui` startet sich der Assistent auf Wunsch neu.
+
 ## [0.8.3] - 2026-10-24
 
 ### Geändert
