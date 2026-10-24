@@ -9,6 +9,9 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Behoben
+- APT-Repository: Indizes für amd64 und arm64 ergänzt; `apt update` meldet nicht mehr, das Depot unterstütze amd64 nicht.
+
 ## [0.9.2] - 2026-10-24
 
 ### Hinzugefügt

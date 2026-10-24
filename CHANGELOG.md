@@ -9,6 +9,9 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Fixed
+- APT repository: indexes for amd64 and arm64 added; `apt update` no longer reports that the repository does not support amd64.
+
 ## [0.9.2] - 2026-10-24
 
 ### Added

@@ -12,13 +12,19 @@ mkdir -p "$pool" "$bindir"
 cp "$debs"/*.deb "$pool/"
 (cd "$out" && apt-ftparchive packages pool > "dists/$suite/main/binary-all/Packages")
 gzip -9kn "$bindir/Packages"
+# Alle Pakete sind Architecture: all. apt verlangt aber einen Index je Architektur des Systems (sonst "unterstützt die Architektur nicht"),
+# daher dieselbe Paketliste auch für die üblichen Architekturen.
+for arch in amd64 arm64; do
+  mkdir -p "$out/dists/$suite/main/binary-$arch"
+  cp "$bindir/Packages" "$bindir/Packages.gz" "$out/dists/$suite/main/binary-$arch/"
+done
 cat > "$out/apt-ftparchive.conf" <<CONF
 APT::FTPArchive::Release {
   Origin "pbsgui";
   Label "pbsgui";
   Suite "$suite";
   Codename "$suite";
-  Architectures "all";
+  Architectures "all amd64 arm64";
   Components "main";
   Description "pbsgui APT repository";
 };
