@@ -18,6 +18,11 @@ Bitte keine öffentlichen Issues für Sicherheitslücken. Schreib an den Maintai
 - **Wiederherstellung:** „Überschreiben“ ist auf das Home-Verzeichnis begrenzt (Symlinks werden aufgelöst), alte
   Fassungen werden vorher gesichert.
 
+- **Web-Oberfläche der Rettungs-ISO** (nur auf Wunsch aktiv): zufällige Passphrase (etwa 78 Bit), HTTPS, Rate Limiting, Sperren,
+  Honeypot (verstecktes Feld, Köder-Adressen), Abschaltung nach 40 Fehlversuchen, eine Sitzung mit Zeitlimits, CSRF-Token,
+  Content-Security-Policy mit Nonce, keine Datei- oder Verzeichnisfreigabe, kein Stacktrace an Clients, Größenlimits. Sie lauscht
+  standardmäßig an allen Adressen (nötig, solange noch kein VPN steht); bei Bedarf mit `--bind` auf eine Adresse beschränken.
+
 ## Prüfungen
 Die CI führt `ruff` (Fehler- und Sicherheitsregeln), `bandit` und `pip-audit` aus; `tests/test_security.py` sichert die
 oben genannten Eigenschaften ab.

@@ -51,7 +51,7 @@ class VM:
         cmd = ["qemu-system-x86_64", "-machine", "q35", "-smp", str(self.cpus), "-m", str(self.mem),
                "-bios", OVMF, "-display", "none", "-vga", "std",
                "-serial", f"unix:{self.serial_sock},server,nowait", "-monitor", f"unix:{self.mon_sock},server,nowait",
-               "-nic", "user,model=virtio-net-pci", "-device", "qemu-xhci", "-device", "usb-kbd",
+               "-nic", "user,model=virtio-net-pci" + (",hostfwd=" + os.environ["VM_HOSTFWD"] if os.environ.get("VM_HOSTFWD") else ""), "-device", "qemu-xhci", "-device", "usb-kbd",
                "-rtc", "base=utc"]
         if self.kvm:
             cmd += ["-enable-kvm", "-cpu", "host"]

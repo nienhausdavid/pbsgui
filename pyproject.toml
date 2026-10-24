@@ -25,6 +25,9 @@ pbsgui-run = "pbsgui.cli.run:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"pbsgui.web" = ["words.txt", "index.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
@@ -39,6 +42,7 @@ select = ["F", "B", "S", "E9", "PLE"]
 ignore = [
     "S603", "S607", "S404",   # Programme werden immer mit Argumentlisten gestartet (nie über eine Shell)
     "S105", "S107",           # Fehlalarme: Namen wie token_name/secret-Parameter sind keine festen Passwörter
+    "S104",                   # Web-Oberfläche lauscht standardmäßig an allen Adressen (VPS); abgesichert durch Passwort, TLS, Sperren
     "S110", "B904", "B905",   # Stilfragen
 ]
 
@@ -47,4 +51,4 @@ ignore = [
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-skips = ["B404", "B603", "B607", "B105", "B107"]   # siehe ruff-Konfiguration: Argumentlisten statt Shell, Fehlalarme bei Namen
+skips = ["B404", "B603", "B607", "B105", "B107", "B104"]   # siehe ruff-Konfiguration: Argumentlisten statt Shell, Fehlalarme bei Namen

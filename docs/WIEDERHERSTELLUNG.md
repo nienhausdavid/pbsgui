@@ -49,6 +49,28 @@ Trennen gelöscht. Danach die Verbindung zum Server wie gewohnt prüfen.
 
 ![VPN einrichten (F3)](images/11-vpn.png)
 
+## Web-Oberfläche (für Server und VPS)
+
+Hast du nur eine einfache Konsole (z. B. bei einem VPS), richtest du die Wiederherstellung im Browser ein:
+
+1. Auf der Konsole `F5` (Knopf „Web“) oder `pbsgui web --daemon`. Angezeigt werden die **Adresse**, ein **zufälliges Passwort**
+   aus vier Wörtern, jedes mit einer zweistelligen Zahl dahinter (z. B. `abacus47-grind83-lemon12-quest66`) und der **Fingerabdruck** des Zertifikats.
+2. Im Browser die Adresse öffnen (Warnung wegen des selbstsignierten Zertifikats), den Fingerabdruck mit der Konsole
+   **vergleichen** und mit dem Passwort anmelden.
+3. Die Schritte sind dieselben wie im Assistenten: VPN (Konfiguration einfügen), Server, Snapshot, Platte und
+   Verschlüsselung, Plan prüfen, Gerätenamen eintippen, Live-Log, Neustart.
+
+`pbsgui web --status` zeigt die Zugangsdaten und `pbsgui web --stop` beendet die Oberfläche. Mit `--bind ADRESSE` lauscht sie nur
+an einer Adresse; `--port` und `--timeout` (Minuten ohne Anfrage, danach schaltet sie sich ab,
+Standard 60) sind einstellbar.
+
+**Schutz:** HTTPS mit frischem Zertifikat und frischem Passwort bei jedem Aktivieren; Rate Limiting je Adresse; nach 5 falschen
+Passwörtern wird die Adresse gesperrt (mit wachsender Dauer); nach 40 Fehlversuchen insgesamt schaltet sich die Oberfläche ab
+(neu aktivieren auf der Konsole). **Honeypot:** ein unsichtbares Formularfeld und Köder-Adressen (`/admin`, `/wp-login.php`,
+`/.env` …), die nur Bots aufrufen. Wer sie berührt, wird für Stunden gesperrt, bekommt nur noch verzögerte Antworten, und die
+Konsole zeigt den Treffer. Es gibt immer nur eine Sitzung, sie läuft nach 15 Minuten Leerlauf ab, und jede Änderung braucht ein
+CSRF-Token. Das Löschen einer Platte verlangt wie überall das Eintippen des Gerätenamens.
+
 ## 2. Verbindung zum Backup-Server
 
 Die Felder Server, Datastore, Namespace, Backup-ID und Token-ID kommen von deinem **Notfallblatt** (bei einer

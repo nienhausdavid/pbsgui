@@ -49,3 +49,5 @@ wireguard-tools
 openvpn
 openresolv
 netbird
+# Web-Oberfläche der Wiederherstellung (selbstsigniertes Zertifikat)
+openssl

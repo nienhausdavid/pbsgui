@@ -19,6 +19,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Checkbox, DataTable, Footer, Input, Label, RadioButton, RadioSet, RichLog, Static
 
 from ..core import rescue, update as updater, vpn
+from ..web import server as websrv
 from ..core.pbs_api import ApiError, fetch_fingerprint
 from ..core.rescue import RescueConfig, RescueError
 
@@ -58,7 +59,8 @@ class Say(Static):
 class ConnectScreen(Screen):
     # Funktionstasten statt Buchstaben: in einem Eingabefeld würde "n" oder "v" sonst einfach getippt
     BINDINGS = [Binding("f2", "network", "Netzwerk (nmtui)", priority=True), Binding("f3", "vpn", "VPN", priority=True),
-                Binding("f4", "update", "Updates", priority=True), Binding("n", "network", show=False),
+                Binding("f4", "update", "Updates", priority=True), Binding("f5", "web", "Web-Oberfläche", priority=True),
+                Binding("n", "network", show=False),
                 ("q", "app.quit", "Beenden")]
 
     def compose(self) -> ComposeResult:
@@ -72,6 +74,7 @@ class ConnectScreen(Screen):
                 yield Button("Netzwerk (F2)", id="t-net")
                 yield Button("VPN (F3)", id="t-vpn")
                 yield Button("Updates (F4)", id="t-upd")
+                yield Button("Web (F5)", id="t-web")
             yield Input(value=c.server, placeholder="Server, z. B. pbs.example.org", id="server")
             yield Input(value=str(c.port), placeholder="Port", id="port")
             yield Input(value=c.datastore, placeholder="Datastore", id="datastore")
@@ -115,6 +118,9 @@ class ConnectScreen(Screen):
     def action_update(self) -> None:
         self.app.push_screen(UpdateScreen())
 
+    def action_web(self) -> None:
+        self.app.push_screen(WebScreen())
+
     async def on_button_pressed(self, e: Button.Pressed) -> None:
         if e.button.id == "t-net":
             self.action_network()
@@ -122,6 +128,8 @@ class ConnectScreen(Screen):
             self.action_vpn()
         elif e.button.id == "t-upd":
             self.action_update()
+        elif e.button.id == "t-web":
+            self.action_web()
         elif e.button.id == "fp":
             self._say("Hole Fingerprint …")
             try:
@@ -253,6 +261,57 @@ class VpnScreen(Screen):
         self.query_one("#pw", Input).value = ""
         self.query_one("#setupkey", Input).value = ""      # Geheimnisse nicht länger als nötig in der Oberfläche halten
         self._say((("Verbunden. " if r.ok else "Fehler: ") + (r.text or ""))[-400:])
+
+
+class WebScreen(Screen):
+    """Web-Oberfläche aktivieren: zeigt Adresse, zufälliges Passwort und Fingerabdruck; die Anmeldeereignisse laufen mit."""
+    BINDINGS = [("escape", "back", "Zurück")]
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="panel"):
+            yield Label("Web-Oberfläche für die Wiederherstellung", classes="title", markup=False)
+            yield Static("Für Server ohne bequemen Konsolenzugang (VPS): Die Wiederherstellung lässt sich dann im Browser einrichten. "
+                         "Die Seite ist nur mit dem Passwort unten erreichbar, nutzt HTTPS und sperrt Angreifer.",
+                         classes="hint", markup=False)
+            yield Say(id="webinfo")
+            yield Button("Aktivieren", variant="primary", id="web-on")
+            yield Button("Beenden", id="web-off")
+            yield Say(id="status")
+            yield Label("Ereignisse (Anmeldungen, Sperren, Köder):", markup=False)
+            yield Say(id="events")
+            yield Button("Zurück", id="back")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._refresh()
+        self.set_interval(2.0, self._refresh)
+
+    def _refresh(self) -> None:
+        info = websrv.read_info()
+        self.query_one("#web-on", Button).disabled = bool(info)
+        self.query_one("#web-off", Button).disabled = not info
+        if info:
+            self.query_one("#webinfo", Say).update(websrv.describe(info))
+            self.query_one("#events", Say).update("\n".join(websrv.events_tail()) or "(noch nichts)")
+        else:
+            self.query_one("#webinfo", Say).update("Aus.")
+            self.query_one("#events", Say).update("")
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
+
+    async def on_button_pressed(self, e: Button.Pressed) -> None:
+        if e.button.id == "back":
+            self.app.pop_screen()
+        elif e.button.id == "web-on":
+            self.query_one("#status", Say).update("Starte …")
+            info = await asyncio.to_thread(websrv.start_daemon)
+            self.query_one("#status", Say).update("" if info else "Start fehlgeschlagen (siehe /run/pbsgui-web/web.log).")
+            self._refresh()
+        elif e.button.id == "web-off":
+            await asyncio.to_thread(websrv.stop_daemon)
+            await asyncio.sleep(1.0)
+            self._refresh()
 
 
 class UpdateScreen(Screen):

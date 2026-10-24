@@ -737,6 +737,12 @@ def cmd_vpn(a, mgr) -> int:
     return 0 if r.ok else 1
 
 
+def cmd_web(a, mgr) -> int:
+    """Web-Oberfläche für die Wiederherstellung (Rettungs-ISO): zufälliges Passwort, HTTPS, Honeypot, Rate Limiting."""
+    from ..web.server import run as web_run
+    return web_run(a.rest)
+
+
 def cmd_update(a, mgr) -> int:
     """Programme der Rettungs-ISO aktualisieren (pbstui, proxmox-backup-client, VPN-Werkzeuge)."""
     from ..core import update as upd
@@ -875,6 +881,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--user", help="OpenVPN-Benutzername (Passwort: PBSGUI_VPN_PASSWORD oder Abfrage)")
     sp.add_argument("--management-url", help="NetBird: Management-URL, z. B. https://netbird.example.org")
     sp.add_argument("--setup-key-prompt", action="store_true", help="NetBird: Setup-Key abfragen (sonst Umgebung NB_SETUP_KEY)")
+    sp = add("web", cmd_web, "Web-Oberfläche für die Wiederherstellung (Rettungs-ISO), z. B. für VPS: --daemon | --status | --stop")
+    sp.add_argument("rest", nargs=argparse.REMAINDER, help="Optionen von `pbsgui web --help`")
     sp = add("update", cmd_update, "Programme der Rettungs-ISO aktualisieren (pbstui, Proxmox-Client, VPN-Werkzeuge)")
     sp.add_argument("--wait", type=float, default=25, help="so lange auf das Netzwerk warten (Sekunden)")
     sp.add_argument("--quiet", action="store_true"); sp.add_argument("--boot", action="store_true", help=argparse.SUPPRESS)
@@ -892,6 +900,8 @@ def main(argv: list[str] | None = None) -> int:
                   "Terminal-Oberfläche: `pbstui`. Befehle: `pbsgui --help`.", file=sys.stderr)
             return 1
         return gui_main()
+    if argv[0] == "web":      # eigene Optionen (--daemon, --bind …): argparse reicht führende Optionen nicht an REMAINDER weiter
+        return cmd_web(argparse.Namespace(rest=argv[1:]), None)
     ap = build_parser()
     args = ap.parse_args(argv)
     if not getattr(args, "fn", None):

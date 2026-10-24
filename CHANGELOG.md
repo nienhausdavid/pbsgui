@@ -8,6 +8,16 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Web-Oberfläche für die Wiederherstellung** (Rettungs-ISO, für VPS und Server ohne bequeme Konsole): `pbsgui web --daemon`, `F5` oder
+  Knopf „Web“ im Assistenten. Zeigt Adresse, ein zufälliges Passwort (4 Wörter, jedes mit einer Zahl dahinter, etwa 78 Bit) und den TLS-Fingerabdruck.
+  Im Browser dieselben Schritte wie im Terminal-Assistenten: VPN, Server, Snapshot, Platte und Verschlüsselung, Plan, Bestätigung
+  durch Eintippen des Gerätenamens, Live-Log, Neustart. Nur Standardbibliothek (HTTPS, selbstsigniertes Zertifikat).
+  Schutz: Rate Limiting, Sperren mit wachsender Dauer, Abschaltung nach zu vielen Fehlversuchen, **Honeypot** (unsichtbares
+  Formularfeld und Köder-Adressen wie `/wp-login.php`, `/.env`: Treffer werden gesperrt und auf der Konsole gemeldet), eine Sitzung
+  mit Leerlauf- und Gesamtzeit, CSRF-Token, Content-Security-Policy, begrenzte Anfragegröße und Verbindungen. `--bind`, `--port`,
+  `--timeout`, `--status`, `--stop`.
+
+### Hinzugefügt
 - **Rettungs-ISO mit VPN:** WireGuard, OpenVPN und NetBird sind enthalten (NetBird aus dem NetBird-Repository). Im Assistenten mit `F3` oder dem Knopf „VPN“
   (Konfiguration vom USB-Stick suchen, verbinden, trennen, Status), auf der Kommandozeile mit `pbsgui vpn status|find|up|down`.
   Passwörter und Setup-Keys gehen nie als Programmargument (OpenVPN-Zugangsdaten nur kurz in einer 0600-Datei im RAM, NetBird per

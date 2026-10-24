@@ -279,3 +279,23 @@ async def test_vpn_screen_connects_wireguard_with_entered_file(monkeypatch, tmp_
         pilot.app.screen.query_one("#up", Button).press()
         assert await wait_for(pilot, lambda: calls == ["/media/usb/wg0.conf"])
         assert await wait_for(pilot, lambda: "Verbunden" in str(pilot.app.screen.query_one("#status").render()))
+
+
+async def test_web_screen_shows_credentials_and_events(monkeypatch):
+    from pbsgui.web import server as websrv
+    info = {"urls": ["https://203.0.113.5:8443/"], "fingerprint": "AA:BB", "password": "tisch47-wolke12-kerze83-anker66",
+            "pid": 1, "started": 0, "idle_minutes": 60}
+    state = {"on": False}
+    monkeypatch.setattr(websrv, "read_info", lambda: info if state["on"] else None)
+    monkeypatch.setattr(websrv, "start_daemon", lambda *a, **k: state.update(on=True) or info)
+    monkeypatch.setattr(websrv, "events_tail", lambda n=12: ["12:00:00  login-fail 1.2.3.4"])
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 60)) as pilot:
+        await pilot.pause()
+        assert await wait_for(pilot, lambda: pilot.app.screen.query_one("#server", Input).has_focus)
+        await pilot.press("f5")
+        assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ == "WebScreen")
+        assert await wait_for(pilot, lambda: len(pilot.app.screen.query("#web-on")) > 0)
+        pilot.app.screen.query_one("#web-on", Button).press()
+        assert await wait_for(pilot, lambda: "tisch47-wolke12-kerze83-anker66" in str(pilot.app.screen.query_one("#webinfo").render()))
+        assert await wait_for(pilot, lambda: "login-fail" in str(pilot.app.screen.query_one("#events").render()))
