@@ -821,7 +821,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             from ..gui.main import main as gui_main
         except ImportError:
-            print("Die GUI braucht PySide6: pip install 'pbsgui[gui]'. Befehle siehe `pbsgui --help`.", file=sys.stderr)
+            print("Die grafische Oberfläche ist nicht installiert (Debian: `sudo apt install pbsgui`; pip: `pip install 'pbsgui[gui]'`).\n"
+                  "Terminal-Oberfläche: `pbstui`. Befehle: `pbsgui --help`.", file=sys.stderr)
             return 1
         return gui_main()
     ap = build_parser()

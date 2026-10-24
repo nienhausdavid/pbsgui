@@ -29,7 +29,7 @@ Optionen (nach `sh install.sh`, beim Pipe-Aufruf mit `sh -s -- …`):
 
 | Option | Wirkung |
 |---|---|
-| `--no-gui` | ohne Qt-GUI, nur `pbstui` und Kommandozeile (Server ohne Desktop) |
+| `--no-gui` | nur das Paket `pbstui` (Terminal-Oberfläche und Kommandozeile, ohne Qt; Server ohne Desktop) |
 | `--no-client` | `proxmox-backup-client` nicht installieren (schon vorhanden oder anderweitig bereitgestellt) |
 | `--version 0.4.0` | bestimmte Version installieren |
 | `--uninstall` | pbsgui und das pbsgui-Repository entfernen (Profile unter `~/.config/pbsgui` bleiben) |
@@ -48,11 +48,13 @@ printf 'Types: deb\nURIs: http://download.proxmox.com/debian/pbs-client\nSuites:
 
 # 3. Installieren
 sudo apt update
-sudo apt install pbsgui proxmox-backup-client fdisk gdisk efibootmgr fuse3
+sudo apt install pbsgui proxmox-backup-client fdisk gdisk efibootmgr fuse3   # mit GUI (zieht pbstui mit)
+# nur Terminal-Oberfläche und Kommandozeile, ohne Qt (Server):
+# sudo apt install pbstui proxmox-backup-client fdisk gdisk efibootmgr fuse3
 ```
 
 Alternativ das `.deb` aus den [GitHub-Releases](https://github.com/nienhausdavid/pbsgui/releases) laden und mit
-`sudo apt install ./pbsgui_<version>_all.deb` installieren.
+`sudo apt install ./pbstui_<version>_all.deb ./pbsgui_<version>_all.deb` installieren (ohne Desktop genügt `pbstui`).
 
 ## Aus dem Quellcode (Entwicklung)
 
@@ -100,7 +102,8 @@ pbsgui backup Laptop
 - **Ubuntu 24.04:** systemd 255, daher speichert pbsgui Geheimnisse für Benutzer-Zeitpläne als Datei (0600) statt mit
   `systemd-creds --user`. Der Proxmox-Client aus dem Debian-13-Repository braucht eine neuere glibc als 24.04 liefert;
   dort `--no-client` verwenden und den Client selbst bereitstellen.
-- **Ohne Desktop:** `--no-gui` installieren und `pbstui` verwenden (läuft auch über SSH).
+- **Ohne Desktop:** `--no-gui` installiert nur das Paket `pbstui` (kein Qt) und bringt `pbstui`, `pbsgui` (Kommandozeile) und `pbsgui-run` mit; `pbstui` läuft auch über SSH.
+- **Zwei Pakete:** `pbstui` enthält Kern, Kommandozeile, Terminal-Oberfläche und Zeitpläne; `pbsgui` enthält die Qt-Oberfläche und den Starter und hängt von `pbstui` ab, enthält es also mit.
 - **Zeitpläne ohne Anmeldung (Benutzer-Modus):** `loginctl enable-linger $USER`.
 
 ## Rettungs-ISO

@@ -18,7 +18,7 @@ rm -rf "$work/config" "$work/auto"
 "$root/scripts/build-deb.sh" "$work/deb" >/dev/null
 cp -r "$root/iso/config" "$work/config"
 mkdir -p "$work/config/packages.chroot"
-cp "$work"/deb/pbsgui_*_all.deb "$work/config/packages.chroot/"
+cp "$work"/deb/pbstui_*_all.deb "$work/config/packages.chroot/"   # nur Terminal-Teil, kein Qt
 
 # Proxmox-Archivschlüssel (Trixie) holen
 key="$work/proxmox-archive-keyring.gpg"

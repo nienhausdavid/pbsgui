@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/nienhausdavid/pbsgui/main/scripts/i
 ```
 Als Debian-Paket aus dem Quellcode (Debian 13; reines Python, nutzt `python3-textual` und `python3-pyside6.*` der Distribution):
 ```bash
-scripts/build-deb.sh dist && sudo apt install ./dist/pbsgui_*_all.deb
+scripts/build-deb.sh dist && sudo apt install ./dist/pbstui_*_all.deb ./dist/pbsgui_*_all.deb   # nur pbstui: ohne Qt, für Server
 ```
 Das signierte APT-Repository liegt auf GitHub Pages (`https://nienhausdavid.github.io/pbsgui`), siehe [docs/RELEASING.md](docs/RELEASING.md).
 Den `proxmox-backup-client` gibt es im Proxmox-Client-Repository (`pbs-client`).

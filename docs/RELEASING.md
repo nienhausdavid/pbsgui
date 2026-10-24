@@ -18,7 +18,7 @@
 ## Versionen
 
 Versionsnummern nach [Semantic Versioning](https://semver.org/lang/de/): `MAJOR.MINOR.PATCH`. Einzige Quelle ist
-`version` in `pyproject.toml`; daraus entstehen `pbsgui --version`, das `.deb` (`pbsgui_<version>_all.deb`) und die ISO
+`version` in `pyproject.toml`; daraus entstehen `pbsgui --version`, die beiden `.deb` (`pbstui_<version>_all.deb`, `pbsgui_<version>_all.deb`) und die ISO
 (`pbsgui-rescue-<version>-amd64.iso`). Änderungen werden laufend in `CHANGELOG.md` unter `[Unreleased]` eingetragen.
 
 ## Neue Version veröffentlichen
@@ -47,7 +47,7 @@ sudo apt update && sudo apt install pbsgui
 ## Lokal bauen und testen
 
 ```bash
-scripts/build-deb.sh dist                      # dist/pbsgui_<version>_all.deb
-sudo apt install ./dist/pbsgui_*_all.deb
+scripts/build-deb.sh dist                      # dist/pbstui_<version>_all.deb und dist/pbsgui_<version>_all.deb
+sudo apt install ./dist/pbstui_*_all.deb ./dist/pbsgui_*_all.deb   # oder nur pbstui ohne Desktop
 GPG_KEY_ID=<id> scripts/build-apt-repo.sh dist site stable   # APT-Repository in site/
 ```

@@ -7,6 +7,13 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Geändert
+- **Zwei Debian-Pakete:** `pbstui` (Kern, Kommandozeile `pbsgui`, Terminal-Oberfläche `pbstui`, Zeitpläne `pbsgui-run`; ohne Qt, für
+  Server) und `pbsgui` (Qt-Oberfläche und Starter; hängt von `pbstui` gleicher Version ab, enthält es also mit). Bisher war alles
+  in einem Paket, die Qt-Teile nur empfohlen. Ein Upgrade von 0.8.2 oder früher klappt ohne Handarbeit (`Replaces`/`Breaks`;
+  im Container getestet). Der Installer `scripts/install.sh --no-gui` installiert nur `pbstui`; die Rettungs-ISO enthält nur
+  `pbstui`. `pbsgui` ohne Argumente erklärt, wie man die GUI nachinstalliert, wenn nur `pbstui` da ist.
+
 ## [0.8.2] - 2026-10-24
 
 ### Sicherheit

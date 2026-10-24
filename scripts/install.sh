@@ -10,7 +10,7 @@
 #   curl -fsSL .../install.sh | sudo sh -s -- --no-gui
 #
 # Optionen:
-#   --no-gui      keine Qt-GUI installieren (nur pbstui und Kommandozeile, z. B. für Server)
+#   --no-gui      nur das Paket pbstui (Terminal-Oberfläche und Kommandozeile, ohne Qt; z. B. für Server)
 #   --no-client   proxmox-backup-client nicht installieren (z. B. wenn schon vorhanden)
 #   --version V   bestimmte pbsgui-Version installieren (z. B. 0.4.0)
 #   --uninstall   pbsgui und die beiden Repository-Einträge entfernen (Profile in ~/.config/pbsgui bleiben)
@@ -44,7 +44,7 @@ command -v apt-get >/dev/null 2>&1 || die "apt nicht gefunden: nur Debian und Ub
 
 if [ "$uninstall" = 1 ]; then
   say "pbsgui entfernen"
-  apt-get remove $yes pbsgui || true
+  apt-get remove $yes pbsgui pbstui || true
   rm -f /etc/apt/sources.list.d/pbsgui.list /usr/share/keyrings/pbsgui.gpg
   echo "Proxmox-Client-Repository und proxmox-backup-client bleiben erhalten (apt remove proxmox-backup-client)."
   exit 0
@@ -87,15 +87,19 @@ fi
 
 apt-get update -qq
 
-pkgs="pbsgui${version:+=$version}"
+if [ "$gui" = 1 ]; then
+  pkgs="pbsgui${version:+=$version}"          # die GUI zieht pbstui (Terminal-Oberfläche, Kommandozeile) mit
+else
+  pkgs="pbstui${version:+=$version}"          # nur Terminal-Oberfläche und Kommandozeile, kein Qt
+fi
 [ "$client" = 1 ] && pkgs="$pkgs proxmox-backup-client"
 # Zusätzlich zu den Empfehlungen: Werkzeuge für Vollbackup und Dateibrowser (FUSE)
 pkgs="$pkgs fdisk gdisk efibootmgr fuse3"
 if [ "$gui" = 0 ]; then
   say "Installiere (ohne Qt-GUI): $pkgs"
   # shellcheck disable=SC2086
-  apt-get install $yes --no-install-recommends $pkgs systemd polkitd pkexec 2>/dev/null \
-    || apt-get install $yes --no-install-recommends $pkgs systemd
+  apt-get install $yes $pkgs systemd polkitd pkexec 2>/dev/null \
+    || apt-get install $yes $pkgs systemd
 else
   say "Installiere: $pkgs"
   # shellcheck disable=SC2086
