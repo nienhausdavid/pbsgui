@@ -88,7 +88,7 @@ sudo sh install.sh --uninstall          # oder: sudo apt remove pbsgui
    getrennt vom Rechner auf (`pbsgui key export NAME DATEI`): ohne ihn sind Backups verloren, wenn der Rechner ausfällt.
    Ein verschlüsseltes Vollbackup startet erst nach diesem Export.
 5. **Zeitplan setzen** (GUI: Zeitplan; CLI: `pbsgui schedule NAME --calendar daily --scope user|system`).
-6. **Notfallblatt** drucken und die Rettungs-ISO bereithalten: [WIEDERHERSTELLUNG.md](WIEDERHERSTELLUNG.md).
+6. **Notfallblatt** drucken und die Rettungs-ISO bereithalten: [RESTORE.de.md](RESTORE.de.md).
 
 Beispiel komplett auf der Kommandozeile:
 
@@ -112,7 +112,7 @@ pbsgui backup Laptop
 
 Zum Wiederherstellen eines Vollbackups auf einem neuen PC lädst du `pbsgui-rescue-<version>-amd64.iso` aus den
 [Releases](https://github.com/nienhausdavid/pbsgui/releases) und schreibst sie auf einen USB-Stick; die Anleitung mit
-Screenshots steht in [WIEDERHERSTELLUNG.md](WIEDERHERSTELLUNG.md).
+Screenshots steht in [RESTORE.de.md](RESTORE.de.md).
 
 ## Lizenz
 

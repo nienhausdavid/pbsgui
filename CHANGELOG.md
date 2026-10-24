@@ -1,273 +1,273 @@
 # Changelog
 
-Alle nennenswerten Änderungen stehen hier. Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
-Versionen nach [Semantic Versioning](https://semver.org/lang/de/): `MAJOR.MINOR.PATCH`
-(MAJOR = inkompatible Änderung, MINOR = neue Funktion, PATCH = Fehlerbehebung).
-Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch ändern.
+**English** · [Deutsch](CHANGELOG.de.md)
+
+All notable changes are listed here. Format after [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+versions after [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`
+(MAJOR = incompatible change, MINOR = new feature, PATCH = bug fix).
+Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
 ## [0.9.1] - 2026-10-24
 
-### Hinzugefügt
-- **Schlüssel und Notfall-Set in die Zwischenablage kopieren:** GUI-Knöpfe „Schlüssel kopieren“, „Schlüssel + Notfallblatt kopieren“ und „Notfallblatt kopieren“,
-  dieselben Knöpfe in der Übersicht der TUI (und Taste `y`), `pbsgui key copy|copy-kit|copy-sheet NAME` (nutzt `wl-copy`, sonst `xclip` oder `xsel`; das Paket `pbstui` hängt jetzt von `wl-clipboard` ab;
-  der Text geht über stdin). Das Notfall-Set enthält das Notfallblatt und den geheimen Schlüssel; die GUI leert die Zwischenablage nach 2 Minuten.
-  Schlüssel und Set gelten als gesicherter Export und lösen die Sperre des verschlüsselten Vollbackups.
-- **Backup startet nach dem Sichern von selbst:** Ist das Vollbackup noch gesperrt, bietet die GUI (und die TUI mit `b`) an, Schlüssel und Notfallblatt
-  gleich in die Zwischenablage zu kopieren; danach läuft das Backup ohne weiteren Export-Dialog los.
+### Added
+- **Copy the key and emergency kit to the clipboard:** GUI buttons “Copy key”, “Copy key + emergency sheet” and “Copy emergency sheet”,
+  the same buttons in the TUI overview (and key `y`), `pbsgui key copy|copy-kit|copy-sheet NAME` (uses `wl-copy`, otherwise `xclip` or `xsel`; the package `pbstui` now depends on `wl-clipboard`;
+  the text goes through stdin). The emergency kit contains the emergency sheet and the secret key; the GUI clears the clipboard after 2 minutes.
+  Key and kit count as a safe export and lift the block on the encrypted full backup.
+- **The backup starts by itself after the key is backed up:** if the full backup is still blocked, the GUI (and the TUI with `b`) offers to copy the key
+  and emergency sheet to the clipboard right away; afterwards the backup starts without a further export dialog.
 
-### Behoben
-- Tray: Das Untermenü „Jetzt sichern“ konnte verschwinden (Referenz wurde nicht gehalten).
+### Fixed
+- Tray: the “Back up now” submenu could disappear (a reference was not kept).
 
 ## [0.9.0] - 2026-10-24
 
-### Hinzugefügt
-- **Server nachträglich ändern:** Server, Port, Fingerprint, Datastore, Namespace und Token eines vorhandenen Profils lassen sich ändern
-  (`pbsgui server NAME …`, GUI „Server ändern …“ im Backup-Tab, TUI `i`). Profilname, Schlüssel, Quellen, Zeitplan und Verlauf bleiben.
-  Die neuen Angaben werden vor dem Speichern mit dem echten Client geprüft (sonst bleibt alles unverändert); eine geänderte Token-ID braucht ihr
-  Secret, ein neuer Fingerprint muss ausdrücklich bestätigt werden. Vorhandene Snapshots bleiben auf dem alten Ziel, das nächste Backup lädt am
-  neuen alles neu hoch (der Schlüssel passt weiter).
-- **Zweisprachig: Deutsch und Englisch.** GUI, Terminal-Oberfläche, Kommandozeile, Rettungs-Assistent und Web-Oberfläche (`index.en.html`)
-  folgen der Systemsprache (`LANG`); ausdrücklich mit `pbsgui language de|en|auto` (Datei `~/.config/pbsgui/language`, in der GUI links unten)
-  oder `PBSGUI_LANG`. Die Quelltexte sind deutsch und zugleich die Schlüssel (`tr("Text {0}", wert)`), die Übersetzungen stehen in
-  `src/pbsgui/i18n/en_*.py`; ein Test prüft, dass jeder Text übersetzt ist und die Platzhalter passen. README, Installation, Wiederherstellung,
-  Sicherheit und CHANGELOG gibt es auf Englisch (`README.md`, `docs/INSTALLATION.md`, `docs/RESTORE.md`, `SECURITY.md`, `CHANGELOG.en.md`);
-  die deutschen Fassungen heißen `*.de.md` bzw. `docs/WIEDERHERSTELLUNG.md`.
+### Added
+- **Change the server afterwards:** the server, port, fingerprint, datastore, namespace and token of an existing profile can be changed
+  (`pbsgui server NAME …`, GUI “Change server …” in the Backup tab, TUI `i`). Profile name, key, sources, schedule and history stay.
+  The new settings are checked with the real client before saving (otherwise everything stays unchanged); a changed token ID needs its
+  secret, a new fingerprint must be confirmed explicitly. Existing snapshots stay on the old target, the next backup uploads everything again
+  to the new one (the key still fits).
+- **Bilingual: German and English.** GUI, terminal interface, command line, rescue wizard and web interface (`index.en.html`)
+  follow the system language (`LANG`); choose explicitly with `pbsgui language de|en|auto` (file `~/.config/pbsgui/language`, in the GUI at the bottom left)
+  or `PBSGUI_LANG`. The source strings are German and double as keys (`tr("Text {0}", value)`), the translations live in
+  `src/pbsgui/i18n/en_*.py`; a test checks that every text is translated and the placeholders match. README, installation, restore,
+  security and the CHANGELOG exist in English (`README.md`, `docs/INSTALLATION.md`, `docs/RESTORE.md`, `SECURITY.md`, `CHANGELOG.md`);
+  the German versions are called `*.de.md`.
 
-### Hinzugefügt
-- **VM-Backups von Proxmox VE auf physische Platten (V2P)** mit der Rettungs-ISO: Snapshots `vm/<id>/…` mit Abbild-Archiven
-  (`drive-*.img`) lassen sich auf eine oder mehrere Platten zurückspielen (Kommandozeile `pbsgui rescue vm-snapshots|vm-run`,
-  Haken im Terminal-Assistenten, „Art der Wiederherstellung“ in der Web-Oberfläche). Zuordnung Quell- zu Ziel-Platte, Boot-Platte aus der
-  VM-Konfiguration, Bestätigung durch Eintippen aller Ziel-Platten. Danach automatische, einzeln abschaltbare Reparaturen für
-  Debian/Ubuntu-Gäste: Partition, LUKS, LVM und Dateisystem auf eine größere Platte vergrößern, Initramfs mit allen Treibern
-  (`MODULES=most`), GRUB (UEFI mit Fallback oder BIOS), Netzwerk-Schnittstellennamen, `qemu-guest-agent` und `cloud-init`. Geprüft in
-  QEMU/UEFI (VM mit LUKS, LVM, zwei Platten, größere Ziel-Platten: bootet, Daten stimmen) und mit echten Loop-Geräten.
-  Windows/Solaris-Gäste und kleinere Ziel-Platten werden abgelehnt.
+### Added
+- **VM backups from Proxmox VE onto physical disks (V2P)** with the rescue ISO: snapshots `vm/<id>/…` with image archives
+  (`drive-*.img`) can be written to one or more disks (command line `pbsgui rescue vm-snapshots|vm-run`,
+  tick box in the terminal wizard, “Kind of restore” in the web interface). Mapping of source to target disks, boot disk from the
+  VM configuration, confirmation by typing all target disks. Afterwards automatic repairs that can be switched off individually, for
+  Debian/Ubuntu guests: enlarge partition, LUKS, LVM and file system to a larger disk, initramfs with all drivers
+  (`MODULES=most`), GRUB (UEFI with fallback, or BIOS), network interface names, `qemu-guest-agent` and `cloud-init`. Checked in
+  QEMU/UEFI (VM with LUKS, LVM, two disks, larger target disks: boots, data matches) and with real loop devices.
+  Windows/Solaris guests and smaller target disks are rejected.
 
-### Hinzugefügt
-- **Restore und Suche über alle Snapshots** (GUI, TUI, Kommandozeile):
-  - **Dateiversionen:** `pbsgui versions NAME /Pfad/datei` zeigt alle Fassungen einer Datei aus allen Snapshots (gleiche Größe und
-    Änderungszeit = dieselbe Fassung), `--restore NR --target ORDNER` holt eine davon. GUI: Dateibrowser → „Fassungen …“ mit Vorschau
-    jeder Fassung; TUI: `v` im Dateibrowser.
-  - **Suche in allen Snapshots:** `pbsgui find NAME MUSTER` findet auch längst gelöschte Dateien (Spalte „Im neuesten“). GUI:
-    Snapshots → „Suche in allen Snapshots …“; TUI: `g`. Die Dateilisten werden pro Snapshot zwischengespeichert
-    (`~/.cache/pbsgui/catalogs`, nur für den Benutzer lesbar; bei verschlüsselten Backups stehen dort Dateinamen im Klartext),
-    der erste Durchlauf ist langsam, weitere gehen schnell.
-  - **Vergleich zweier Snapshots:** `pbsgui diff NAME [ALT] [NEU]` (Standard: vorheriger gegen neuesten), neue/geänderte/gelöschte
-    Dateien, ganze Ordner zusammengefasst. GUI: „Vergleichen …“; TUI: `x`.
-  - **Vorschau** im Dateibrowser (GUI: Text, Bilder, Hexdump rechts neben dem Baum; TUI: `p`; `pbsgui preview NAME PFAD`), ohne
-    wiederherzustellen. Symbolische Links werden nie verfolgt.
-  - **Restore-Test:** `pbsgui restore-test NAME` holt zufällige Dateien in einen Wegwerf-Ordner (im Arbeitsspeicher) und prüft
-    Lesbarkeit, Größe und, wenn das Original unverändert ist, den SHA-256. Exitcode 1 bei Fehler, damit sich der Test per Zeitplan
-    nutzen lässt. GUI: „Restore-Test …“; TUI: `w`. Das letzte Ergebnis erscheint im Dashboard.
-- **Überblick und Betrieb:**
-  - **Dashboard** (`pbsgui dashboard`, GUI-Tab, TUI `e`): je Profil Status, letztes Backup, Dauer, Größe, Zuwachs gegenüber dem
-    vorherigen Snapshot und vor 30 Tagen, Zahl der Snapshots, Warnungen (überfälliges Backup, Fehler, Schlüssel nicht gesichert);
-    dazu Belegung des Datastores und Deduplizierungsfaktor (Stand der letzten Müllsammlung), falls der Token sie lesen darf.
-    Die Deduplizierung pro Profil lässt sich vom Client aus nicht genau ermitteln, deshalb gilt der Wert für den ganzen Datastore.
-  - **Verlauf** (`pbsgui history`, GUI-Tab, TUI `h`): jeder Lauf (Zeitplan oder manuell) wird mit Ausgabe gespeichert
-    (`<state>/history`, je Profil die letzten 200), filterbar nach Profil, „nur Fehler“, Zeitraum und Text.
-  - **Tray-Icon:** zeigt „läuft“, „Fehler“ oder „in Ordnung“, Menü „Jetzt sichern“ je Profil, meldet neue Fehler auf dem Desktop.
-    Wahlweise läuft die Oberfläche beim Schließen im Hintergrund weiter und startet beim Anmelden (`pbsgui tray`, beides im
-    Tray-Menü einstellbar). Die Zeitpläne laufen weiter unabhängig davon über systemd.
+### Added
+- **Restore and search across all snapshots** (GUI, TUI, command line):
+  - **File versions:** `pbsgui versions NAME /path/file` shows all versions of a file from all snapshots (same size and
+    modification time = same version), `--restore NO --target FOLDER` fetches one of them. GUI: file browser → “Versions …” with a preview
+    of every version; TUI: `v` in the file browser.
+  - **Search in all snapshots:** `pbsgui find NAME PATTERN` also finds long-deleted files (column “In newest”). GUI:
+    Snapshots → “Search in all snapshots …”; TUI: `g`. The file lists are cached per snapshot
+    (`~/.cache/pbsgui/catalogs`, readable only by the user; for encrypted backups file names are stored there in plain text),
+    the first run is slow, further ones are fast.
+  - **Compare two snapshots:** `pbsgui diff NAME [OLD] [NEW]` (default: previous against newest), new/changed/deleted
+    files, whole folders summarized. GUI: “Compare …”; TUI: `x`.
+  - **Preview** in the file browser (GUI: text, images, hex dump next to the tree; TUI: `p`; `pbsgui preview NAME PATH`), without
+    restoring. Symbolic links are never followed.
+  - **Restore test:** `pbsgui restore-test NAME` fetches random files into a throwaway folder (in RAM) and checks
+    readability, size and, if the original is unchanged, the SHA-256. Exit code 1 on error, so the test can be used from a
+    schedule. GUI: “Restore test …”; TUI: `w`. The last result appears in the dashboard.
+- **Overview and operation:**
+  - **Dashboard** (`pbsgui dashboard`, GUI tab, TUI `e`): per profile status, last backup, duration, size, growth against the
+    previous snapshot and 30 days ago, number of snapshots, warnings (overdue backup, errors, key not backed up);
+    plus datastore usage and deduplication factor (as of the last garbage collection) if the token may read them.
+    Deduplication per profile cannot be determined exactly from the client, so the value applies to the whole datastore.
+  - **History** (`pbsgui history`, GUI tab, TUI `h`): every run (scheduled or manual) is stored with its output
+    (`<state>/history`, the last 200 per profile), filterable by profile, “errors only”, period and text.
+  - **Tray icon:** shows “running”, “error” or “all good”, a “Back up now” menu per profile, reports new errors on the desktop.
+    Optionally the interface keeps running in the background when closed and starts at login (`pbsgui tray`, both
+    can be set in the tray menu). The schedules keep running independently through systemd.
 
-### Hinzugefügt
-- **Web-Oberfläche für die Wiederherstellung** (Rettungs-ISO, für VPS und Server ohne bequeme Konsole): `pbsgui web --daemon`, `F5` oder
-  Knopf „Web“ im Assistenten. Zeigt Adresse, ein zufälliges Passwort (4 Wörter, jedes mit einer Zahl dahinter, etwa 78 Bit) und den TLS-Fingerabdruck.
-  Im Browser dieselben Schritte wie im Terminal-Assistenten: VPN, Server, Snapshot, Platte und Verschlüsselung, Plan, Bestätigung
-  durch Eintippen des Gerätenamens, Live-Log, Neustart. Nur Standardbibliothek (HTTPS, selbstsigniertes Zertifikat).
-  Schutz: Rate Limiting, Sperren mit wachsender Dauer, Abschaltung nach zu vielen Fehlversuchen, **Honeypot** (unsichtbares
-  Formularfeld und Köder-Adressen wie `/wp-login.php`, `/.env`: Treffer werden gesperrt und auf der Konsole gemeldet), eine Sitzung
-  mit Leerlauf- und Gesamtzeit, CSRF-Token, Content-Security-Policy, begrenzte Anfragegröße und Verbindungen. `--bind`, `--port`,
+### Added
+- **Web interface for the restore** (rescue ISO, for VPS and servers without a convenient console): `pbsgui web --daemon`, `F5` or
+  the “Web” button in the wizard. Shows the address, a random password (4 words, each followed by a number, about 78 bits) and the TLS fingerprint.
+  In the browser the same steps as in the terminal wizard: VPN, server, snapshot, disk and encryption, plan, confirmation
+  by typing the device name, live log, restart. Standard library only (HTTPS, self-signed certificate).
+  Protection: rate limiting, lockouts of growing length, shutdown after too many failed attempts, **honeypot** (invisible
+  form field and decoy addresses such as `/wp-login.php`, `/.env`: hits are locked out and reported on the console), a single session
+  with idle and total time limits, CSRF token, content security policy, limited request size and connections. `--bind`, `--port`,
   `--timeout`, `--status`, `--stop`.
 
-### Hinzugefügt
-- **Rettungs-ISO mit VPN:** WireGuard, OpenVPN und NetBird sind enthalten (NetBird aus dem NetBird-Repository). Im Assistenten mit `F3` oder dem Knopf „VPN“
-  (Konfiguration vom USB-Stick suchen, verbinden, trennen, Status), auf der Kommandozeile mit `pbsgui vpn status|find|up|down`.
-  Passwörter und Setup-Keys gehen nie als Programmargument (OpenVPN-Zugangsdaten nur kurz in einer 0600-Datei im RAM, NetBird per
-  Umgebung `NB_SETUP_KEY`).
-- **Programme aktualisieren sich beim Start der ISO:** `pbsgui-update.timer` startet beim Booten (und wiederholt alle 2 Minuten, bis es
-  klappt) `pbsgui update`: Paketlisten holen und `pbstui`, `proxmox-backup-client`, `netbird`, `wireguard-tools`, `openvpn`
-  nur aktualisieren, wenn installiert. Quellen: pbsgui-Repository, Proxmox, NetBird, Debian (jetzt auch im fertigen Live-System).
-  Der Assistent wartet beim Start bis zu 45 s auf das Ergebnis (eine Taste überspringt); von Hand mit `F4` im Assistenten oder
-  `pbsgui update`; nach einem Update von `pbstui` startet sich der Assistent auf Wunsch neu.
+### Added
+- **Rescue ISO with VPN:** WireGuard, OpenVPN and NetBird are included (NetBird from the NetBird repository). In the wizard with `F3` or the “VPN” button
+  (find a configuration on a USB stick, connect, disconnect, status), on the command line with `pbsgui vpn status|find|up|down`.
+  Passwords and setup keys are never passed as a program argument (OpenVPN credentials only briefly in a 0600 file in RAM, NetBird through the
+  environment `NB_SETUP_KEY`).
+- **Programs update themselves when the ISO starts:** `pbsgui-update.timer` runs `pbsgui update` at boot (and repeats every 2 minutes until it
+  works): fetch package lists and update `pbstui`, `proxmox-backup-client`, `netbird`, `wireguard-tools`, `openvpn`
+  only if installed. Sources: pbsgui repository, Proxmox, NetBird, Debian (now also in the finished live system).
+  The wizard waits up to 45 s for the result at start (any key skips); by hand with `F4` in the wizard or
+  `pbsgui update`; after an update of `pbstui` the wizard restarts on request.
 
 ## [0.8.3] - 2026-10-24
 
-### Geändert
-- **Zwei Debian-Pakete:** `pbstui` (Kern, Kommandozeile `pbsgui`, Terminal-Oberfläche `pbstui`, Zeitpläne `pbsgui-run`; ohne Qt, für
-  Server) und `pbsgui` (Qt-Oberfläche und Starter; hängt von `pbstui` gleicher Version ab, enthält es also mit). Bisher war alles
-  in einem Paket, die Qt-Teile nur empfohlen. Ein Upgrade von 0.8.2 oder früher klappt ohne Handarbeit (`Replaces`/`Breaks`;
-  im Container getestet). Der Installer `scripts/install.sh --no-gui` installiert nur `pbstui`; die Rettungs-ISO enthält nur
-  `pbstui`. `pbsgui` ohne Argumente erklärt, wie man die GUI nachinstalliert, wenn nur `pbstui` da ist.
+### Changed
+- **Two Debian packages:** `pbstui` (core, command line `pbsgui`, terminal interface `pbstui`, schedules `pbsgui-run`; without Qt, for
+  servers) and `pbsgui` (Qt interface and launcher; depends on `pbstui` of the same version, so it includes it). Until now everything was
+  in one package, with the Qt parts only recommended. An upgrade from 0.8.2 or earlier works without manual steps (`Replaces`/`Breaks`;
+  tested in a container). The installer `scripts/install.sh --no-gui` installs only `pbstui`; the rescue ISO contains only
+  `pbstui`. `pbsgui` without arguments explains how to install the GUI later if only `pbstui` is present.
 
 ## [0.8.2] - 2026-10-24
 
-### Sicherheit
-Prüfung mit `ruff`, `bandit`, `pip-audit` und Durchsicht der sicherheitskritischen Stellen; keine schweren Funde, aber diese Härtungen:
-- **Kein Root-Code aus Benutzerordnern:** Vollbackup (`pkexec`) und Systemzeitpläne starten Python nur noch als root, wenn Code
-  und Interpreter root gehören und für andere nicht beschreibbar sind (Debian-Paket). In einem Entwicklungs-Checkout oder
-  einer virtuellen Umgebung wird das verweigert, mit Hinweis; Ausnahme nur mit `PBSGUI_ALLOW_USER_CODE_AS_ROOT=1`.
-- **Root-Helfer** (`pbsgui.cli.admin`) akzeptiert nur noch die bekannten Geheimnis-Arten (`token`, `keypass`, `key`, `dbdump`) und
-  Zeitplan-Aktionen; vorher hätte ein Name wie `../../x` eine Datei außerhalb des Geheimnis-Ordners angelegt.
-- **systemd-Units:** Profilname und Zeitplan werden von Steuerzeichen (Zeilenumbruch) und `%` befreit, damit sie keine eigenen
-  Anweisungen einschleusen; zusätzlich `ProtectKernelModules`, `ProtectControlGroups`, `LockPersonality`, `RestrictSUIDSGID`.
-- **Schlüssel im RAM:** Der kurzzeitig entschlüsselte Schlüssel liegt auch als root (wo `XDG_RUNTIME_DIR` fehlt) in `/run` oder
-  `/dev/shm`, nicht mehr im plattengestützten `/tmp`. Ein exportierter Schlüssel bekommt immer Rechte 0600, auch wenn die Datei
-  schon existierte.
-- **PBS-API:** Datastore- und Token-Namen werden im Pfad maskiert.
-- `assert` als Laufzeitprüfung durch echte Fehlerprüfungen ersetzt (wirkt auch mit `python -O`); stilles `except: pass`
-  in der Rettungs-Oberfläche meldet jetzt den Grund.
-- **CI:** neuer Job „Sicherheitsprüfungen“ (`ruff`, `bandit`, `pip-audit`); neue Tests `tests/test_security.py`;
-  `SECURITY.md` beschreibt Schutzmaßnahmen und Grenzen.
+### Security
+Review with `ruff`, `bandit`, `pip-audit` and a walk through the security-critical places; no serious findings, but these hardenings:
+- **No root code from user folders:** full backup (`pkexec`) and system schedules only start Python as root if the code
+  and the interpreter belong to root and are not writable by others (Debian package). In a development checkout or
+  a virtual environment this is refused, with a hint; exception only with `PBSGUI_ALLOW_USER_CODE_AS_ROOT=1`.
+- **Root helper** (`pbsgui.cli.admin`) now only accepts the known kinds of secrets (`token`, `keypass`, `key`, `dbdump`) and
+  schedule actions; before, a name such as `../../x` would have created a file outside the secret folder.
+- **systemd units:** profile name and schedule are stripped of control characters (line break) and `%` so that they cannot smuggle in their own
+  directives; additionally `ProtectKernelModules`, `ProtectControlGroups`, `LockPersonality`, `RestrictSUIDSGID`.
+- **Key in RAM:** the briefly decrypted key lives in `/run` or `/dev/shm` also as root (where `XDG_RUNTIME_DIR` is missing),
+  no longer in the disk-backed `/tmp`. An exported key always gets mode 0600, even if the file already existed.
+- **PBS API:** datastore and token names are escaped in the path.
+- `assert` as a runtime check replaced by real error checks (also effective with `python -O`); silent `except: pass`
+  in the rescue interface now reports the reason.
+- **CI:** new job “Security checks” (`ruff`, `bandit`, `pip-audit`); new tests `tests/test_security.py`;
+  `SECURITY.md` describes protections and limits.
 
 ## [0.8.1] - 2026-10-24
 
-### Hinzugefügt
-- **Dark Mode** in der GUI: Umschalter oben rechts mit „System“ (folgt dem Desktop, auch bei Wechsel zur Laufzeit), „Hell“ und
-  „Dunkel“; die Wahl wird gemerkt.
-- **Eigene Titelleiste mit Minimieren, Maximieren/Wiederherstellen und Schließen** oben rechts (GNOME zeigt Minimieren und
-  Maximieren sonst nicht an). Verschieben per Ziehen der Leiste, Doppelklick maximiert, Vergrößern an allen Rändern
-  und Ecken. Mit `PBSGUI_NATIVE_FRAME=1` bleibt der Rahmen des Systems.
+### Added
+- **Dark mode** in the GUI: switch at the top right with “System” (follows the desktop, also when it changes at runtime), “Light” and
+  “Dark”; the choice is remembered.
+- **Own title bar with minimize, maximize/restore and close** at the top right (GNOME otherwise shows neither minimize nor
+  maximize). Move by dragging the bar, double-click maximizes, resizing at all edges
+  and corners. With `PBSGUI_NATIVE_FRAME=1` the system frame stays.
 
-### Geändert
-- **Höherer Kontrast** in der GUI: Text mindestens 7:1, Nebentext mindestens 4,5:1, Rahmen mindestens 3:1 (per Test
-  abgesichert); Haken, Auswahl und Tabs deutlicher, einheitliche Farben auch in Dialogen.
+### Changed
+- **Higher contrast** in the GUI: text at least 7:1, secondary text at least 4.5:1, borders at least 3:1 (secured by a
+  test); ticks, selection and tabs clearer, uniform colors also in dialogs.
 
 ## [0.8.0] - 2026-10-24
 
-### Hinzugefügt
-- **Wiederherstellung auf einer kleineren Platte** („Größe anpassen“; Assistent: Haken bei zu kleiner Platte,
-  `pbsgui rescue run --shrink`, interaktiv wird es angeboten). EFI und `/boot` behalten ihre Größe, Swap wird
-  proportional (mind. 1 GiB) verkleinert, die übrigen Partitionen und LVs teilen sich den Rest proportional, aber nie
-  unter belegtem Platz + 20 % Reserve (mind. 2 GiB); sonst Fehlermeldung mit der nötigen Mindestgröße. UUIDs bleiben
-  erhalten, die LVM-Metadaten werden für das kleinere Physical Volume umgeschrieben, die Partitionstabelle neu
-  geschrieben (GPT-Backup-Header am Plattenende). Der Plan zeigt alt -> neu. Funktioniert mit allen drei
-  Verschlüsselungs-Modi. Nicht unterstützt: VGs über mehrere Platten, Thin-Pools/Snapshots/RAID, erweiterte MBR-Partitionen.
-  Geprüft in QEMU/UEFI mit einem echten Vollbackup (477-GB-Laptop, 33 GiB belegt) auf eine 64-GB-Platte: alle UUIDs
-  gleich, das System bootet bis zur Anmeldung.
-- Vollbackups legen den belegten Platz je Einhängepunkt als `fsusage.json` in den Wiederherstellungsdaten ab (Grundlage
-  für „Größe anpassen“; bei älteren Backups wird er aus der Snapshot-Größe geschätzt).
+### Added
+- **Restore onto a smaller disk** (“resize”; wizard: tick box when the disk is too small,
+  `pbsgui rescue run --shrink`, offered interactively). EFI and `/boot` keep their size, swap is shrunk
+  proportionally (at least 1 GiB), the remaining partitions and LVs share the rest proportionally, but never
+  below used space + 20 % reserve (at least 2 GiB); otherwise an error message with the required minimum size. UUIDs are
+  kept, the LVM metadata is rewritten for the smaller physical volume, the partition table rewritten
+  (GPT backup header at the end of the disk). The plan shows old -> new. Works with all three
+  encryption modes. Not supported: VGs across several disks, thin pools/snapshots/RAID, extended MBR partitions.
+  Checked in QEMU/UEFI with a real full backup (477 GB laptop, 33 GiB used) onto a 64 GB disk: all UUIDs
+  the same, the system boots up to the login.
+- Full backups store the used space per mount point as `fsusage.json` in the recovery data (basis
+  for “resize”; for older backups it is estimated from the snapshot size).
 
-### Geändert
-- **GUI schneller:** Der Start dauerte ca. 4 s, weil das Geheimnis des Schlüssels zweimal per `systemd-creds` entschlüsselt wurde,
-  nur um „Schlüssel vorhanden?“ anzuzeigen. Jetzt genügt ein Dateicheck (`SecretStore.exists`); Start und Profilwechsel
-  dauern ca. 0,1 s.
-- **GUI überarbeitet:** einheitliches Aussehen (Fusion-Stil, Stylesheet auf Basis der Systempalette, hell und dunkel),
-  Kopfzeile mit Server und Umfang, Einstellungen in Gruppen und scrollbar, feste Aktionsleiste („Jetzt sichern“),
-  Protokoll in eigenem, verschiebbarem Bereich. Das Fenster lässt sich auf ca. 700 × 490 verkleinern (vorher
-  mindestens 780 × 780) und merkt sich Größe und Lage.
+### Changed
+- **Faster GUI:** starting took about 4 s because the key secret was decrypted twice through `systemd-creds`,
+  only to display “key present?”. Now a file check is enough (`SecretStore.exists`); start and profile switch
+  take about 0.1 s.
+- **Reworked GUI:** uniform look (Fusion style, stylesheet based on the system palette, light and dark),
+  header with server and scope, settings in groups and scrollable, fixed action bar (“Back up now”),
+  log in its own movable area. The window can be shrunk to about 700 × 490 (before at least
+  780 × 780) and remembers its size and position.
 
 ## [0.7.0] - 2026-10-24
 
-### Hinzugefügt
-- **Passwortloser Dump-Zugang für MariaDB, ganz ohne Root-Passwort:** `pbsgui dbdump NAME --setup-access CONTAINER` (TUI:
-  Knopf „Ohne Passwort einrichten“ in `p`, GUI: gleicher Knopf im Dialog „Datenbanken und Zugänge“) legt im Container
-  einen Benutzer `mysql` mit der Anmeldeart `unix_socket` an (nur Leserechte; gilt nur für den gleichnamigen
-  Betriebssystem-Benutzer im Container, also für alle, die `docker exec` dürfen, wie bei Postgres). Dafür wird kein
-  Passwort gebraucht und keines gespeichert: Der Container wird einmalig für etwa 15 bis 40 Sekunden sauber gestoppt,
-  ein Wegwerf-Container mit demselben Image und denselben Daten führt per `--init-file` die SQL-Datei aus, danach läuft
-  der Original-Container wieder (auch bei Fehlern, sonst mit Hinweis `docker start …`). Ist der Zugang eingerichtet, wird
-  er beim Dump bevorzugt; ein hinterlegtes Passwort bleibt als Rückfall. Gemessen mit `mariadb:11`: Dump ohne Passwort
-  geht, `DROP`/`INSERT`/`CREATE USER` werden abgelehnt, als `root` im Container wird der Benutzer abgelehnt.
+### Added
+- **Passwordless dump access for MariaDB, entirely without a root password:** `pbsgui dbdump NAME --setup-access CONTAINER` (TUI:
+  button “Set up without a password” in `p`, GUI: the same button in the dialog “Databases and access”) creates a user `mysql`
+  with the login type `unix_socket` in the container (read-only; only applies to the operating system user of the same name in the
+  container, i.e. to everyone allowed to `docker exec`, as with Postgres). No password is needed and none is stored: the container
+  is stopped cleanly once for about 15 to 40 seconds, a throwaway container with the same image and the same data runs the SQL file
+  with `--init-file`, then the original container runs again (also on errors, otherwise with the hint `docker start …`). Once the access
+  is set up it is preferred for the dump; a stored password remains as a fallback. Measured with `mariadb:11`: dump without a password
+  works, `DROP`/`INSERT`/`CREATE USER` are rejected, as `root` in the container the user is rejected.
 
 ## [0.6.1] - 2026-10-24
 
-### Geändert
-- **Datenbank-Dumps werden unkomprimiert gesichert** (`*.sql` statt `*.sql.gz`). PBS komprimiert die Blöcke selbst und
-  erkennt unveränderte Teile wieder; ein gzip-Strom ändert sich dagegen komplett und wurde bei jedem Lauf voll
-  hochgeladen (gemessen: 140 MiB je Lauf für den Immich-Dump). Ein neuer Dump ersetzt den alten `.sql.gz` des Containers;
-  schlägt der neue Dump fehl, bleibt der alte erhalten.
+### Changed
+- **Database dumps are backed up uncompressed** (`*.sql` instead of `*.sql.gz`). PBS compresses the blocks itself and
+  recognizes unchanged parts; a gzip stream on the other hand changes completely and was uploaded in full on every run
+  (measured: 140 MiB per run for the Immich dump). A new dump replaces the old `.sql.gz` of the container;
+  if the new dump fails, the old one is kept.
 
 ## [0.6.0] - 2026-10-23
 
-### Hinzugefügt
-- **Änderungserkennung (`--change-detection-mode metadata`):** Der Client liest nur noch Dateien, deren Metadaten sich seit
-  dem letzten Backup geändert haben, statt jede Datei jedes Mal komplett zu lesen (gemessen: 0 MiB Lesemenge bei
-  unveränderten Daten). Beim Anlegen in GUI, TUI und `pbsgui add` standardmäßig an (`--change-detection legacy`
-  schaltet es ab); bestehende Profile bleiben klassisch und lassen sich umstellen: GUI (Backup-Tab), TUI (`c`),
-  `pbsgui detection NAME [metadata|legacy]`. Das erste Backup nach dem Umstellen liest einmal alles. Braucht einen
-  PBS-Server ab Version 3.3. Der Fortschrittsbalken zeigt dann „nur geänderte Dateien“ statt einer Prozentzahl.
-- **Wöchentlicher Prüflauf im Modus `data` (standardmäßig an):** Ein zweiter systemd-Timer (`pbsgui-NAME-data.timer`,
-  Standard sonntags 03:00 Uhr) liest einmal pro Woche wieder alles, prüft so auch Dateien mit unveränderten Metadaten
-  und fängt Lesefehler in selten benutzten Dateien ab. Er entsteht nur mit Änderungserkennung `metadata` und einem
-  Zeitplan. Einstellbar beim Anlegen (GUI, TUI, `pbsgui add --weekly-data/--no-weekly-data --data-schedule`) und danach
-  (GUI Backup-Tab, TUI `c`, `pbsgui detection NAME --weekly-data on|off --data-schedule …`); `pbsgui backup NAME --data`
-  liest einmalig alles; `pbsgui status` zeigt den Timer.
-- **Sperre pro Profil:** Es läuft nie mehr als ein Backup desselben Profils gleichzeitig (Zeitplan, wöchentlicher Lauf und
-  manueller Start). Ein zweiter Lauf wartet bis zu 4 Stunden auf den ersten, statt mit einem PBS-Fehler abzubrechen.
+### Added
+- **Change detection (`--change-detection-mode metadata`):** the client only reads files whose metadata changed since
+  the last backup, instead of reading every file completely every time (measured: 0 MiB read for
+  unchanged data). On by default when creating in the GUI, TUI and `pbsgui add` (`--change-detection legacy`
+  switches it off); existing profiles stay classic and can be switched: GUI (Backup tab), TUI (`c`),
+  `pbsgui detection NAME [metadata|legacy]`. The first backup after switching reads everything once. Needs a
+  PBS server from version 3.3. The progress bar then shows “changed files only” instead of a percentage.
+- **Weekly check run in mode `data` (on by default):** a second systemd timer (`pbsgui-NAME-data.timer`,
+  Sundays 03:00 by default) reads everything again once a week, thereby also checks files with unchanged metadata
+  and catches read errors in rarely used files. It only exists with change detection `metadata` and a
+  schedule. Adjustable at creation (GUI, TUI, `pbsgui add --weekly-data/--no-weekly-data --data-schedule`) and afterwards
+  (GUI Backup tab, TUI `c`, `pbsgui detection NAME --weekly-data on|off --data-schedule …`); `pbsgui backup NAME --data`
+  reads everything once; `pbsgui status` shows the timer.
+- **Lock per profile:** never more than one backup of the same profile runs at the same time (schedule, weekly run and
+  manual start). A second run waits up to 4 hours for the first one instead of aborting with a PBS error.
 
-### Geändert
-- Snapshots im neuen Modus enthalten geteilte Archive (`x.mpxar.didx` + `x.ppxar.didx` statt `x.pxar.didx`). pbsgui
-  behandelt beide als dasselbe Archiv `x.pxar` (Dateibrowser, Wiederherstellung, Rettungs-ISO); `restore` und `mount`
-  des Clients akzeptieren den Namen `x.pxar` weiterhin.
+### Changed
+- Snapshots in the new mode contain split archives (`x.mpxar.didx` + `x.ppxar.didx` instead of `x.pxar.didx`). pbsgui
+  treats both as the same archive `x.pxar` (file browser, restore, rescue ISO); `restore` and `mount`
+  of the client still accept the name `x.pxar`.
 
 ## [0.5.0] - 2026-10-23
 
-### Hinzugefügt
-- **TUI, Server hinzufügen:** Dropdowns für **Datastore** und **Namespace** (gefüllt nach „Verbindung prüfen“; Namespace
-  zusätzlich „Wurzel“ und mit Weg A „Neuen Namespace anlegen …“). Die Eingabefelder bleiben als Rückfall und bleiben mit
-  der Auswahl synchron. (Die GUI hatte editierbare Auswahllisten bereits.)
-- **Zeitplan beim Anlegen** (GUI, TUI und `pbsgui add --schedule`): Auswahl von stündlich bis wöchentlich oder eigener
-  OnCalendar-Ausdruck mit Vorschau des nächsten Laufs. Ein ungültiger Ausdruck wird geprüft, bevor ein Zugang angelegt
-  wird. Bei einem Vollbackup mit automatischem Schlüssel wird der Zeitplan erst nach dem Schlüssel-Export eingerichtet
-  (TUI `k`, GUI „Schlüssel exportieren“, `pbsgui key export|confirm`).
-- **Erstes Backup direkt starten** (GUI, TUI und `pbsgui add --backup-now`). Bei gesperrtem Vollbackup (Schlüssel noch
-  nicht exportiert) wird erklärt, was fehlt, statt zu scheitern; mit Datenbank-Dumps kommt zuerst die Zugangs-Einrichtung.
-- **Datenbank-Dumps (optional)** in GUI, TUI und Kommandozeile: Postgres- und MariaDB/MySQL-Container werden vor dem
-  Backup gedumpt und als eigenes Archiv `dbdumps.pxar` mitgesichert. Erkennung über alle Docker-kompatiblen Sockets
-  (System-Daemon und rootless-Daemons aller Benutzer) anhand der eingehängten Datenverzeichnisse, nicht nach Namen;
-  gestoppte Container werden nicht gedumpt. Postgres braucht keinen Zugang. Für MariaDB/MySQL wird ein Zugang
-  ausdrücklich hinterlegt (verschlüsselt, nie aus `.env` oder der Container-Umgebung gelesen) oder ein Dump-Benutzer mit
-  reinen Leserechten angelegt; Passwörter gehen nur über stdin. Ein fehlgeschlagener Dump verhindert das Backup nie, der
-  letzte gute Dump bleibt erhalten. Dumps werden pro Container überschrieben; Dateien von Containern, die länger als
-  14 Tage nicht mehr erkannt werden, räumt pbsgui auf (erkannte Container nie).
-  Bedienung: Checkbox beim Anlegen, TUI `p`, GUI „Datenbanken und Zugänge …“, `pbsgui add --db-dump`,
+### Added
+- **TUI, add server:** drop-downs for **datastore** and **namespace** (filled after “Check connection”; namespace
+  additionally “root” and with way A “Create a new namespace …”). The input fields stay as a fallback and stay in sync with
+  the selection. (The GUI already had editable selection lists.)
+- **Schedule at creation** (GUI, TUI and `pbsgui add --schedule`): choice from hourly to weekly or a custom
+  OnCalendar expression with a preview of the next run. An invalid expression is checked before any access is
+  created. For a full backup with an automatic key the schedule is only set up after the key export
+  (TUI `k`, GUI “Export the key”, `pbsgui key export|confirm`).
+- **Start the first backup right away** (GUI, TUI and `pbsgui add --backup-now`). If a full backup is blocked (key not yet
+  exported) it explains what is missing instead of failing; with database dumps the access setup comes first.
+- **Database dumps (optional)** in the GUI, TUI and command line: Postgres and MariaDB/MySQL containers are dumped before the
+  backup and backed up as the separate archive `dbdumps.pxar`. Detection over all Docker-compatible sockets
+  (system daemon and rootless daemons of all users) by the mounted data directories, not by names;
+  stopped containers are not dumped. Postgres needs no access. For MariaDB/MySQL an access is
+  stored explicitly (encrypted, never read from `.env` or the container environment) or a dump user with
+  read-only permissions is created; passwords only go through stdin. A failed dump never prevents the backup, the
+  last good dump is kept. Dumps are overwritten per container; pbsgui cleans up files of containers that have not been
+  detected for more than 14 days (never detected containers).
+  Operation: checkbox at creation, TUI `p`, GUI “Databases and access …”, `pbsgui add --db-dump`,
   `pbsgui dbdump NAME [--on|--off|--set|--create-user|--remove|--run]`.
 
 ## [0.4.0] - 2026-10-23
 
-### Hinzugefügt
-- **Lizenz:** AGPL-3.0-or-later (`LICENSE`, Paket-Metadaten, Debian-`copyright`).
-- **Installation mit einem Befehl:** `scripts/install.sh` richtet APT-Repositories und alle Pakete ein (`--no-gui`, `--no-client`,
-  `--version`, `--uninstall`); neue Anleitung `docs/INSTALLATION.md`.
-- Signiertes APT-Repository auf GitHub Pages (`https://nienhausdavid.github.io/pbsgui`).
-- **Fortschritt beim Backup:** Balken mit Prozent, Menge, Geschwindigkeit und Restzeit in GUI (Backup-Tab), TUI
-  (Log-Tab) und Kommandozeile (`pbsgui backup`). Der Client gibt beim Backup selbst keinen Fortschritt aus; die App misst
-  den Lesezähler des Clients und vergleicht ihn mit der Größe des letzten Backups (beim ersten Vollbackup mit dem
-  belegten Platz, beim ersten Home-Backup unbestimmt). Gegen den echten Server geprüft: 480 von 480 MB gelesen.
+### Added
+- **License:** AGPL-3.0-or-later (`LICENSE`, package metadata, Debian `copyright`).
+- **Installation with one command:** `scripts/install.sh` sets up APT repositories and all packages (`--no-gui`, `--no-client`,
+  `--version`, `--uninstall`); new guide `docs/INSTALLATION.md`.
+- Signed APT repository on GitHub Pages (`https://nienhausdavid.github.io/pbsgui`).
+- **Progress during the backup:** bar with percentage, amount, speed and remaining time in the GUI (Backup tab), TUI
+  (Log tab) and command line (`pbsgui backup`). The client itself prints no progress during the backup; the app measures
+  the read counter of the client and compares it with the size of the last backup (for the first full backup with the
+  used space, for the first home backup indeterminate). Checked against the real server: 480 of 480 MB read.
 
-### Behoben
-- Release-Workflow: Die ISO wird in einem Debian-13-Container gebaut (der `live-build` der Ubuntu-Runner war zu alt);
-  mit `workflow_dispatch` und `tag=vX.Y.Z` lässt sich eine ISO nachträglich an ein vorhandenes Release hängen.
-- `.sha256`-Datei der ISO enthält den Dateinamen ohne Pfad.
-- `pbsgui-run` und `pbsgui backup` geben Ausgaben sofort aus (vorher gepuffert, wenn sie in eine Pipe liefen).
+### Fixed
+- Release workflow: the ISO is built in a Debian 13 container (the `live-build` of the Ubuntu runners was too old);
+  with `workflow_dispatch` and `tag=vX.Y.Z` an ISO can be attached to an existing release afterwards.
+- The `.sha256` file of the ISO contains the file name without a path.
+- `pbsgui-run` and `pbsgui backup` print output immediately (before, buffered when piped).
 
 ## [0.3.0] - 2026-10-18
 
-Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur interne Entwicklungsstände.)
+First published version. (The intermediate states 0.1.0 and 0.2.0 were internal development states only.)
 
-### Hinzugefügt
-- **Oberflächen:** Qt-GUI (`pbsgui`), Terminal-Oberfläche (`pbstui` / `pbsgui tui`) und Kommandozeile
+### Added
+- **Interfaces:** Qt GUI (`pbsgui`), terminal interface (`pbstui` / `pbsgui tui`) and command line
   (`pbsgui list|show|add|probe|mounts|backup|snapshots|files|restore|schedule|status|key|recovery|rescue|remove`).
-- **Einrichten:** Weg A (einmalig als root: Benutzer, Token, Namespace und ACLs werden angelegt) oder Weg B
-  (vorhandener API-Token); Fingerprint-Pinning, Datastore- und Namespace-Prüfung.
-- **Backup:** Home oder ganzes System (Dateiebene), wählbare Laufwerke (intern/USB/Bind-Duplikate erkannt),
-  clientseitige Verschlüsselung standardmäßig an mit automatisch erzeugtem Schlüssel.
-- **Zeitpläne:** systemd-Timer als Benutzer- oder System-Units; Geheimnisse über `systemd-creds`.
-- **Wiederherstellung auf neuem PC:** Datenträger-Metadaten und Notfallblatt, Pflicht-Schlüsselexport,
-  Rettungs-ISO (Debian 13, UEFI/BIOS) mit geführtem Assistenten (`pbsgui rescue`); LUKS wie im Original,
-  neu verschlüsselt oder ohne Verschlüsselung.
-- **Einzelne Dateien wiederherstellen:** Dateibrowser (GUI/TUI/CLI) mit Suche; Überschreiben am Originalort nur im
-  Home-Verzeichnis, mit Sicherung der alten Dateien.
-- **Paketierung:** `.deb`-Paket, signiertes APT-Repository-Skript, GitHub-Workflows (CI, Release, ISO).
-- `pbsgui --version` und Versionsanzeige in GUI und TUI.
+- **Setup:** way A (once as root: user, token, namespace and ACLs are created) or way B
+  (existing API token); fingerprint pinning, datastore and namespace check.
+- **Backup:** home or entire system (file level), selectable drives (internal/USB/bind duplicates detected),
+  client-side encryption on by default with an automatically generated key.
+- **Schedules:** systemd timers as user or system units; secrets through `systemd-creds`.
+- **Restore on a new PC:** disk metadata and emergency sheet, mandatory key export,
+  rescue ISO (Debian 13, UEFI/BIOS) with a guided wizard (`pbsgui rescue`); LUKS as in the original,
+  re-encrypted or without encryption.
+- **Restore single files:** file browser (GUI/TUI/CLI) with search; overwriting at the original location only in the
+  home directory, with a backup of the old files.
+- **Packaging:** `.deb` package, signed APT repository script, GitHub workflows (CI, release, ISO).
+- `pbsgui --version` and version display in the GUI and TUI.
 
-### Bekannte Einschränkungen
-- Nicht auf echter Hardware, mit BIOS-Boot der ISO, Secure Boot oder WLAN getestet (Tests liefen in QEMU/UEFI).
-- System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
-- Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
+### Known limitations
+- Not tested on real hardware, with BIOS boot of the ISO, Secure Boot or Wi-Fi (tests ran in QEMU/UEFI).
+- System-scope schedules and root password login with 2FA are only tested to a limited extent in practice.
+- The rescue ISO brings no FUSE; the file browser is not intended there.
 
 [Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.1...HEAD
 [0.9.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.1

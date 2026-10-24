@@ -3,7 +3,7 @@
 [English](README.md) · **Deutsch**
 
 Grafische Oberfläche für den Proxmox Backup Client (`proxmox-backup-client`).
-Plan und Architektur: [docs/PLAN.md](docs/PLAN.md). Status: **Prototyp**.
+Plan und Architektur: [docs/PLAN.de.md](docs/PLAN.de.md). Status: **Prototyp**.
 
 Die Oberfläche gibt es auf **Deutsch und Englisch**. Sie folgt der Systemsprache (`LANG`); ausdrücklich wählen mit
 `pbsgui language de|en|auto` oder der Umgebungsvariable `PBSGUI_LANG`.
@@ -42,7 +42,7 @@ Als Debian-Paket aus dem Quellcode (Debian 13; reines Python, nutzt `python3-tex
 ```bash
 scripts/build-deb.sh dist && sudo apt install ./dist/pbstui_*_all.deb ./dist/pbsgui_*_all.deb   # nur pbstui: ohne Qt, für Server
 ```
-Das signierte APT-Repository liegt auf GitHub Pages (`https://nienhausdavid.github.io/pbsgui`), siehe [docs/RELEASING.md](docs/RELEASING.md).
+Das signierte APT-Repository liegt auf GitHub Pages (`https://nienhausdavid.github.io/pbsgui`), siehe [docs/RELEASING.de.md](docs/RELEASING.de.md).
 Den `proxmox-backup-client` gibt es im Proxmox-Client-Repository (`pbs-client`).
 
 ## Einzelne Dateien wiederherstellen (File-Level-Restore)
@@ -71,7 +71,7 @@ GUI: Dateibrowser mit Vorschau und „Fassungen …“; im Snapshots-Tab „Verg
 dass sie beim Schließen weiterläuft und beim Anmelden startet.
 
 ## Wiederherstellung auf einem neuen PC (Vollbackup)
-Stand: Vorbereitung **und** geführte Wiederherstellung (`pbsgui rescue`, Rettungs-ISO) sind eingebaut; Anleitung mit Screenshots: [docs/WIEDERHERSTELLUNG.md](docs/WIEDERHERSTELLUNG.md).
+Stand: Vorbereitung **und** geführte Wiederherstellung (`pbsgui rescue`, Rettungs-ISO) sind eingebaut; Anleitung mit Screenshots: [docs/RESTORE.de.md](docs/RESTORE.de.md).
 - Bei jedem Vollbackup (als root) sammelt die App Datenträger-Metadaten nach `/var/lib/pbsgui/recovery/<profil>/` und sichert sie damit im Backup mit: Partitionstabellen (sfdisk/sgdisk), LVM-Metadaten, LUKS-Header (nur bei verschlüsseltem Backup), UUIDs, EFI-Einträge, Paketliste, `MANIFEST.json`.
 - **Pflicht:** Ein verschlüsseltes Vollbackup (und sein Zeitplan) startet erst, wenn der Schlüssel exportiert wurde (`pbsgui key export`), denn der Schlüssel im Geheimnis-Speicher ist an den alten Rechner gebunden.
 - `pbsgui recovery NAME` zeigt die Checkliste, `--sheet DATEI` schreibt das **Notfallblatt** (Server, Fingerprint, Namespace, Anleitung; ohne Geheimnisse) zum Ausdrucken.

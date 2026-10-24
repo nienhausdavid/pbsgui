@@ -1,6 +1,6 @@
 # Restore with the rescue ISO
 
-**English** · [Deutsch](WIEDERHERSTELLUNG.md)
+**English** · [Deutsch](RESTORE.de.md)
 
 This is how you restore a **full backup** onto a new or empty PC. You need:
 

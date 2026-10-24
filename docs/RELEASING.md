@@ -1,53 +1,56 @@
-# Release und APT-Repository
+# Release and APT repository
 
-## Einmalige Einrichtung
+**English** · [Deutsch](RELEASING.de.md)
 
-1. **Signaturschlüssel** für das APT-Repository erzeugen (lokal, getrennt vom Alltags-Schlüssel):
+## One-time setup
+
+1. Create a **signing key** for the APT repository (locally, separate from your everyday key):
    ```bash
-   gpg --quick-generate-key "pbsgui APT <deine@mail>" ed25519 sign 3y
+   gpg --quick-generate-key "pbsgui APT <you@example.org>" ed25519 sign 3y
    gpg --armor --export-secret-keys <KEY-ID> | gh secret set APT_GPG_PRIVATE_KEY
-   # nur falls der Schlüssel eine Passphrase hat:
+   # only if the key has a passphrase:
    gh secret set APT_GPG_PASSPHRASE
    ```
-   Den privaten Schlüssel zusätzlich sicher sichern (Passwortmanager). Ohne ihn lassen sich keine
-   neuen Versionen signieren; Nutzer müssten dann einen neuen öffentlichen Schlüssel importieren.
-2. **GitHub Pages** aktivieren: Repository → Settings → Pages → Source: *GitHub Actions*.
-   Auf dem kostenlosen Plan muss das Repository dafür **öffentlich** sein.
-3. Lizenz: AGPL-3.0-or-later (`LICENSE`, `pyproject.toml`, `usr/share/doc/pbsgui/copyright` in `scripts/build-deb.sh`).
+   Also back up the private key safely (password manager). Without it no new versions can be signed;
+   users would then have to import a new public key.
+2. Enable **GitHub Pages**: repository → Settings → Pages → Source: *GitHub Actions*.
+   On the free plan the repository must be **public** for this.
+3. License: AGPL-3.0-or-later (`LICENSE`, `pyproject.toml`, `usr/share/doc/pbsgui/copyright` in `scripts/build-deb.sh`).
 
-## Versionen
+## Versions
 
-Versionsnummern nach [Semantic Versioning](https://semver.org/lang/de/): `MAJOR.MINOR.PATCH`. Einzige Quelle ist
-`version` in `pyproject.toml`; daraus entstehen `pbsgui --version`, die beiden `.deb` (`pbstui_<version>_all.deb`, `pbsgui_<version>_all.deb`) und die ISO
-(`pbsgui-rescue-<version>-amd64.iso`). Änderungen werden laufend in `CHANGELOG.md` (deutsch) **und** `CHANGELOG.en.md` (englisch) unter `[Unreleased]` eingetragen; `scripts/release.sh` schreibt beide fort, die GitHub-Release-Notizen kommen aus `CHANGELOG.en.md`.
+Version numbers follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`. The only source is
+`version` in `pyproject.toml`; it produces `pbsgui --version`, the two `.deb` files (`pbstui_<version>_all.deb`, `pbsgui_<version>_all.deb`) and the ISO
+(`pbsgui-rescue-<version>-amd64.iso`). Changes are entered continuously under `[Unreleased]` in `CHANGELOG.md` (English, main file) **and** `CHANGELOG.de.md` (German);
+`scripts/release.sh` updates both, the GitHub release notes come from `CHANGELOG.md`.
 
-## Neue Version veröffentlichen
+## Publish a new version
 
 ```bash
-# 1. Änderungen unter "## [Unreleased]" in CHANGELOG.md eintragen und committen
-# 2. Release vorbereiten (Version erhöhen, CHANGELOG abschließen, Tests, Commit und Tag; noch nichts veröffentlicht):
+# 1. Enter the changes under "## [Unreleased]" in CHANGELOG.md (and CHANGELOG.de.md) and commit
+# 2. Prepare the release (raise the version, close the changelogs, tests, commit and tag; nothing is published yet):
 scripts/release.sh 0.4.0
-# 3. Prüfen (git log, git show), dann veröffentlichen:
-git push origin main && git push origin v0.4.0      # oder gleich: scripts/release.sh 0.4.0 --push
+# 3. Check (git log, git show), then publish:
+git push origin main && git push origin v0.4.0      # or right away: scripts/release.sh 0.4.0 --push
 ```
-Der Tag startet den Workflow `Release`: Er prüft, dass Tag und `pyproject.toml` übereinstimmen, baut das `.deb` und die
-ISO, legt das GitHub-Release mit den Notizen aus dem CHANGELOG an und aktualisiert das APT-Repository (alle früheren
-Release-`.deb` bleiben enthalten). Ein einmal veröffentlichter Tag wird nicht verschoben: Fehler in einem Release
-behebt man mit dem nächsten PATCH-Release.
+The tag starts the workflow `Release`: it checks that the tag and `pyproject.toml` match, builds the `.deb` files and the
+ISO, creates the GitHub release with the notes from the CHANGELOG and updates the APT repository (all earlier
+release `.deb` files stay included). A tag that has been published is never moved: errors in a release
+are fixed with the next PATCH release. With `workflow_dispatch` (input `tag`) an ISO can be attached to an existing release afterwards.
 
-## Installation für Nutzer
+## Installation for users
 
 ```bash
 curl -fsSL https://nienhausdavid.github.io/pbsgui/pbsgui.gpg | sudo tee /usr/share/keyrings/pbsgui.gpg >/dev/null
 echo "deb [signed-by=/usr/share/keyrings/pbsgui.gpg] https://nienhausdavid.github.io/pbsgui stable main" | sudo tee /etc/apt/sources.list.d/pbsgui.list
 sudo apt update && sudo apt install pbsgui
 ```
-`pbsgui` empfiehlt `proxmox-backup-client` aus dem Proxmox-Client-Repository (siehe README).
+`pbstui` depends on `wl-clipboard` (clipboard buttons) and recommends `proxmox-backup-client` from the Proxmox client repository (see README).
 
-## Lokal bauen und testen
+## Build and test locally
 
 ```bash
-scripts/build-deb.sh dist                      # dist/pbstui_<version>_all.deb und dist/pbsgui_<version>_all.deb
-sudo apt install ./dist/pbstui_*_all.deb ./dist/pbsgui_*_all.deb   # oder nur pbstui ohne Desktop
-GPG_KEY_ID=<id> scripts/build-apt-repo.sh dist site stable   # APT-Repository in site/
+scripts/build-deb.sh dist                      # dist/pbstui_<version>_all.deb and dist/pbsgui_<version>_all.deb
+sudo apt install ./dist/pbstui_*_all.deb ./dist/pbsgui_*_all.deb   # or only pbstui without a desktop
+GPG_KEY_ID=<id> scripts/build-apt-repo.sh dist site stable   # APT repository in site/
 ```

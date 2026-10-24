@@ -20,7 +20,7 @@ old=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
 python3 - "$new" <<'PY'
 import re, sys, datetime, os
 new = sys.argv[1]
-for name in ("CHANGELOG.md", "CHANGELOG.en.md"):     # deutsch und englisch gemeinsam fortschreiben
+for name in ("CHANGELOG.md", "CHANGELOG.de.md"):     # englisch (Hauptdatei) und deutsch gemeinsam fortschreiben
     if not os.path.exists(name):
         continue
     text = open(name, encoding="utf-8").read()
@@ -40,11 +40,11 @@ echo "Tests laufen …"
 py=${PYTHON:-python3}
 [ -z "${PYTHON:-}" ] && [ -x .venv/bin/python ] && py=.venv/bin/python
 if ! PYTHONPATH="$root/src" "$py" -m pytest -q; then
-  git checkout -q -- pyproject.toml CHANGELOG.md CHANGELOG.en.md      # saubere Ausgangslage wiederherstellen
+  git checkout -q -- pyproject.toml CHANGELOG.md CHANGELOG.de.md      # saubere Ausgangslage wiederherstellen
   echo "Tests fehlgeschlagen: Release abgebrochen, nichts wurde committet oder getaggt." >&2
   exit 1
 fi
-git add pyproject.toml CHANGELOG.md CHANGELOG.en.md
+git add pyproject.toml CHANGELOG.md CHANGELOG.de.md
 git commit -q -m "Release v$new"
 git tag -a "v$new" -m "pbsgui $new"
 echo "Lokal bereit: Commit und Tag v$new."

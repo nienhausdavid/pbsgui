@@ -3,7 +3,7 @@
 **English** · [Deutsch](README.de.md)
 
 Graphical, terminal and command-line interface for the Proxmox Backup Client (`proxmox-backup-client`).
-Plan and architecture: [docs/PLAN.md](docs/PLAN.md) (German). Status: **prototype**.
+Plan and architecture: [docs/PLAN.md](docs/PLAN.md). Status: **prototype**.
 
 The interface is available in **English and German**. It follows the system language (`LANG`); choose explicitly with
 `pbsgui language en|de|auto` or the environment variable `PBSGUI_LANG`.
@@ -42,7 +42,7 @@ As a Debian package from source (Debian 13; pure Python, uses `python3-textual` 
 ```bash
 scripts/build-deb.sh dist && sudo apt install ./dist/pbstui_*_all.deb ./dist/pbsgui_*_all.deb   # pbstui only: without Qt, for servers
 ```
-The signed APT repository is on GitHub Pages (`https://nienhausdavid.github.io/pbsgui`), see [docs/RELEASING.md](docs/RELEASING.md) (German).
+The signed APT repository is on GitHub Pages (`https://nienhausdavid.github.io/pbsgui`), see [docs/RELEASING.md](docs/RELEASING.md).
 The `proxmox-backup-client` is available from the Proxmox client repository (`pbs-client`).
 
 ## Restore single files (file-level restore)
