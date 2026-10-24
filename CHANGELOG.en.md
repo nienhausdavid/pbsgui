@@ -9,6 +9,8 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-24
+
 ### Added
 - **Copy the key and emergency kit to the clipboard:** GUI buttons “Copy key”, “Copy key + emergency sheet” and “Copy emergency sheet”,
   the same buttons in the TUI overview (and key `y`), `pbsgui key copy|copy-kit|copy-sheet NAME` (uses `wl-copy`, otherwise `xclip` or `xsel`; the package `pbstui` now depends on `wl-clipboard`;
@@ -267,7 +269,8 @@ First published version. (The intermediate states 0.1.0 and 0.2.0 were internal 
 - System-scope schedules and root password login with 2FA are only tested to a limited extent in practice.
 - The rescue ISO brings no FUSE; the file browser is not intended there.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.1
 [0.9.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.0
 [0.8.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.3
 [0.8.2]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.2

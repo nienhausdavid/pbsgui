@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pbsgui"
-version = "0.9.0"
+version = "0.9.1"
 description = "GUI für den Proxmox Backup Client"
 requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
