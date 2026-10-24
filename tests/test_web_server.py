@@ -262,3 +262,43 @@ def test_cli_web_passes_leading_options_through(monkeypatch):
     monkeypatch.setattr(srv, "run", lambda argv=None: seen.append(argv) or 0)
     assert cli.main(["web", "--daemon", "--bind", "10.0.0.5", "--timeout", "30"]) == 0
     assert seen == [["--daemon", "--bind", "10.0.0.5", "--timeout", "30"]]
+
+
+def test_vm_mode_flow_maps_disks_and_needs_all_devices_confirmed(web, fake_env, tmp_path, monkeypatch):
+    from pbsgui.core import rescue as rescue_mod, vmimage
+    from test_vmimage import CONF, vmsnap
+    put_snapshots(fake_env, [vmsnap(100), vmsnap(50, vmid="101")])
+    conf = tmp_path / "c.conf"; conf.write_text(CONF)
+    monkeypatch.setenv("FAKE_PBS_VMCONF", str(conf))
+    monkeypatch.setattr(rescue_mod, "candidate_disks", lambda lsblk_json=None: [
+        {"path": "/dev/sda", "size": 64 * 2**30, "model": "A", "tran": "sata", "removable": False},
+        {"path": "/dev/sdb", "size": 200 * 2**30, "model": "B", "tran": "sata", "removable": False}])
+    ran = []
+    monkeypatch.setattr(vmimage, "execute", lambda cfg, plan, on_line, dry_run=False: ran.append((sorted(plan.mapping.items()), dry_run))
+                        or on_line("vm fertig") or True)
+    c = Client(web); c.login()
+    conn = {"server": "pbs.example", "datastore": "store1", "auth_id": "u@pbs!t", "token": "geheim", "fingerprint": "AA:BB",
+            "backup_id": "100", "mode": "vm"}
+    assert c.req("POST", "/api/connect", {**conn, "mode": "irgendwas"})[0] == 400
+    status, _, d = c.req("POST", "/api/connect", conn)
+    assert status == 200 and d["mode"] == "vm" and len(d["snapshots"]) == 1
+    assert [x["key"] for x in d["snapshots"][0]["disks"]] == ["scsi0", "scsi1"]
+    status, _, d = c.req("POST", "/api/choose", {"path": d["snapshots"][0]["path"]})
+    assert status == 200 and d["vm"] and d["name"] == "webserver" and d["uefi"] and [x["boot"] for x in d["disks"]] == [True, False]
+    assert {t["path"] for t in d["targets"]} == {"/dev/sda", "/dev/sdb"}
+    assert c.req("POST", "/api/plan", {"mapping": {"scsi0": "/etc/passwd"}})[0] == 400
+    assert c.req("POST", "/api/plan", {"mapping": {"scsi0": "/dev/sda", "scsi1": "/dev/sda"}})[0] == 400
+    status, _, d = c.req("POST", "/api/plan", {"mapping": {"scsi0": "/dev/sda", "scsi1": "/dev/sdb"},
+                                               "repair": {"network": False}})
+    assert status == 200 and d["vm"] and d["disk"] == "/dev/sda /dev/sdb"
+    assert any("Netzwerknamen anpassen: nein" in l for l in d["summary"]) and any("scsi1" in l for l in d["summary"])
+    monkeypatch.setattr("os.geteuid", lambda: 0)
+    assert c.req("POST", "/api/start", {"confirm": "/dev/sda"})[0] == 403                   # nur eine der zwei Platten bestätigt
+    assert not ran
+    assert c.req("POST", "/api/start", {"confirm": "/dev/sdb /dev/sda"})[0] == 200
+    for _ in range(100):
+        d = c.req("GET", "/api/log")[2]
+        if d["state"] != "running":
+            break
+        time.sleep(0.05)
+    assert d["state"] == "ok" and "vm fertig" in d["lines"] and ran == [([("scsi0", "/dev/sda"), ("scsi1", "/dev/sdb")], False)]

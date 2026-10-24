@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core import rescue, vpn
+from ..core import rescue, vmimage, vpn
 from ..core.pbs_api import ApiError, fetch_fingerprint
 from ..core.rescue import RescueConfig, RescueError
 
@@ -59,6 +59,10 @@ class RescueService:
         os.chmod(self.workdir, 0o700)
         self.run_cmd, self.popen = run, popen
         self.cfg: RescueConfig | None = None
+        self.mode = "files"            # "files" (pbsgui-Vollbackup) oder "vm" (Proxmox-VE-VM-Abbild)
+        self.vmcfg = None
+        self.vmplan = None
+        self.vm_targets: list[str] = []
         self.snaps: list = []
         self.snap = None
         self.rec = None
@@ -185,8 +189,11 @@ class RescueService:
                            fingerprint=fp, namespace=ns.strip("/"), backup_id=bid, keyfile=self.keyfile)
         if not cfg.fingerprint:
             raise ServiceError("Fingerprint fehlt: erst abrufen und mit dem Wert in PBS vergleichen")
+        mode = _s(d, "mode") or "files"
+        if mode not in ("files", "vm"):
+            raise ServiceError("Unbekannte Art der Wiederherstellung")
         try:
-            snaps = rescue.list_full_snapshots(cfg)
+            snaps = vmimage.list_vm_snapshots(cfg) if mode == "vm" else rescue.list_full_snapshots(cfg)
         except (RescueError, ApiError) as e:
             raise ServiceError(str(e)) from None
         except Exception as e:      # ClientError u. ä.
@@ -195,8 +202,10 @@ class RescueService:
                 msg += " (das Backup ist verschlüsselt: erst die Schlüsseldatei angeben)"
             raise ServiceError(msg[-400:]) from None
         self.cfg, self.snaps, self.snap, self.rec, self.plan = cfg, snaps, None, None, None
-        return {"snapshots": [{"path": s.path, "time": s.backup_time, "backup_id": s.backup_id, "size": s.size or 0}
-                              for s in snaps]}
+        self.mode, self.vmcfg, self.vmplan = mode, None, None
+        return {"mode": mode, "snapshots": [{"path": s.path, "time": s.backup_time, "backup_id": s.backup_id, "size": s.size or 0,
+                                              "disks": [{"key": x.key, "size": x.image_size} for x in vmimage.vm_disks(s)] if mode == "vm" else []}
+                                             for s in snaps]}
 
     def choose(self, d: dict) -> dict:
         if not self.cfg:
@@ -206,6 +215,17 @@ class RescueService:
         if not snap:
             raise ServiceError("Snapshot nicht gefunden")
         self.cfg.snapshot = snap.path
+        if self.mode == "vm":
+            try:
+                self.vmcfg = vmimage.fetch_config(self.cfg, snap)
+            except RescueError as e:
+                raise ServiceError(str(e).replace(self.cfg.token, "***")[-400:]) from None
+            self.snap, self.rec, self.plan, self.vmplan = snap, None, None, None
+            disks = vmimage.vm_disks(snap)
+            boot = vmimage.boot_disk_key(self.vmcfg, disks)
+            return {"vm": True, "name": self.vmcfg.name, "ostype": self.vmcfg.ostype, "uefi": self.vmcfg.uefi,
+                    "disks": [{"key": x.key, "size": x.image_size, "boot": x.key == boot} for x in disks],
+                    "targets": rescue.candidate_disks()}
         try:
             rec = rescue.fetch_recovery(self.cfg, snap, Path(tempfile.mkdtemp(prefix="recovery-", dir=self.workdir)))
         except Exception as e:
@@ -219,7 +239,33 @@ class RescueService:
         return {"disks": rescue.candidate_disks()}
 
     # -- Plan ------------------------------------------------------------------------------------------------
+    def make_vm_plan(self, d: dict) -> dict:
+        if not (self.cfg and self.snap and self.vmcfg):
+            raise ServiceError("Zuerst einen Snapshot wählen", 409)
+        raw = d.get("mapping")
+        if not isinstance(raw, dict) or len(raw) > 32:
+            raise ServiceError("Zuordnung ungültig")
+        mapping: dict[str, str] = {}
+        for k, v in raw.items():
+            if not isinstance(k, str) or not isinstance(v, str) or not re.fullmatch(r"/dev/[A-Za-z0-9/_\-]+", v):
+                raise ServiceError("Zuordnung ungültig")
+            if v:
+                mapping[k] = v
+        pw = d.get("passphrase") or ""
+        if not isinstance(pw, str) or len(pw) > 512:
+            raise ServiceError("Passphrase ungültig")
+        try:
+            plan = vmimage.build_plan(self.cfg, self.snap, self.vmcfg, mapping, rescue.candidate_disks(),
+                                      vmimage.RepairOptions.from_dict(d.get("repair") if isinstance(d.get("repair"), dict) else None))
+        except RescueError as e:
+            raise ServiceError(str(e)) from None
+        self.cfg.passphrase = pw
+        self.vmplan, self.vm_targets = plan, sorted(set(mapping.values()))
+        return {"vm": True, "disk": " ".join(self.vm_targets), "summary": plan.summary, "warnings": plan.warnings}
+
     def make_plan(self, d: dict) -> dict:
+        if self.mode == "vm":
+            return self.make_vm_plan(d)
         if not (self.cfg and self.snap and self.rec):
             raise ServiceError("Zuerst einen Snapshot wählen", 409)
         disk = _s(d, "disk", 64)
@@ -257,15 +303,18 @@ class RescueService:
         with self._lock:
             if self.run.state == "running":
                 raise ServiceError("Es läuft bereits eine Wiederherstellung", 409)
-            if not (self.cfg and self.snap and self.rec and self.plan):
+            vm = self.mode == "vm"
+            if not (self.cfg and self.snap and ((vm and self.vmplan) or (not vm and self.rec and self.plan))):
                 raise ServiceError("Zuerst einen Plan erstellen", 409)
             if not dry:
                 if os.geteuid() != 0:
                     raise ServiceError("Die Wiederherstellung braucht root (nur der Trockenlauf geht ohne)", 403)
-                if _s(d, "confirm", 64) != self.target:
-                    raise ServiceError(f"Bestätigung falsch: zum Starten den Gerätenamen {self.target} eintippen", 403)
+                want = self.vm_targets if vm else [self.target]
+                if sorted(set(_s(d, "confirm", 512).split())) != want:
+                    raise ServiceError(f"Bestätigung falsch: zum Starten {'alle Gerätenamen' if vm else 'den Gerätenamen'} "
+                                       f"{' '.join(want)} eintippen", 403)
             self.run = RunState("running", [], dry)
-            cfg, snap, rec, plan = self.cfg, self.snap, self.rec, self.plan
+            cfg, snap, rec, plan = self.cfg, self.snap, self.rec, (self.vmplan if vm else self.plan)
         threading.Thread(target=self._execute, args=(cfg, snap, rec, plan, dry), daemon=True).start()
         return {"started": True}
 
@@ -274,7 +323,8 @@ class RescueService:
             self.run.lines.append(line.rstrip("\n"))
         ok = False
         try:
-            ok = rescue.execute(cfg, snap, rec, plan, log, dry_run=dry)
+            ok = (vmimage.execute(cfg, plan, log, dry_run=dry) if self.mode == "vm"
+                  else rescue.execute(cfg, snap, rec, plan, log, dry_run=dry))
         except Exception as e:
             log(f"FEHLER: {str(e).replace(cfg.token, '***')}")
         finally:

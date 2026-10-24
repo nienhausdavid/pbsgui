@@ -16,9 +16,9 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, Checkbox, DataTable, Footer, Input, Label, RadioButton, RadioSet, RichLog, Static
+from textual.widgets import Button, Checkbox, DataTable, Footer, Input, Label, RadioButton, RadioSet, RichLog, Select, Static
 
-from ..core import rescue, update as updater, vpn
+from ..core import rescue, update as updater, vmimage, vpn
 from ..web import server as websrv
 from ..core.pbs_api import ApiError, fetch_fingerprint
 from ..core.rescue import RescueConfig, RescueError
@@ -35,6 +35,9 @@ DataTable { height: 10; margin-bottom: 1; }
 Input { border: none; border-bottom: solid ansi_white; height: 2; padding: 0 1; margin-bottom: 0; background: ansi_default; color: ansi_bright_white; }
 Input:focus { border-bottom: solid ansi_bright_cyan; background: ansi_default; }
 Input > .input--placeholder { color: ansi_white; text-style: italic; }
+Select { height: auto; margin-bottom: 1; }
+SelectCurrent { border: none; border-bottom: solid ansi_white; height: 2; background: ansi_default; color: ansi_bright_white; padding: 0 1; }
+SelectOverlay { background: ansi_black; color: ansi_bright_white; border: round ansi_bright_black; }
 Button { border: none; height: 1; min-width: 14; padding: 0 2; background: ansi_blue; color: ansi_bright_white; margin-right: 2; margin-bottom: 1; margin-top: 1; }
 Button:focus { background: ansi_cyan; color: ansi_black; text-style: bold; }
 Button.-primary { background: ansi_green; color: ansi_bright_white; }
@@ -87,6 +90,7 @@ class ConnectScreen(Screen):
             yield Input(value=c.keyfile, placeholder="Schlüsseldatei (verschlüsseltes Backup), z. B. /media/usb/key.json",
                         id="keyfile")
             yield Button("USB-Stick nach Schlüsseldatei durchsuchen", id="usb")
+            yield Checkbox("VM-Abbild wiederherstellen (Proxmox-VE-Backup einer virtuellen Maschine auf eine Platte)", id="vm-mode")
             yield Say(id="status")
             yield Button("Weiter", variant="primary", id="next")
         yield Footer()
@@ -165,6 +169,20 @@ class ConnectScreen(Screen):
         if c.keyfile and not Path(c.keyfile).is_file():
             self._say(f"Schlüsseldatei nicht gefunden: {c.keyfile}")
             return
+        if self.query_one("#vm-mode", Checkbox).value:
+            self._say("Suche VM-Backups …")
+            try:
+                vsnaps = await asyncio.to_thread(vmimage.list_vm_snapshots, c)
+            except Exception as ex:
+                self._say(f"Fehler: {ex}")
+                return
+            if not vsnaps:
+                self._say("Kein VM-Backup mit Abbild gefunden (VM-Nummer als Backup-ID und Namespace prüfen).")
+                return
+            self.app.vm_snaps, self.app.vm_plan = vsnaps, None
+            self.app.push_screen(VmSnapshotScreen())
+            return
+        self.app.vm_plan = None
         self._say("Suche Vollbackups …")
         try:
             snaps = await asyncio.to_thread(rescue.list_full_snapshots, c)
@@ -398,6 +416,141 @@ class SnapshotScreen(Screen):
         self.app.push_screen(DiskScreen())
 
 
+class VmSnapshotScreen(Screen):
+    BINDINGS = [("escape", "app.pop_screen", "Zurück")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="panel"):
+            yield Label("Schritt 2 von 4: VM-Backup wählen", classes="title", markup=False)
+            yield DataTable(id="snaps", cursor_type="row")
+            yield Say(id="status")
+            yield Button("Weiter", variant="primary", id="next")
+            yield Button("Zurück", id="back")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.call_after_refresh(self._populate)
+
+    def _populate(self) -> None:
+        t = self.query_one("#snaps", DataTable)
+        t.add_columns("Zeitpunkt", "VM", "Platten")
+        for s in self.app.vm_snaps:
+            disks = ", ".join(f"{d.key} {d.image_size / 2**30:.0f} GiB" for d in vmimage.vm_disks(s))
+            t.add_row(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(s.backup_time)), s.backup_id, disks)
+        t.focus()
+
+    async def on_button_pressed(self, e: Button.Pressed) -> None:
+        if e.button.id == "back":
+            self.app.pop_screen()
+            return
+        snap = self.app.vm_snaps[self.query_one("#snaps", DataTable).cursor_row]
+        self.query_one("#status", Say).update("Lade die VM-Konfiguration …")
+        try:
+            self.app.vmcfg = await asyncio.to_thread(vmimage.fetch_config, self.app.cfg, snap)
+        except Exception as ex:
+            msg = str(ex)
+            if "missing key" in msg:
+                msg += " — Schlüsseldatei im ersten Schritt angeben."
+            self.query_one("#status", Say).update(f"Fehler: {msg}")
+            return
+        self.app.vm_snap = snap
+        self.app.cfg.snapshot = snap.path
+        self.app.push_screen(VmDiskScreen())
+
+
+class VmDiskScreen(Screen):
+    BINDINGS = [("escape", "app.pop_screen", "Zurück")]
+
+    def compose(self) -> ComposeResult:
+        self.targets = rescue.candidate_disks()
+        disks = vmimage.vm_disks(self.app.vm_snap)
+        boot = vmimage.boot_disk_key(self.app.vmcfg, disks)
+        opts = [(f"{t['path']}  {t['size'] / 2**30:.0f} GiB  {t['model'] or '-'}", t["path"]) for t in self.targets]
+        with VerticalScroll(id="panel"):
+            yield Label("Schritt 3 von 4: Ziel-Platten und Reparaturen", classes="title", markup=False)
+            yield Static("Jede Platte der VM bekommt eine Ziel-Platte; ihr Inhalt wird KOMPLETT überschrieben. Platten ohne Ziel "
+                         "werden nicht wiederhergestellt.", classes="warn", markup=False)
+            for d in disks:
+                yield Label(f"{d.key}  ({d.image_size / 2**30:.1f} GiB)" + ("  Boot-Platte" if d.key == boot else ""), markup=False)
+                yield Select(opts, allow_blank=True, prompt="(nicht wiederherstellen)", id=f"map-{d.key}")
+            yield Label("Danach automatisch reparieren", classes="title", markup=False)
+            yield Checkbox("Partition und Dateisystem auf die Plattengröße vergrößern", value=True, id="r-grow")
+            yield Checkbox("Initramfs mit allen Treibern neu erzeugen", value=True, id="r-initramfs")
+            yield Checkbox("Bootloader neu installieren (UEFI mit Fallback oder BIOS)", value=True, id="r-bootloader")
+            yield Checkbox("Netzwerk-Schnittstellennamen anpassen", value=True, id="r-network")
+            yield Checkbox("qemu-guest-agent und cloud-init abschalten", value=True, id="r-services")
+            yield Input(placeholder="LUKS-Passphrase (nur wenn das Abbild verschlüsselte Volumes hat)", password=True, id="luks")
+            yield Say(id="status")
+            yield Button("Weiter", variant="primary", id="next")
+            yield Button("Zurück", id="back")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        def preselect() -> None:       # Boot-Platte auf die erste freie Ziel-Platte vorbelegen, wenn es genau eine gibt
+            disks = vmimage.vm_disks(self.app.vm_snap)
+            boot = vmimage.boot_disk_key(self.app.vmcfg, disks)
+            if len(self.targets) == 1 and boot:
+                self.query_one(f"#map-{boot}", Select).value = self.targets[0]["path"]
+        self.call_after_refresh(preselect)
+
+    def on_button_pressed(self, e: Button.Pressed) -> None:
+        if e.button.id == "back":
+            self.app.pop_screen()
+            return
+        say = self.query_one("#status", Say)
+        mapping = {}
+        for d in vmimage.vm_disks(self.app.vm_snap):
+            v = self.query_one(f"#map-{d.key}", Select).value
+            if isinstance(v, str):
+                mapping[d.key] = v
+        opts = vmimage.RepairOptions(**{k: self.query_one(f"#r-{k}", Checkbox).value
+                                        for k in ("grow", "initramfs", "bootloader", "network", "services")})
+        self.app.cfg.passphrase = self.query_one("#luks", Input).value
+        try:
+            self.app.vm_plan = vmimage.build_plan(self.app.cfg, self.app.vm_snap, self.app.vmcfg, mapping, self.targets, opts)
+        except RescueError as ex:
+            say.update(f"Fehler: {ex}")
+            return
+        self.app.vm_targets = sorted(set(mapping.values()))
+        self.app.push_screen(VmPlanScreen())
+
+
+class VmPlanScreen(Screen):
+    BINDINGS = [("escape", "app.pop_screen", "Zurück")]
+
+    def compose(self) -> ComposeResult:
+        p, vc = self.app.vm_plan, self.app.vmcfg
+        devs = " ".join(self.app.vm_targets)
+        with VerticalScroll(id="panel"):
+            yield Label("Schritt 4 von 4: Bestätigen", classes="title", markup=False)
+            yield Static(f"VM-Backup:  {self.app.vm_snap.path}   ({vc.name or 'ohne Namen'}, {vc.ostype or '?'}, "
+                         f"{'UEFI' if vc.uefi else 'BIOS'})\n" + "\n".join(p.summary) +
+                         ("\n\nWarnungen:\n" + "\n".join("  " + w for w in p.warnings) if p.warnings else ""), markup=False)
+            yield Static(f"\nALLE DATEN AUF {devs} GEHEN VERLOREN.\nZur Bestätigung alle Gerätenamen eintippen (mit Leerzeichen):",
+                         classes="warn", markup=False)
+            yield Input(placeholder=devs, id="confirm")
+            yield Say(id="status")
+            yield Button("Wiederherstellen", variant="error", id="go")
+            yield Button("Trockenlauf (nur anzeigen)", id="dry")
+            yield Button("Zurück", id="back")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.call_after_refresh(lambda: self.query_one("#confirm", Input).focus())
+
+    def on_button_pressed(self, e: Button.Pressed) -> None:
+        if e.button.id == "back":
+            self.app.pop_screen()
+            return
+        dry = e.button.id == "dry"
+        typed = sorted(set(self.query_one("#confirm", Input).value.split()))
+        if not dry and typed != self.app.vm_targets:
+            self.query_one("#status", Say).update("Bestätigung stimmt nicht überein. Es wurde nichts verändert.")
+            return
+        self.app.dry_run = dry
+        self.app.push_screen(RunScreen())
+
+
 class DiskScreen(Screen):
     BINDINGS = [("escape", "app.pop_screen", "Zurück")]
 
@@ -560,8 +713,10 @@ class RunScreen(Screen):
         log = lambda line: self.app.call_from_thread(self.query_one("#log", RichLog).write, line)
         ok = False
         try:
-            ok = rescue.execute(self.app.cfg, self.app.snap, self.app.rec, self.app.plan, log,
-                                dry_run=self.app.dry_run)
+            if self.app.vm_plan is not None:
+                ok = vmimage.execute(self.app.cfg, self.app.vm_plan, log, dry_run=self.app.dry_run)
+            else:
+                ok = rescue.execute(self.app.cfg, self.app.snap, self.app.rec, self.app.plan, log, dry_run=self.app.dry_run)
         except Exception as ex:
             log(f"FEHLER: {ex}")
         self.app.call_from_thread(self._finished, ok)
@@ -589,6 +744,7 @@ class RescueApp(App):
         super().__init__()
         self.cfg = cfg or RescueConfig(server="", datastore="", auth_id="")
         self.snaps, self.snap, self.rec, self.plan, self.dry_run = [], None, None, None, False
+        self.vm_snaps, self.vm_snap, self.vmcfg, self.vm_plan, self.vm_targets = [], None, None, None, []
         self.restart = False      # nach einem Update von pbstui: Assistent mit dem neuen Code neu starten
 
     def on_mount(self) -> None:

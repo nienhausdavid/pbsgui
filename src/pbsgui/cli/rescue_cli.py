@@ -27,7 +27,9 @@ def add_arguments(sub) -> None:
     rsub = sp.add_subparsers(dest="rescue_cmd")
     for name, help_ in (("disks", "mögliche Ziel-Platten anzeigen"),
                         ("keys", "USB-Sticks einhängen und nach Schlüsseldateien suchen"), ("snapshots", "Vollbackups des Servers auflisten"),
-                        ("run", "Wiederherstellung durchführen")):
+                        ("run", "Wiederherstellung durchführen"),
+                        ("vm-snapshots", "VM-Backups (Proxmox VE, Snapshots vm/<id>) des Servers auflisten"),
+                        ("vm-run", "VM-Abbild auf eine oder mehrere physische Platten wiederherstellen (V2P)")):
         r = rsub.add_parser(name, help=help_)
         if name not in ("disks", "keys"):
             r.add_argument("--config", help=f"JSON mit Verbindungsdaten (Standard: {DEFAULT_CONFIG}, falls vorhanden)")
@@ -36,6 +38,19 @@ def add_arguments(sub) -> None:
             r.add_argument("--fingerprint"); r.add_argument("--backup-id")
             r.add_argument("--keyfile", help="exportierte Schlüsseldatei (bei verschlüsseltem Backup)")
             r.add_argument("--yes", action="store_true", help="Fingerprint ohne Rückfrage akzeptieren")
+        if name in ("vm-snapshots", "vm-run"):
+            r.add_argument("--vmid", help="VM-Nummer (entspricht --backup-id)")
+        if name == "vm-run":
+            r.add_argument("--snapshot", help="Snapshot-Pfad, z. B. vm/100/2026-10-20T10:00:00Z; Standard: neuester der VM")
+            r.add_argument("--map", action="append", default=[], metavar="QUELLE=ZIEL",
+                           help="Quell-Platte der VM auf Ziel-Platte, z. B. --map scsi0=/dev/sda (mehrfach; ohne Angabe: Boot-Platte auf --disk)")
+            r.add_argument("--disk", help="Kurzform für --map <Boot-Platte>=DISK")
+            r.add_argument("--dry-run", action="store_true"); r.add_argument("--confirm-disk", action="append", default=None,
+                                                                              help="jede Ziel-Platte zur Bestätigung angeben (ohne Rückfrage)")
+            for opt, what in (("grow", "Partition und Dateisystem vergrößern"), ("initramfs", "Initramfs mit allen Treibern neu erzeugen"),
+                              ("bootloader", "Bootloader neu installieren"), ("network", "Netzwerk-Schnittstellennamen anpassen"),
+                              ("services", "qemu-guest-agent und cloud-init abschalten")):
+                r.add_argument(f"--no-{opt}", dest=f"no_{opt}", action="store_true", help=f"nicht: {what}")
         if name == "run":
             r.add_argument("--disk", required=True, help="Ziel-Platte, z. B. /dev/sda (wird KOMPLETT überschrieben)")
             r.add_argument("--snapshot", help="Snapshot-Pfad; Standard: neuester")
@@ -115,8 +130,8 @@ def cmd_rescue(a, mgr=None) -> int:
             keys = find_key_files(mount=os.geteuid() == 0)
             print("\n".join(keys) if keys else "Keine Schlüsseldatei gefunden.")
             return 0 if keys else 1
-        if a.rescue_cmd in ("snapshots", "run"):
-            return _snapshots(a) if a.rescue_cmd == "snapshots" else _run(a)
+        if a.rescue_cmd in ("snapshots", "run", "vm-snapshots", "vm-run"):
+            return {"snapshots": _snapshots, "run": _run, "vm-snapshots": _vm_snapshots, "vm-run": _vm_run}[a.rescue_cmd](a)
         from ..tui.rescue import run as run_tui  # ohne Unterbefehl: geführter Assistent
         run_tui()
         return 0
@@ -176,3 +191,64 @@ def _run(a) -> int:
             raise RescueCliError("Abgebrochen: Bestätigung stimmt nicht überein, nichts wurde verändert.", 2)
     ok = execute(cfg, snap, rec, plan, lambda l: print(l, flush=True), dry_run=a.dry_run)
     return 0 if ok else 1
+
+
+def _vm_snapshots(a) -> int:
+    import time
+
+    from ..core import vmimage
+    a.backup_id = getattr(a, "vmid", None) or getattr(a, "backup_id", None)
+    cfg = build_config(a)
+    snaps = vmimage.list_vm_snapshots(cfg)
+    if not snaps:
+        print("Keine VM-Backups (vm/…) mit Abbild gefunden.")
+        return 1
+    for i, s in enumerate(snaps):
+        disks = ", ".join(f"{d.key} {d.image_size / 2**30:.1f} GiB" for d in vmimage.vm_disks(s))
+        print(f"{i}  {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(s.backup_time))}  VM {s.backup_id:<8} {disks}   {s.path}")
+    return 0
+
+
+def _vm_run(a) -> int:
+    from ..core import vmimage
+    if os.geteuid() != 0 and not a.dry_run:
+        raise RescueCliError("Die Wiederherstellung braucht root (in der Rettungs-ISO ist das der Standard)")
+    a.backup_id = a.vmid or getattr(a, "backup_id", None)
+    cfg = build_config(a)
+    snaps = vmimage.list_vm_snapshots(cfg)
+    if a.snapshot:
+        snap = next((s for s in snaps if s.path == a.snapshot), None)
+        if not snap:
+            raise RescueCliError(f"Snapshot nicht gefunden: {a.snapshot}")
+    elif snaps:
+        snap = snaps[0]
+    else:
+        raise RescueCliError("Kein VM-Backup mit Abbild gefunden (--vmid prüfen)")
+    cfg.snapshot = snap.path
+    print(f"Snapshot: {snap.path}")
+    vmcfg = vmimage.fetch_config(cfg, snap)
+    mapping = vmimage.parse_mapping(a.map)
+    if a.disk:
+        mapping.setdefault(vmimage.boot_disk_key(vmcfg, vmimage.vm_disks(snap)), a.disk)
+    if not mapping:
+        raise RescueCliError("Ziel fehlt: --map scsi0=/dev/sda (oder --disk /dev/sda für die Boot-Platte)")
+    if os.environ.get("PBSGUI_LUKS_PASSPHRASE"):
+        cfg.passphrase = os.environ["PBSGUI_LUKS_PASSPHRASE"]
+    opts = vmimage.RepairOptions(**{k: not getattr(a, f"no_{k}") for k in ("grow", "initramfs", "bootloader", "network", "services")})
+    plan = vmimage.build_plan(cfg, snap, vmcfg, mapping, candidate_disks(), opts)
+    print(f"\nVM: {vmcfg.name or snap.backup_id}   Betriebssystem: {vmcfg.ostype or '?'}   Firmware: {'UEFI' if vmcfg.uefi else 'BIOS'}")
+    print("Geplante Wiederherstellung:")
+    for line in plan.summary:
+        print("  " + line)
+    for w in plan.warnings:
+        print("  Warnung: " + w)
+    if not a.dry_run:
+        wanted = sorted(set(mapping.values()))
+        typed = a.confirm_disk
+        if typed is None:
+            if not sys.stdin.isatty():
+                raise RescueCliError("Bestätigung fehlt: " + " ".join(f"--confirm-disk {d}" for d in wanted), 2)
+            typed = input(f"\nALLE DATEN AUF {' '.join(wanted)} GEHEN VERLOREN. Zur Bestätigung die Gerätenamen eintippen (mit Leerzeichen getrennt): ").split()
+        if sorted(set(t.strip() for t in typed)) != wanted:
+            raise RescueCliError("Abgebrochen: Bestätigung stimmt nicht überein, nichts wurde verändert.", 2)
+    return 0 if vmimage.execute(cfg, plan, lambda l: print(l, flush=True), dry_run=a.dry_run) else 1

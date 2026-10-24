@@ -299,3 +299,45 @@ async def test_web_screen_shows_credentials_and_events(monkeypatch):
         pilot.app.screen.query_one("#web-on", Button).press()
         assert await wait_for(pilot, lambda: "tisch47-wolke12-kerze83-anker66" in str(pilot.app.screen.query_one("#webinfo").render()))
         assert await wait_for(pilot, lambda: "login-fail" in str(pilot.app.screen.query_one("#events").render()))
+
+
+async def test_vm_mode_wizard_maps_disks_and_confirms_all_devices(fake_env, tmp_path, monkeypatch):
+    from textual.widgets import Select
+    from pbsgui.core import vmimage
+    from test_vmimage import CONF, vmsnap
+    put_snapshots(fake_env, [vmsnap(100)])
+    conf = tmp_path / "c.conf"; conf.write_text(CONF)
+    monkeypatch.setenv("FAKE_PBS_VMCONF", str(conf))
+    disks = [{"path": "/dev/sda", "size": 64 * 2**30, "model": "A", "tran": "sata", "removable": False},
+             {"path": "/dev/sdb", "size": 200 * 2**30, "model": "B", "tran": "sata", "removable": False}]
+    monkeypatch.setattr(rescue_mod, "candidate_disks", lambda lsblk_json=None: disks)
+    ran = []
+    monkeypatch.setattr(vmimage, "execute", lambda cfg, plan, on_line, dry_run=False: ran.append((sorted(plan.mapping.items()), dry_run)) or True)
+    cfg = RescueConfig(server="pbs.example", datastore="d", auth_id="u@pbs!t", fingerprint="AA:BB", backup_id="100",
+                       client=str(__import__("pathlib").Path(__file__).parent / "fake_pbs_client.py"))
+    app = rtui.RescueApp(cfg)
+    async with app.run_test(size=(140, 70)) as pilot:
+        await pilot.pause()
+        assert await wait_for(pilot, lambda: pilot.app.screen.query_one("#token", Input))
+        s = pilot.app.screen
+        s.query_one("#token", Input).value = "geheim"
+        s.query_one("#vm-mode", Checkbox).value = True
+        s.query_one("#next", Button).press()
+        assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ == "VmSnapshotScreen")
+        assert await wait_for(pilot, lambda: pilot.app.screen.query_one("#snaps", DataTable).row_count == 1)
+        pilot.app.screen.query_one("#next", Button).press()
+        assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ == "VmDiskScreen")
+        assert await wait_for(pilot, lambda: len(pilot.app.screen.query("#map-scsi1")) > 0)
+        scr = pilot.app.screen
+        for wid, dev in (("#map-scsi0", "/dev/sda"), ("#map-scsi1", "/dev/sdb")):      # Select baut seine Kinder erst nach dem Einblenden auf
+            assert await wait_for(pilot, lambda w=wid, d=dev: setattr(scr.query_one(w, Select), "value", d) or True)
+        scr.query_one("#next", Button).press()
+        assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ == "VmPlanScreen")
+        plan = pilot.app.screen
+        plan.query_one("#confirm", Input).value = "/dev/sda"             # nur eine der beiden Platten: abgelehnt
+        plan.query_one("#go", Button).press()
+        await pilot.pause(0.2)
+        assert ran == [] and pilot.app.screen.__class__.__name__ == "VmPlanScreen"
+        plan.query_one("#confirm", Input).value = "/dev/sdb /dev/sda"
+        plan.query_one("#go", Button).press()
+        assert await wait_for(pilot, lambda: ran == [([("scsi0", "/dev/sda"), ("scsi1", "/dev/sdb")], False)])

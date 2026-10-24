@@ -256,3 +256,40 @@ def test_chain_orders_luks_then_pv_then_lv():
     ctx._lsblk = lambda: tree          # type: ignore[method-assign]
     assert ctx._chain("/dev/mapper/vg-root") == [("luks", "/dev/mapper/pbsgui-luks0"), ("pv", "/dev/mapper/pbsgui-luks0"),
                                                  ("lv", "/dev/mapper/vg-root")]
+
+
+# -- Kommandozeile ----------------------------------------------------------------------------------------------------
+def cli(argv, monkeypatch, fake_env, tmp_path, capsys, env=None):
+    from pbsgui.cli.main import main
+    monkeypatch.setenv("PBSGUI_TOKEN_SECRET", "geheim")
+    monkeypatch.setenv("FAKE_PBS_DIR", str(fake_env))
+    conf = tmp_path / "c.conf"; conf.write_text(CONF)
+    monkeypatch.setenv("FAKE_PBS_VMCONF", str(conf))
+    from pbsgui.core import rescue
+    monkeypatch.setattr("pbsgui.cli.rescue_cli.candidate_disks", lambda: [disk("/dev/sda", 64), disk("/dev/sdb", 200)])
+    base = ["rescue", argv[0], "--server", "pbs.example", "--datastore", "d", "--auth-id", "u@pbs!t", "--fingerprint", "AA:BB", *argv[1:]]
+    rc = main(base)
+    out = capsys.readouterr()
+    return rc, out.out, out.err
+
+
+def test_cli_vm_snapshots_and_dry_run(fake_env, tmp_path, monkeypatch, capsys):
+    put_snapshots(fake_env, [vmsnap(100), vmsnap(300), vmsnap(200, vmid="101")])
+    rc, out, _ = cli(["vm-snapshots", "--vmid", "100"], monkeypatch, fake_env, tmp_path, capsys)
+    assert rc == 0 and "VM 100" in out and "scsi0 32.0 GiB, scsi1 100.0 GiB" in out and "VM 101" not in out
+    rc, out, err = cli(["vm-run", "--vmid", "100", "--map", "scsi0=/dev/sda", "--map", "scsi1=/dev/sdb", "--dry-run"],
+                       monkeypatch, fake_env, tmp_path, capsys)
+    assert rc == 0, err
+    assert "VM: webserver" in out and "Firmware: UEFI" in out and "scsi0 (32.0 GiB) -> /dev/sda" in out
+    assert "wipefs -a /dev/sdb" in out and "geheim" not in out + err
+
+
+def test_cli_vm_run_needs_confirmation_and_mapping(fake_env, tmp_path, monkeypatch, capsys):
+    put_snapshots(fake_env, [vmsnap(100)])
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    rc, out, err = cli(["vm-run", "--vmid", "100", "--disk", "/dev/sda"], monkeypatch, fake_env, tmp_path, capsys)
+    assert rc == 2 and "--confirm-disk /dev/sda" in err                       # nicht interaktiv, keine Bestätigung
+    rc, out, err = cli(["vm-run", "--vmid", "100", "--disk", "/dev/sda", "--confirm-disk", "/dev/sdx"], monkeypatch, fake_env, tmp_path, capsys)
+    assert rc == 2 and "Bestätigung stimmt nicht" in err
+    rc, out, err = cli(["vm-run", "--vmid", "100", "--dry-run"], monkeypatch, fake_env, tmp_path, capsys)
+    assert rc == 1 and "Ziel fehlt" in err

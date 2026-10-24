@@ -70,6 +70,8 @@ code{font-family:ui-monospace,monospace}
 
 <section class="card hidden" data-step="2"><h2>2. Backup-Server</h2>
   <div class="row"><div><label for="server">Server</label><input id="server" placeholder="pbs.example.org"></div><div><label for="port">Port</label><input id="port" value="8007" inputmode="numeric"></div></div>
+  <label for="mode">Art der Wiederherstellung</label>
+  <select id="mode"><option value="files">Dateien: pbsgui-Vollbackup eines Linux-Systems (Plattenlayout wird nachgebaut)</option><option value="vm">VM-Abbild: Proxmox-VE-Backup einer virtuellen Maschine auf physische Platten (V2P)</option></select>
   <div class="row"><div><label for="datastore">Datastore</label><input id="datastore"></div><div><label for="namespace">Namespace (leer = Wurzel)</label><input id="namespace"></div></div>
   <div class="row"><div><label for="backup_id">Backup-ID (leer = alle)</label><input id="backup_id"></div><div><label for="auth_id">Token-ID</label><input id="auth_id" placeholder="benutzer@pbs!name"></div></div>
   <label for="token">Token-Secret</label><input id="token" type="password" autocomplete="off">
@@ -85,19 +87,31 @@ code{font-family:ui-monospace,monospace}
   <button class="back">Zurück</button><button id="choose" class="primary">Weiter</button><div id="cmsg" class="msg"></div>
 </section>
 
-<section class="card hidden" data-step="4"><h2>4. Ziel-Platte und Verschlüsselung</h2>
-  <p class="warn">Die gewählte Platte wird <b>komplett überschrieben</b>.</p>
+<section class="card hidden" data-step="4"><h2>4. Ziel-Platten</h2>
+  <p class="warn">Die gewählten Platten werden <b>komplett überschrieben</b>.</p>
+  <div id="vmmode" class="hidden">
+    <p id="vminfo" class="muted"></p><div id="vmdisks"></div>
+    <h3>Danach automatisch reparieren</h3>
+    <label class="opt"><input type="checkbox" id="r-grow" checked><span>Partition und Dateisystem auf die Plattengröße vergrößern</span></label>
+    <label class="opt"><input type="checkbox" id="r-initramfs" checked><span>Initramfs mit allen Treibern neu erzeugen (neue Hardware)</span></label>
+    <label class="opt"><input type="checkbox" id="r-bootloader" checked><span>Bootloader neu installieren (UEFI mit Fallback oder BIOS)</span></label>
+    <label class="opt"><input type="checkbox" id="r-network" checked><span>Netzwerk-Schnittstellennamen anpassen</span></label>
+    <label class="opt"><input type="checkbox" id="r-services" checked><span>qemu-guest-agent und cloud-init abschalten</span></label>
+    <label for="vmluks">LUKS-Passphrase (nur wenn das Abbild verschlüsselte Volumes hat)</label><input id="vmluks" type="password" autocomplete="off">
+  </div>
+  <div id="filemode">
   <div id="disks"></div>
   <label for="enc">Verschlüsselung (LUKS)</label>
   <select id="enc"><option value="keep">Wie im Original</option><option value="new">Neu verschlüsseln (neue Passphrase)</option><option value="none">Ohne Verschlüsselung</option></select>
   <div id="oldpass" class="hidden"><label for="pass">LUKS-Passphrase des Originalsystems</label><input id="pass" type="password" autocomplete="off"></div>
   <div id="newpass" class="hidden"><label for="npass">Neue LUKS-Passphrase (mindestens 8 Zeichen)</label><input id="npass" type="password" autocomplete="off"></div>
   <label class="opt hidden" id="shrinkrow"><input type="checkbox" id="shrink"><span>Größe anpassen: die Platte ist kleiner als das Original, Partitionen und Volumes werden verkleinert</span></label>
+  </div>
   <button class="back">Zurück</button><button id="plan" class="primary">Plan erstellen</button><div id="pmsg" class="msg"></div>
 </section>
 
 <section class="card hidden" data-step="5"><h2>5. Plan prüfen</h2><ul id="plansum"></ul><div id="planwarn"></div>
-  <label for="confirm">Zur Bestätigung den Gerätenamen eintippen: <code id="confirmname"></code></label><input id="confirm" autocomplete="off" spellcheck="false">
+  <label for="confirm">Zur Bestätigung den Gerätenamen eintippen (bei mehreren alle, mit Leerzeichen): <code id="confirmname"></code></label><input id="confirm" autocomplete="off" spellcheck="false">
   <button class="back">Zurück</button><button id="dry">Trockenlauf</button><button id="go" class="danger">Wiederherstellen</button><div id="rmsg" class="msg"></div>
 </section>
 
@@ -174,28 +188,44 @@ $("setkey").onclick = ev => busy(ev.target, async () => {
   catch (e) { msg("smsg", e.message, "bad"); }
 });
 $("connect").onclick = ev => busy(ev.target, async () => {
-  msg("smsg", "Suche Vollbackups …");
+  msg("smsg", $("mode").value === "vm" ? "Suche VM-Backups …" : "Suche Vollbackups …");
   try {
     const d = await api("/api/connect", {server: $("server").value, port: $("port").value, datastore: $("datastore").value, namespace: $("namespace").value,
-      backup_id: $("backup_id").value, auth_id: $("auth_id").value, token: $("token").value, fingerprint: $("fp").value});
+      backup_id: $("backup_id").value, mode: $("mode").value, auth_id: $("auth_id").value, token: $("token").value, fingerprint: $("fp").value});
     $("token").value = ""; snapshots = d.snapshots;
-    if (!snapshots.length) { msg("smsg", "Keine Vollbackups mit Wiederherstellungsdaten gefunden (Backup-ID, Namespace und Schlüssel prüfen).", "bad"); return; }
+    vmMode = d.mode === "vm";
+    if (!snapshots.length) { msg("smsg", vmMode ? "Keine VM-Backups mit Abbild gefunden (VM-Nummer als Backup-ID, Namespace und Schlüssel prüfen)." : "Keine Vollbackups mit Wiederherstellungsdaten gefunden (Backup-ID, Namespace und Schlüssel prüfen).", "bad"); return; }
     $("snaps").replaceChildren(...snapshots.map((s, i) => el("label", {className: "opt"},
       el("input", {type: "radio", name: "snap", value: s.path, checked: i === 0}),
-      el("span", {textContent: new Date(s.time * 1000).toLocaleString("de-DE") + "  ·  " + s.backup_id + (s.size ? "  ·  " + fmtSize(s.size) : "")}))));
+      el("span", {textContent: new Date(s.time * 1000).toLocaleString("de-DE") + "  ·  " + (vmMode ? "VM " : "") + s.backup_id +
+        (vmMode ? "  ·  " + s.disks.map(x => x.key + " " + fmtSize(x.size)).join(", ") : (s.size ? "  ·  " + fmtSize(s.size) : ""))}))));
     msg("smsg", ""); goto(3);
   } catch (e) { msg("smsg", e.message, "bad"); }
 });
 
-let originalSize = 0, needsPass = false;
+let originalSize = 0, needsPass = false, vmMode = false, vmInfo = null;
 $("choose").onclick = ev => busy(ev.target, async () => {
   const sel = document.querySelector("input[name=snap]:checked"); if (!sel) return;
   msg("cmsg", "Lade die Layout-Daten des Snapshots …");
   try {
-    const d = await api("/api/choose", {path: sel.value}); originalSize = d.original_size; needsPass = d.needs_passphrase;
-    renderDisks(d.disks); updateEnc(); msg("cmsg", ""); goto(4);
+    const d = await api("/api/choose", {path: sel.value});
+    show($("filemode"), !d.vm); show($("vmmode"), !!d.vm);
+    if (d.vm) { vmInfo = d; renderVm(d); }
+    else { originalSize = d.original_size; needsPass = d.needs_passphrase; renderDisks(d.disks); updateEnc(); }
+    msg("cmsg", ""); goto(4);
   } catch (e) { msg("cmsg", e.message, "bad"); }
 });
+function renderVm(d) {
+  $("vminfo").textContent = "VM " + (d.name || "(ohne Namen)") + " · " + (d.ostype || "?") + " · " + (d.uefi ? "UEFI" : "BIOS") + ". Jede Platte der VM bekommt eine Ziel-Platte; Platten ohne Ziel werden nicht wiederhergestellt.";
+  if (!d.targets.length) { $("vmdisks").replaceChildren(el("p", {className: "bad", textContent: "Keine zulässige Ziel-Platte gefunden (eingehängte Platten und das Live-Medium sind ausgeschlossen)."})); return; }
+  $("vmdisks").replaceChildren(...d.disks.map(x => {
+    const sel = el("select", {id: "map-" + x.key});
+    sel.append(el("option", {value: "", textContent: "(nicht wiederherstellen)"}));
+    d.targets.forEach(t => sel.append(el("option", {value: t.path, textContent: t.path + " · " + fmtSize(t.size) + " · " + (t.model || "-"),
+                                                      selected: x.boot && d.targets.length === 1})));
+    return el("div", {}, el("label", {htmlFor: "map-" + x.key, textContent: x.key + " (" + fmtSize(x.size) + ")" + (x.boot ? " · Boot-Platte" : "")}), sel);
+  }));
+}
 function renderDisks(disks) {
   if (!disks.length) { $("disks").replaceChildren(el("p", {className: "bad", textContent: "Keine zulässige Ziel-Platte gefunden (eingehängte Platten und das Live-Medium sind ausgeschlossen)."})); return; }
   $("disks").replaceChildren(...disks.map((d, i) => el("label", {className: "opt"},
@@ -210,10 +240,19 @@ function updateEnc() {
 }
 $("enc").onchange = updateEnc;
 $("plan").onclick = ev => busy(ev.target, async () => {
-  const sel = document.querySelector("input[name=disk]:checked"); if (!sel) { msg("pmsg", "Bitte eine Platte wählen.", "bad"); return; }
+  let body;
+  if (vmMode) {
+    const mapping = {}; (vmInfo.disks || []).forEach(x => { const v = $("map-" + x.key); if (v && v.value) mapping[x.key] = v.value; });
+    if (!Object.keys(mapping).length) { msg("pmsg", "Bitte mindestens eine Ziel-Platte wählen.", "bad"); return; }
+    const repair = {}; ["grow", "initramfs", "bootloader", "network", "services"].forEach(k => repair[k] = $("r-" + k).checked);
+    body = {mapping, repair, passphrase: $("vmluks").value};
+  } else {
+    const sel = document.querySelector("input[name=disk]:checked"); if (!sel) { msg("pmsg", "Bitte eine Platte wählen.", "bad"); return; }
+    body = {disk: sel.value, encryption: $("enc").value, passphrase: $("pass").value, new_passphrase: $("npass").value, shrink: $("shrink").checked};
+  }
   msg("pmsg", "Erstelle den Plan …");
   try {
-    const d = await api("/api/plan", {disk: sel.value, encryption: $("enc").value, passphrase: $("pass").value, new_passphrase: $("npass").value, shrink: $("shrink").checked});
+    const d = await api("/api/plan", body);
     $("plansum").replaceChildren(...d.summary.map(l => el("li", {textContent: l})));
     $("planwarn").replaceChildren(...d.warnings.map(w => el("p", {className: "warn", textContent: "Warnung: " + w})));
     $("confirmname").textContent = d.disk; $("confirm").value = ""; msg("pmsg", ""); goto(5);
