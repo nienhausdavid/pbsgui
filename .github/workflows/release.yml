@@ -43,9 +43,40 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/*.deb --title "pbsgui ${GITHUB_REF_NAME#v}" --notes-file notes.md
 
+  iso-changes:
+    name: Hat sich die ISO geändert?
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_TAG: ${{ inputs.tag }}
+        run: |
+          # Die ISO aktualisiert die Programme beim Start selbst (pbsgui-update): neu gebaut wird nur, wenn sich etwas an der ISO
+          # selbst geändert hat (iso/, scripts/build-iso.sh) seit dem letzten Release, das eine ISO hat. Manueller Start: immer bauen.
+          if [ -n "$MANUAL_TAG" ]; then echo "Manueller Start: ISO wird gebaut."; echo "build=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          base=""
+          for t in $(git tag --sort=-v:refname | grep -vx "$GITHUB_REF_NAME"); do
+            if gh release view "$t" --json assets -q '.assets[].name' 2>/dev/null | grep -q '^pbsgui-rescue-.*\.iso$'; then base="$t"; break; fi
+          done
+          if [ -z "$base" ]; then echo "Keine frühere ISO gefunden: ISO wird gebaut."; echo "build=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --quiet "$base" HEAD -- iso scripts/build-iso.sh; then
+            echo "Keine Änderung an der ISO seit $base: ISO wird nicht neu gebaut (die ISO von $base aktualisiert sich beim Start selbst)."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Änderungen an der ISO seit $base:"; git diff --stat "$base" HEAD -- iso scripts/build-iso.sh
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   iso:
     name: Rettungs-ISO bauen
-    needs: build
+    needs: [build, iso-changes]
+    if: needs.iso-changes.outputs.build == 'true'
     runs-on: ubuntu-latest
     # Debian 13 im Container: live-build der Ubuntu-Runner ist zu alt (kennt --bootloaders u. a. nicht)
     container:

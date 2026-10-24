@@ -36,7 +36,7 @@ git push origin main && git push origin v0.4.0      # or right away: scripts/rel
 The tag starts the workflow `Release`: it checks that the tag and `pyproject.toml` match, builds the `.deb` files and the
 ISO, creates the GitHub release with the notes from the CHANGELOG and updates the APT repository (all earlier
 release `.deb` files stay included). A tag that has been published is never moved: errors in a release
-are fixed with the next PATCH release. With `workflow_dispatch` (input `tag`) an ISO can be attached to an existing release afterwards.
+are fixed with the next PATCH release. The ISO is only rebuilt when something changed in `iso/` or `scripts/build-iso.sh` since the last release that has an ISO (the ISO updates the programs itself at boot); a release without an ISO asset keeps pointing to the ISO of the earlier release. With `workflow_dispatch` (input `tag`) an ISO can be attached to an existing release afterwards.
 
 ## Installation for users
 

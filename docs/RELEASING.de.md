@@ -35,7 +35,7 @@ git push origin main && git push origin v0.4.0      # oder gleich: scripts/relea
 Der Tag startet den Workflow `Release`: Er prüft, dass Tag und `pyproject.toml` übereinstimmen, baut das `.deb` und die
 ISO, legt das GitHub-Release mit den Notizen aus dem CHANGELOG an und aktualisiert das APT-Repository (alle früheren
 Release-`.deb` bleiben enthalten). Ein einmal veröffentlichter Tag wird nicht verschoben: Fehler in einem Release
-behebt man mit dem nächsten PATCH-Release.
+behebt man mit dem nächsten PATCH-Release. Die ISO wird nur neu gebaut, wenn sich seit dem letzten Release mit ISO etwas in `iso/` oder `scripts/build-iso.sh` geändert hat (die ISO aktualisiert die Programme beim Start selbst); ein Release ohne ISO-Anhang verweist weiter auf die ISO des früheren Releases.
 
 ## Installation für Nutzer
 
