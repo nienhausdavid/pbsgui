@@ -122,7 +122,9 @@ class TrayController(QObject):
         head = QAction(LABELS[self.state], m); head.setEnabled(False); m.addAction(head)
         m.addSeparator()
         m.addAction(tr("Fenster öffnen"), self.show_window)
-        sub = m.addMenu(tr("Jetzt sichern"))
+        sub = QMenu(tr("Jetzt sichern"))
+        m.addMenu(sub)
+        self._backup_menu = sub               # Referenz halten: sonst räumt PySide das Untermenü früh ab
         for o in self.overviews:
             act = sub.addAction(o.profile.name)
             act.setEnabled(not o.running)

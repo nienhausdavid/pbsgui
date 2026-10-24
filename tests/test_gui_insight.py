@@ -21,6 +21,16 @@ T0 = int(time.time()) - 5 * 86400
 
 
 @pytest.fixture(autouse=True)
+def _no_gc_in_worker_threads():
+    """Die Speicherbereinigung kann in einem Worker-Thread laufen und dort Qt-Widgets abräumen (Absturz): nur im Haupt-Thread."""
+    import gc
+    gc.disable()
+    yield
+    gc.enable()
+    gc.collect()
+
+
+@pytest.fixture(autouse=True)
 def _settings(tmp_path, monkeypatch):
     """QSettings und Autostart nie im echten Benutzerverzeichnis anlegen."""
     from PySide6.QtCore import QSettings as QS
