@@ -15,13 +15,14 @@ FULL = "full"
 # Pseudo- und flüchtige Verzeichnisse (liegen meist auf anderen Dateisystemen und würden ohnehin übersprungen;
 # die Muster sind eine zusätzliche Absicherung) sowie Swap-Dateien. Bewusst KEINE Container-/Docker-Verzeichnisse
 # und nicht /mnt, /media: dort eingehängte Laufwerke wählt der Benutzer selbst aus.
-DEFAULT_FULL_EXCLUDES = ["/proc", "/sys", "/dev", "/run", "/tmp", "/var/tmp", "/lost+found", "/swapfile",
-                         "/swap.img", "/var/cache/apt/archives"]
+DEFAULT_FULL_EXCLUDES = ["/proc", "/sys", "/dev", "/run", "/tmp", "/var/tmp", "/lost+found", "/swapfile",  # noqa: S108  # nosec B108
+                         "/swap.img", "/var/cache/apt/archives"]  # Ausschlussliste, keine Temp-Nutzung
 
+# (S108/B108 unten: /tmp usw. sind hier Ausschlussmuster, keine Nutzung von Temp-Verzeichnissen.)
 # Der Client geht standardmäßig nicht über Dateisystemgrenzen. Nur diese lokalen Typen kommen als Auswahl in
 # Frage; Netzwerk- (nfs, cifs, sshfs …), virtuelle (tmpfs, overlay …) und Pseudo-Dateisysteme nie.
 LOCAL_FS = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "jfs", "reiserfs", "zfs", "exfat", "ntfs3"}
-_HIDDEN_PREFIXES = ("/proc", "/sys", "/dev", "/tmp", "/var/tmp", "/snap")
+_HIDDEN_PREFIXES = ("/proc", "/sys", "/dev", "/tmp", "/var/tmp", "/snap")  # noqa: S108  # nosec B108
 # Mounts, die ohne ausdrückliche Auswahl NICHT mitkommen (Wechselmedien, manuelle Mounts)
 _OPT_IN_PREFIXES = ("/media", "/mnt", "/run")
 _SUBVOL_FS = {"btrfs", "zfs"}  # Subvolumes haben root != "/" und sind trotzdem keine Bind-Mounts

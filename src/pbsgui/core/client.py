@@ -139,7 +139,8 @@ class PbsClient:
                                         stdin=subprocess.DEVNULL, text=True, bufsize=1)
             except FileNotFoundError:
                 raise ClientError(f"Client nicht gefunden: {self.binary}") from None
-            assert proc.stdout
+            if proc.stdout is None:
+                raise ClientError("Kein Ausgabestrom vom Client")
             sampler = None
             if on_progress is not None:
                 from . import progress as prog

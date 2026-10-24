@@ -18,9 +18,17 @@ from typing import Iterator
 from .client import ClientError, client_binary
 
 
+def _ram_dir() -> str | None:
+    """RAM-Verzeichnis für Klartext-Schlüssel: XDG_RUNTIME_DIR, sonst /run (root) oder /dev/shm; None = Systemstandard."""
+    for cand in (os.environ.get("XDG_RUNTIME_DIR"), "/run" if os.geteuid() == 0 else None, "/dev/shm"):  # noqa: S108  # nosec B108
+        if cand and os.path.isdir(cand) and os.access(cand, os.W_OK):
+            return cand
+    return None
+
+
 def _tmpdir() -> str:
-    # Bevorzugt tmpfs (XDG_RUNTIME_DIR), damit der Klartext nie auf die Platte kommt
-    d = tempfile.mkdtemp(prefix="pbsgui-", dir=os.environ.get("XDG_RUNTIME_DIR") or None)
+    # tmpfs, damit der Klartext nie auf die Platte kommt (auch nicht als root, wo XDG_RUNTIME_DIR fehlt und /tmp Platte ist)
+    d = tempfile.mkdtemp(prefix="pbsgui-", dir=_ram_dir())
     os.chmod(d, 0o700)
     return d
 
@@ -65,4 +73,5 @@ def export_key(content: str, dest: str) -> None:
     """Schreibt eine Kopie des Keys (0600) an einen vom Benutzer gewählten Ort."""
     fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), 0o600)      # auch bei einer schon vorhandenen, offener berechtigten Datei
         f.write(content)

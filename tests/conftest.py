@@ -45,3 +45,10 @@ def fake_mounts(monkeypatch):
     monkeypatch.setattr(modes, "detect_mounts", lambda *a, **k: mounts)
     monkeypatch.setattr("pbsgui.cli.main.detect_mounts", lambda *a, **k: mounts)
     return mounts
+
+
+@pytest.fixture(autouse=True)
+def _allow_user_code_as_root(monkeypatch):
+    """Die Tests laufen aus einem Entwickler-Checkout (gehört dem Benutzer): die Root-Code-Prüfung bewusst abschalten.
+    Die Prüfung selbst testet tests/test_security.py mit entfernter Variable."""
+    monkeypatch.setenv("PBSGUI_ALLOW_USER_CODE_AS_ROOT", "1")

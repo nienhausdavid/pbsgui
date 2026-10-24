@@ -26,7 +26,7 @@ from ..core.paths import Paths
 from ..core.recovery import collect_recovery, missing_recovery_tools, needs_key_export, render_sheet
 from ..core.pbs_api import ApiError, TokenExistsError, fetch_fingerprint
 from ..core.runner import read_latest_status
-from ..core.scheduler import SchedulerError, next_elapse, validate_calendar
+from ..core.scheduler import SchedulerError, validate_calendar
 
 
 class CliError(Exception):

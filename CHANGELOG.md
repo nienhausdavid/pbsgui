@@ -7,6 +7,24 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Sicherheit
+Prüfung mit `ruff`, `bandit`, `pip-audit` und Durchsicht der sicherheitskritischen Stellen; keine schweren Funde, aber diese Härtungen:
+- **Kein Root-Code aus Benutzerordnern:** Vollbackup (`pkexec`) und Systemzeitpläne starten Python nur noch als root, wenn Code
+  und Interpreter root gehören und für andere nicht beschreibbar sind (Debian-Paket). In einem Entwicklungs-Checkout oder
+  einer virtuellen Umgebung wird das verweigert, mit Hinweis; Ausnahme nur mit `PBSGUI_ALLOW_USER_CODE_AS_ROOT=1`.
+- **Root-Helfer** (`pbsgui.cli.admin`) akzeptiert nur noch die bekannten Geheimnis-Arten (`token`, `keypass`, `key`, `dbdump`) und
+  Zeitplan-Aktionen; vorher hätte ein Name wie `../../x` eine Datei außerhalb des Geheimnis-Ordners angelegt.
+- **systemd-Units:** Profilname und Zeitplan werden von Steuerzeichen (Zeilenumbruch) und `%` befreit, damit sie keine eigenen
+  Anweisungen einschleusen; zusätzlich `ProtectKernelModules`, `ProtectControlGroups`, `LockPersonality`, `RestrictSUIDSGID`.
+- **Schlüssel im RAM:** Der kurzzeitig entschlüsselte Schlüssel liegt auch als root (wo `XDG_RUNTIME_DIR` fehlt) in `/run` oder
+  `/dev/shm`, nicht mehr im plattengestützten `/tmp`. Ein exportierter Schlüssel bekommt immer Rechte 0600, auch wenn die Datei
+  schon existierte.
+- **PBS-API:** Datastore- und Token-Namen werden im Pfad maskiert.
+- `assert` als Laufzeitprüfung durch echte Fehlerprüfungen ersetzt (wirkt auch mit `python -O`); stilles `except: pass`
+  in der Rettungs-Oberfläche meldet jetzt den Grund.
+- **CI:** neuer Job „Sicherheitsprüfungen“ (`ruff`, `bandit`, `pip-audit`); neue Tests `tests/test_security.py`;
+  `SECURITY.md` beschreibt Schutzmaßnahmen und Grenzen.
+
 ## [0.8.1] - 2026-10-24
 
 ### Hinzugefügt

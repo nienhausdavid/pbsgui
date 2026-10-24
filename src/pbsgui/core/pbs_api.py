@@ -30,6 +30,11 @@ class TokenExistsError(ApiError):
     """Der Token existiert schon; sein Secret ist nicht mehr abrufbar. Nur ersetzen, wenn der Benutzer zustimmt."""
 
 
+def _q(part: str) -> str:
+    """Pfadteil für die API maskieren (kein `/`, `?` oder `..` aus Benutzereingaben im Pfad)."""
+    return urllib.parse.quote(part, safe="")
+
+
 def _ctx() -> ssl.SSLContext:
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -147,7 +152,7 @@ class PbsApi:
         parent = ""
         for part in [x for x in namespace.split("/") if x]:
             params = {"name": part, **({"parent": parent} if parent else {})}
-            self._ensure("POST", f"/admin/datastore/{datastore}/namespace", params)
+            self._ensure("POST", f"/admin/datastore/{_q(datastore)}/namespace", params)
             parent = f"{parent}/{part}" if parent else part
 
     def provision(self, datastore: str, hostname: str, namespace: str = "",
@@ -161,7 +166,7 @@ class PbsApi:
         userid = f"pbsgui-{hostname}@pbs"
         quser = urllib.parse.quote(userid, safe="")
         self._ensure("POST", "/access/users", {"userid": userid, "comment": f"pbsgui {hostname}"})
-        tok_path = f"/access/users/{quser}/token/{token_name}"
+        tok_path = f"/access/users/{quser}/token/{_q(token_name)}"
         try:
             tok = self._request("POST", tok_path, {"comment": "pbsgui"})
         except ApiError as e:

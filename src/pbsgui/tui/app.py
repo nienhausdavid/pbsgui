@@ -1,7 +1,6 @@
 """Terminal-Oberfläche (Textual) auf Basis von pbsgui.core."""
 from __future__ import annotations
 
-import asyncio
 import time
 from pathlib import Path
 
@@ -14,7 +13,7 @@ from textual.widgets.option_list import Option
 
 from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text
 from ..core.manager import ProfileManager, can_use_admin
-from ..core.models import LEGACY, METADATA, Profile
+from ..core.models import METADATA, Profile
 from ..core.modes import FULL, describe, plan_mounts
 from ..core.recovery import needs_key_export, render_sheet
 from ..core.scheduler import SchedulerError, validate_calendar

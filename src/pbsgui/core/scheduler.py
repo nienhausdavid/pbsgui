@@ -4,11 +4,11 @@ from __future__ import annotations
 import getpass
 import subprocess
 import sys
-from pathlib import Path
 from typing import Callable
 
 from .models import Profile
 from .paths import Paths
+from .privilege import PrivilegeError, require_trusted_code
 from .secrets import SecretStore
 
 
@@ -22,12 +22,28 @@ def unit_base(profile: Profile, data: bool = False) -> str:
 
 
 def _q(s: str) -> str:
+    s = s.replace("%", "%%")      # systemd-Spezifizierer in Pfaden unschädlich machen
     return f'"{s}"' if " " in s else s
+
+
+def unit_text(s: str) -> str:
+    """Macht Text für eine Unit-Zeile unschädlich: Steuerzeichen (Zeilenumbruch!) raus, `%` verdoppelt (systemd-Spezifizierer).
+
+    Sonst könnte ein Profilname wie "x\\nExecStartPre=…" eigene Anweisungen in die Unit einschleusen.
+    """
+    return "".join(ch for ch in s if ch.isprintable()).replace("%", "%%")
+
+
+def check_calendar_text(expr: str) -> str:
+    """OnCalendar-Ausdrücke bestehen nur aus druckbaren Zeichen ohne Zeilenumbruch; sonst Fehler."""
+    if not expr or any(not ch.isprintable() for ch in expr) or "%" in expr:
+        raise SchedulerError("Ungültiger Zeitplan: Steuerzeichen oder % sind nicht erlaubt")
+    return expr.strip()
 
 
 def render_service(profile: Profile, store: SecretStore, scope: str, python: str | None = None,
                    data: bool = False) -> str:
-    lines = ["[Unit]", f"Description=pbsgui Backup {profile.name}" + (" (alles neu lesen)" if data else ""),
+    lines = ["[Unit]", f"Description=pbsgui Backup {unit_text(profile.name)}" + (" (alles neu lesen)" if data else ""),
              "After=network-online.target", "Wants=network-online.target"]
     if profile.require_ac:
         lines.append("ConditionACPower=true")
@@ -38,13 +54,14 @@ def render_service(profile: Profile, store: SecretStore, scope: str, python: str
             lines.append(d)
     py = python or sys.executable
     lines += [f"ExecStart={_q(py)} -m pbsgui.cli.run {profile.slug} --scope {scope}" + (" --mode data" if data else ""),
-              "NoNewPrivileges=yes", ""]
+              "NoNewPrivileges=yes", "ProtectKernelModules=yes", "ProtectControlGroups=yes", "LockPersonality=yes",
+              "RestrictSUIDSGID=yes", ""]
     return "\n".join(lines)
 
 
 def render_timer(profile: Profile, data: bool = False) -> str:
-    return "\n".join(["[Unit]", f"Description=pbsgui Zeitplan {profile.name}" + (" (alles neu lesen)" if data else ""), "",
-                      "[Timer]", f"OnCalendar={profile.data_schedule if data else profile.schedule}",
+    return "\n".join(["[Unit]", f"Description=pbsgui Zeitplan {unit_text(profile.name)}" + (" (alles neu lesen)" if data else ""), "",
+                      "[Timer]", f"OnCalendar={check_calendar_text(profile.data_schedule if data else profile.schedule)}",
                       "Persistent=true", "",
                       "[Install]", "WantedBy=timers.target", ""])
 
@@ -73,6 +90,7 @@ def validate_calendar(expr: str, run: Runner | None = None) -> str:
     """Prüft einen OnCalendar-Ausdruck mit systemd-analyze; liefert die Normalform."""
     if not expr.strip():
         raise SchedulerError("Zeitplan ist leer")
+    check_calendar_text(expr)
     r = (run or _default_run)(["systemd-analyze", "calendar", expr], capture_output=True, text=True)
     if r.returncode != 0:
         raise SchedulerError((r.stderr or r.stdout).strip() or "Ungültiger Zeitplan")
@@ -110,6 +128,11 @@ class SystemdScheduler:
 
     def install(self, profile: Profile) -> None:
         """Richtet den Zeitplan ein. Mit weekly_data (und METADATA) kommt ein zweiter Timer für den Modus data dazu."""
+        if self.paths.scope == "system":
+            try:
+                require_trusted_code()    # eine Systemunit führt den Code dauerhaft als root aus
+            except PrivilegeError as e:
+                raise SchedulerError(str(e)) from None
         validate_calendar(profile.schedule, self._run)
         data = profile.weekly_data_active
         if data:

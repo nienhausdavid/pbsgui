@@ -28,3 +28,23 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 140
+
+[tool.ruff.lint]
+# F = Fehler/ungenutzter Code, B = häufige Fehlerquellen, S = Sicherheit (bandit-Regeln), E9/PLE = Syntax- und echte Fehler
+select = ["F", "B", "S", "E9", "PLE"]
+ignore = [
+    "S603", "S607", "S404",   # Programme werden immer mit Argumentlisten gestartet (nie über eine Shell)
+    "S105", "S107",           # Fehlalarme: Namen wie token_name/secret-Parameter sind keine festen Passwörter
+    "S110", "B904", "B905",   # Stilfragen
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B404", "B603", "B607", "B105", "B107"]   # siehe ruff-Konfiguration: Argumentlisten statt Shell, Fehlalarme bei Namen

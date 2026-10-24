@@ -24,6 +24,7 @@ from .modes import FULL
 from .recovery import RecoveryError, ensure_recoverable
 from .runner import run_profile
 from .paths import Paths
+from .privilege import PrivilegeError, require_trusted_code
 from .scheduler import SchedulerError, SystemdScheduler
 from .secrets import SecretStore, best_store
 from .store import ProfileStore
@@ -224,13 +225,19 @@ class ProfileManager:
         if os.geteuid() == 0:
             paths = Paths.for_scope("system")
             return run_profile(profile, paths, best_store("system", paths.creds), on_line=on_line, progress=True, mode=mode)
+        try:
+            require_trusted_code()
+        except PrivilegeError as e:
+            on_line(f"Fehler: {e}")
+            return 4
         root = str(Path(__file__).resolve().parents[2])  # .../src
         cmd = ["pkexec", "env", f"PYTHONPATH={root}", "PBSGUI_PROGRESS=1", sys.executable, "-m", "pbsgui.cli.run", profile.slug,
                "--scope", "system", *(["--mode", mode] if mode else [])]
         on_line("Vollbackup braucht Administrator-Rechte: Passwortabfrage …")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                 text=True, bufsize=1)
-        assert proc.stdout
+        if proc.stdout is None:
+            raise RuntimeError("Kein Ausgabestrom vom Backup-Prozess")
         for line in proc.stdout:
             on_line(line.rstrip("\n"))
         return proc.wait()
@@ -251,6 +258,10 @@ class ProfileManager:
             from ..cli.admin import apply
             apply(request)
             return
+        try:
+            require_trusted_code()
+        except PrivilegeError as e:
+            raise SchedulerError(str(e)) from None
         root = str(Path(__file__).resolve().parents[2])  # .../src
         r = subprocess.run(["pkexec", "env", f"PYTHONPATH={root}", sys.executable, "-m", "pbsgui.cli.admin"],
                            input=json.dumps(request), capture_output=True, text=True)

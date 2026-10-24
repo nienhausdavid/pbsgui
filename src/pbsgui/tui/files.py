@@ -150,7 +150,8 @@ class FilesScreen(ModalScreen[None]):
 
     def _restore(self, **kw) -> None:
         sel = self.selected()
-        assert sel
+        if not sel:
+            return
         archive, paths = sel
         self._say("Stelle wieder her …")
 

@@ -392,8 +392,8 @@ def run() -> None:
     if Path(DEFAULT_CONFIG).exists():  # personalisierte ISO: Verbindungsdaten (ohne Geheimnisse) vorausfüllen
         try:
             cfg = RescueConfig.from_json(DEFAULT_CONFIG)
-        except Exception:
-            pass
+        except (OSError, ValueError, TypeError, KeyError) as e:   # defekte Vorgabe: leer starten, aber nicht verschweigen
+            print(f"Hinweis: {DEFAULT_CONFIG} nicht lesbar ({e}); Felder bleiben leer.")
     if os.geteuid() != 0:
         print("Hinweis: Ohne root ist nur der Trockenlauf möglich.")
     RescueApp(cfg).run()

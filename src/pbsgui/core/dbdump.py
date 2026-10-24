@@ -227,12 +227,14 @@ def _stream_to_file(cmd: list[str], dest: Path, stdin_data: str | None = None, t
                                     stdout=subprocess.PIPE, stderr=err)
         except FileNotFoundError:
             raise DumpError(f"Docker-Client nicht gefunden: {docker_binary()}") from None
-        assert proc.stdout
+        if proc.stdout is None:
+            raise DumpError("Kein Ausgabestrom vom Docker-Client")
         timer = threading.Timer(timeout, proc.kill)
         timer.start()
         try:
             if stdin_data is not None:
-                assert proc.stdin
+                if proc.stdin is None:
+                    raise DumpError("Kein Eingabestrom zum Docker-Client")
                 try:
                     proc.stdin.write(stdin_data.encode())
                     proc.stdin.close()
@@ -406,7 +408,7 @@ def setup_socket_access(db: Database, on_line: Callable[[str], None] = lambda _l
     name = f"pbsgui-init-{_safe(db.container)}-{os.getpid()}"
     problem: Exception | None = None
     try:
-        os.chmod(tmp, 0o755)
+        os.chmod(tmp, 0o755)  # noqa: S103  # nosec B103
         sql = tmp / "init.sql"
         sql.write_text(_INIT_SQL)
         os.chmod(sql, 0o644)

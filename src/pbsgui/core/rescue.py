@@ -326,7 +326,7 @@ def build_layout_plan(rec: RecoveryData, target_disk: str, passphrase: str | Non
         else:
             visit(part, pdev)
 
-    for vg, devs in vg_pvs.items():
+    for vg in vg_pvs:
         plan.steps.append(Step(f"Volume Group {vg} wiederherstellen",
                                ["vgcfgrestore", "-f", str(vg_files[vg]), "--force", vg], destructive=True))
         plan.steps.append(Step(f"Volume Group {vg} aktivieren", ["vgchange", "-ay", vg]))
@@ -540,7 +540,8 @@ def run_steps(steps: list[Step], on_line: Callable[[str], None] = print, env: di
         if st.stdin is not None and p.stdin:
             p.stdin.write(st.stdin)
             p.stdin.close()
-        assert p.stdout
+        if p.stdout is None:
+            raise RescueError("Kein Ausgabestrom vom Befehl")
         for line in p.stdout:
             on_line("    " + line.rstrip("\n"))
         code = p.wait()

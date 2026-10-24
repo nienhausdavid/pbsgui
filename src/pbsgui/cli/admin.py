@@ -12,7 +12,7 @@ import sys
 from ..core.models import Profile
 from ..core.paths import Paths
 from ..core.scheduler import SystemdScheduler
-from ..core.secrets import best_store
+from ..core.secrets import CRED_NAMES, best_store
 from ..core.store import ProfileStore
 
 
@@ -20,6 +20,12 @@ def apply(request: dict, paths: Paths | None = None, store=None, run=None) -> No
     paths = paths or Paths.for_scope("system")
     store = store or best_store("system", paths.creds)
     profile = Profile.from_dict(request["profile"])
+    secrets = request.get("secrets") or {}
+    bad = [k for k in secrets if k not in CRED_NAMES]
+    if bad:   # sonst könnte ein Name wie "../../x" als root beliebige Dateien anlegen
+        raise ValueError(f"Unbekannte Geheimnis-Art: {bad[0]!r}")
+    if request.get("schedule", "keep") not in ("install", "remove", "keep"):
+        raise ValueError("Unbekannte Zeitplan-Aktion")
     sched = SystemdScheduler(paths, store, **({"run": run} if run else {}))
     if request.get("delete"):
         sched.remove(profile)
@@ -27,7 +33,7 @@ def apply(request: dict, paths: Paths | None = None, store=None, run=None) -> No
         ProfileStore(paths.profiles).delete(profile.name)
         return
     ProfileStore(paths.profiles).save(profile)
-    for kind, value in (request.get("secrets") or {}).items():
+    for kind, value in secrets.items():
         if value:
             store.put(profile.slug, kind, value)
     action = request.get("schedule", "keep")

@@ -29,3 +29,22 @@ jobs:
         with:
           name: deb
           path: dist/*.deb
+
+  security:
+    name: Sicherheitsprüfungen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Werkzeuge installieren
+        run: pip install ruff bandit pip-audit
+      - name: ruff (Fehler und Sicherheitsregeln)
+        run: ruff check src
+      - name: bandit (nur mittlere und hohe Befunde)
+        run: bandit -c pyproject.toml -r src -ll
+      - name: Abhängigkeiten auf bekannte Lücken prüfen
+        run: |
+          pip install textual PySide6
+          pip-audit --skip-editable --desc

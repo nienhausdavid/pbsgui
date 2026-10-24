@@ -7,7 +7,7 @@ Mit der Umgebungsvariable PBSGUI_NATIVE_FRAME=1 bleibt der Rahmen des Systems.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QWidget
 
 EDGE = 6          # Breite des Greifbereichs zum Vergrößern in Pixeln
@@ -19,7 +19,7 @@ def _icon(kind: str, color: QColor, size: int = 16) -> QIcon:
     p.scale(2, 2)
     pen = QPen(color, 1.4); pen.setCapStyle(Qt.PenCapStyle.RoundCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     p.setPen(pen)
-    c, r = size / 2, size / 2 - 4
+    c = size / 2
     if kind == "min":
         p.drawLine(QPointF(4, c + 3), QPointF(size - 4, c + 3))
     elif kind == "max":
