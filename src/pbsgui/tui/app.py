@@ -27,7 +27,7 @@ class PbsTui(App):
     CSS = """
     #profiles { width: 30; border: round $primary; }
     #main { border: round $primary; }
-    #dialog { width: 80; max-height: 90%; margin: 1 2; padding: 1 2; border: thick $accent; background: $surface; }
+    #dialog { width: 90%; max-width: 100; max-height: 90%; overflow-x: hidden; margin: 1 2; padding: 1 2; border: thick $accent; background: $surface; }
     ModalScreen { align: center middle; }
     .hint { color: $text-muted; }
     """

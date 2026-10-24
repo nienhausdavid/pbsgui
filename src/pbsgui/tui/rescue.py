@@ -407,7 +407,8 @@ class DiskScreen(Screen):
             yield Static("Die gewählte Platte wird KOMPLETT überschrieben. Eingehängte Platten und das "
                          "Rettungsmedium werden nicht angeboten.", classes="warn", markup=False)
             yield DataTable(id="disks", cursor_type="row")
-            yield Checkbox("Größe anpassen: kleinere Platte, Partitionen und Volumes werden verkleinert", id="shrink")
+            yield Checkbox("Größe anpassen (für eine kleinere Platte)", id="shrink")
+            yield Static("Partitionen und Volumes werden verkleinert.", classes="hint", markup=False)
             yield Label("Verschlüsselung der neuen Platte", classes="title", markup=False)
             orig = "verschlüsselt (LUKS)" if rescue.original_encrypted(self.app.rec) else "unverschlüsselt"
             with RadioSet(id="enc"):

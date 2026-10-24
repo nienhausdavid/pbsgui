@@ -155,15 +155,16 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
                          value="", allow_blank=False, id="schedule-select")
             yield Input(placeholder="systemd-OnCalendar, z. B. Mon..Fri *-*-* 03:00:00 (Enter prüft)", id="schedule-custom")
             yield Static("", id="schedule-info", markup=False)
-            yield Checkbox("Datenbanken laufender Container vor dem Backup dumpen (Postgres, MariaDB/MySQL)", id="db-dump")
-            yield Static("Optional. Ein Dump ist ein sauberer, prüfbarer Stand; ohne ihn werden die Datenbankdateien "
+            yield Checkbox("Datenbanken laufender Container vor dem Backup dumpen", id="db-dump")
+            yield Static("Postgres und MariaDB/MySQL. Optional. Ein Dump ist ein sauberer, prüfbarer Stand; ohne ihn werden die Datenbankdateien "
                          "im laufenden Betrieb gelesen. MariaDB/MySQL-Zugänge richtest du danach mit [p] ein.",
                          classes="hint", markup=False)
-            yield Checkbox("Nur geänderte Dateien lesen (schneller; der erste Lauf liest einmal alles)", value=True,
+            yield Checkbox("Nur geänderte Dateien lesen (schneller)", value=True,
                            id="only-changed")
-            yield Checkbox("Wöchentlich alles neu lesen und prüfen (Modus data, sonntags 03:00; empfohlen)", value=True,
+            yield Static("Der erste Lauf liest einmal alles.", classes="hint", markup=False)
+            yield Checkbox("Wöchentlich alles neu lesen und prüfen (empfohlen)", value=True,
                            id="weekly-data")
-            yield Static("Fängt Änderungen ab, die der Metadaten-Vergleich nicht bemerkt, und Lesefehler in selten "
+            yield Static("Modus data, sonntags 03:00. Fängt Änderungen ab, die der Metadaten-Vergleich nicht bemerkt, und Lesefehler in selten "
                          "benutzten Dateien. Gilt nur mit einem Zeitplan.", classes="hint", markup=False)
             yield Checkbox("Direkt nach dem Anlegen das erste Backup starten", id="start-now")
             yield Static("", id="status", markup=False)
