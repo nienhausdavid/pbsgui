@@ -7,6 +7,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-24
+
 ### Hinzugefügt
 - **Dark Mode** in der GUI: Umschalter oben rechts mit „System“ (folgt dem Desktop, auch bei Wechsel zur Laufzeit), „Hell“ und
   „Dunkel“; die Wahl wird gemerkt.
@@ -152,7 +154,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.1
 [0.8.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.0
 [0.7.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.7.0
 [0.6.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.6.1
