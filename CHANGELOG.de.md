@@ -9,6 +9,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-24
+
 ### Hinzugefügt
 - **Master-Schlüssel (Versicherung gegen Schlüsselverlust):** einrichten in der GUI („Master-Schlüssel einrichten …“), der TUI (`M`) oder mit
   `pbsgui key master-create NAME --output DATEI|--clipboard`. pbsgui erzeugt mit dem Client ein 4096-Bit-RSA-Paar (die Passphrase geht über ein
@@ -283,7 +285,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.2
 [0.9.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.1
 [0.9.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.0
 [0.8.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.8.3
