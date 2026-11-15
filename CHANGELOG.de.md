@@ -9,6 +9,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-11-15
+
 ### Hinzugefügt
 - Master-Schlüssel ohne Passphrase: Passphrase leer lassen (GUI, TUI) oder `pbsgui key master-create NAME --no-passphrase`; das Paar erzeugt openssl, die private Datei ist dann der einzige Schutz.
 
@@ -292,7 +294,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.3
 [0.9.2]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.2
 [0.9.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.1
 [0.9.0]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.0
