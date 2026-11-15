@@ -20,8 +20,9 @@ class ClipboardError(RuntimeError):
     pass
 
 
-def copy_text(text: str, run: Callable = subprocess.run, which: Callable = shutil.which) -> str:
+def copy_text(text: str, run: Callable | None = None, which: Callable | None = None) -> str:
     """Kopiert `text` mit wl-copy, xclip oder xsel (der Text geht über stdin, nie als Argument). Gibt den Programmnamen zurück."""
+    run, which = run or subprocess.run, which or shutil.which            # erst beim Aufruf auflösen, damit Tests sie ersetzen können
     for argv in TOOLS:
         if which(argv[0]):
             try:
