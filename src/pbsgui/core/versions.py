@@ -24,7 +24,7 @@ from ..i18n import tr
 from .client import PbsClient
 from .files import (Catalog, CatalogEntry, FilesError, _within, archive_origin, copy_selection, mounted,
                     parse_catalog)
-from .models import Profile, Snapshot
+from .models import Profile, Snapshot, slugify
 
 Loader = Callable[[Snapshot], "dict[str, Catalog]"]
 Progress = Callable[[int, int], None]
@@ -46,7 +46,7 @@ class CatalogCache:
         self.dir = Path(directory) if directory else default_cache_dir()
 
     def _file(self, profile: Profile, snapshot: Snapshot) -> Path:
-        return self.dir / profile.slug / f"{snapshot.backup_id}-{snapshot.backup_time}.txt.gz"
+        return self.dir / profile.slug / f"{slugify(snapshot.backup_id)}-{int(snapshot.backup_time)}.txt.gz"
 
     def loader(self, client: PbsClient, profile: Profile) -> Loader:
         def load(snapshot: Snapshot) -> dict[str, Catalog]:

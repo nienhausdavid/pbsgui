@@ -231,4 +231,7 @@ EN.update({
     'Schlüssel konnte nicht zurückgeholt werden (falsche Passphrase oder falscher Master-Schlüssel?): {0}': 'The key could not be recovered (wrong passphrase or wrong master key?): {0}',
     'Master-Schlüssel:      ja (öffentlicher Fingerprint {0}). Der PRIVATE Master-Schlüssel liegt getrennt; `pbsgui key recover` holt den Schlüssel damit aus einem Snapshot zurück.': 'Master key:            yes (public fingerprint {0}). The PRIVATE master key is kept separately; `pbsgui key recover` uses it to recover the key from a snapshot.',
     'Master-Schlüssel:      nein (geht der Schlüssel verloren, sind die Backups endgültig unlesbar)': 'Master key:            no (if the key is lost the backups are permanently unreadable)',
+    'Das Passwort darf keinen Zeilenumbruch enthalten': 'The password must not contain a line break',
+    'Pfad liegt außerhalb des Archivs: {0}': 'The path is outside the archive: {0}',
+    'Benutzername und Passwort dürfen keinen Zeilenumbruch enthalten': 'User name and password must not contain a line break',
 })

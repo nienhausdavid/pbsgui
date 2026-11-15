@@ -44,6 +44,16 @@ class MasterScreen(ModalScreen[bool]):
         self.query_one("#mk-status", Static).update(text)
 
     def action_cancel(self) -> None:
+        if self.key and not self.query_one("#mk-done", Button).disabled:      # gesichert und bestätigt: gilt als fertig
+            self.mgr.confirm_master_key_backup(self.profile)
+            self.dismiss(True)
+            return
+        if self.key:      # erzeugt, aber das Sichern nie bestätigt: nicht als eingerichtet stehen lassen
+            try:
+                self.mgr.discard_master_key(self.key.fingerprint)
+            except Exception as ex:
+                self._say(tr("Fehler: {0}", ex))
+                return
         self.dismiss(False)
 
     def on_checkbox_changed(self, e: Checkbox.Changed) -> None:
@@ -55,7 +65,7 @@ class MasterScreen(ModalScreen[bool]):
     def on_button_pressed(self, e: Button.Pressed) -> None:
         bid = e.button.id
         if bid == "mk-cancel":
-            self.dismiss(False)
+            self.action_cancel()
         elif bid == "mk-make":
             self._make()
         elif bid == "mk-copy" and self.key:

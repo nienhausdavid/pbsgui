@@ -368,7 +368,7 @@ def test_mount_removable_mounts_only_unmounted_partitions_readonly(tmp_path):
 
     got = mount_removable(run, base=str(tmp_path / "pbs"))
     assert got == [str(tmp_path / "pbs/sdb1")]
-    assert [c for c in calls if c[0] == "mount"] == [["mount", "-o", "ro", "/dev/sdb1", str(tmp_path / "pbs/sdb1")]]
+    assert [c for c in calls if c[0] == "mount"] == [["mount", "-o", "ro,nosuid,nodev,noexec", "/dev/sdb1", str(tmp_path / "pbs/sdb1")]]
 
 
 def test_efi_label_comes_from_boot_path_not_firmware_entries(rec_dir):

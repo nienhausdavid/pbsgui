@@ -685,6 +685,8 @@ def _cmd_master(a, mgr: ProfileManager, p: Profile) -> int:
                 raise CliError(tr("Es ist schon ein Master-Schlüssel eingetragen (Fingerprint {0})", p.master_fingerprint))
             if not (a.output or a.clipboard):
                 raise CliError(tr("Ziel angeben: --output DATEI oder --clipboard (geheime Schlüssel werden nie auf der Konsole ausgegeben)"))
+            if a.output and Path(a.output).exists():      # vor dem Erzeugen prüfen: danach wäre der private Schlüssel verloren
+                raise CliError(tr("{0} existiert bereits", a.output))
             if a.no_passphrase:
                 pw = ""
                 print(tr("Ohne Passphrase schützt nur die Datei selbst den privaten Schlüssel: besonders gut verwahren."))
@@ -694,7 +696,11 @@ def _cmd_master(a, mgr: ProfileManager, p: Profile) -> int:
                     raise CliError(tr("Die Passphrasen stimmen nicht überein"))
             print(tr("Erzeuge den Master-Schlüssel (4096 Bit, dauert einen Moment) …"), flush=True)
             key = mgr.setup_master_key(p, pw, all_profiles=not a.this_only)
-            _deliver_secret(a, key.private_pem, tr("Privater Master-Schlüssel"))
+            try:
+                _deliver_secret(a, key.private_pem, tr("Privater Master-Schlüssel"))
+            except (CliError, OSError) as e:      # der private Teil kam nie an: den öffentlichen wieder austragen
+                mgr.discard_master_key(key.fingerprint)
+                raise CliError(tr("{0}. Der Master-Schlüssel wurde nicht eingerichtet.", e)) from None
             mgr.confirm_master_key_backup(p)
             print(tr("Fingerprint: {0}\nJetzt den privaten Schlüssel (und die Passphrase, falls vergeben) getrennt vom Rechner sichern (Passwortmanager, Tresor). Ab dem nächsten Backup enthält jeder Snapshot die Schlüsselkopie.", key.fingerprint))
             return 0

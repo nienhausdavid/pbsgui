@@ -7,7 +7,12 @@ from dataclasses import asdict, dataclass, field, fields
 
 
 def slugify(name: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_.-]+", "-", name).strip("-").lower() or "profile"
+    s = re.sub(r"[^a-zA-Z0-9_.-]+", "-", name).strip("-").lower()
+    return s if s.strip(".") else "profile"      # nie leer und nie "." oder "..": der Slug wird Datei- und Ordnername
+
+
+_BACKUP_TYPES = ("host", "vm", "ct")
+_BACKUP_ID = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,255}$")      # Regel des PBS für Backup-IDs
 
 
 LEGACY = "legacy"      # Client liest jede Datei jedes Mal vollständig und lädt nur Neues hoch
@@ -136,9 +141,12 @@ class Snapshot:
     @classmethod
     def from_json(cls, d: dict) -> "Snapshot":
         files = [f["filename"] if isinstance(f, dict) else f for f in d.get("files", [])]
+        # Typ und ID werden Teil von Programmargumenten und Dateinamen: nur die vom PBS erlaubte Form annehmen
+        if d.get("backup-type") not in _BACKUP_TYPES or not _BACKUP_ID.match(str(d.get("backup-id", ""))):
+            raise ValueError(f"ungültiger Snapshot: {d.get('backup-type')!r}/{d.get('backup-id')!r}")
         return cls(
             backup_type=d["backup-type"],
-            backup_id=d["backup-id"],
+            backup_id=str(d["backup-id"]),
             backup_time=int(d["backup-time"]),
             size=int(d.get("size") or 0),
             files=files,

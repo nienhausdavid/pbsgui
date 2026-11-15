@@ -197,8 +197,8 @@ def build_plan(cfg: RescueConfig, snap: Snapshot, vmcfg: VmConfig, mapping: dict
         plan.steps.append(Step(tr("Signaturen auf {0} löschen", dev), ["wipefs", "-a", dev], destructive=True))
         plan.steps.append(Step(tr("{0} auf {1} schreiben (Abbild {2})", key, dev, d.archive), [], env=env, destructive=True,
                                call=lambda on_line, k=key, dv=dev: ctx.write_image(k, dv, on_line)))
-    plan.steps.append(Step(tr("Partitionstabellen neu einlesen"), ["sh", "-c", "partprobe " + " ".join(mapping.values()) +
-                                                            "; udevadm settle; sleep 1"]))
+    plan.steps.append(Step(tr("Partitionstabellen neu einlesen"), ["sh", "-c", 'partprobe "$@"; udevadm settle; sleep 1',
+                                                            "partprobe", *mapping.values()]))
     if opts.grow:
         plan.steps.append(Step(tr("Partitionen vergrößern (falls die Ziel-Platte größer ist)"), [], call=ctx.grow_partitions))
     repairs = opts.grow or opts.network or opts.services or opts.initramfs or opts.bootloader
@@ -290,7 +290,7 @@ class _Ctx:
                 continue
             n = re.search(r"(\d+)$", last["node"]).group(1)          # type: ignore[union-attr]
             self.sh(["sfdisk", "-N", n, "--no-reread", "-q", dev], on_line, input_=", +\n")
-            self.sh(["sh", "-c", f"partprobe {dev}; udevadm settle; sleep 1"])
+            self.sh(["sh", "-c", 'partprobe "$1"; udevadm settle; sleep 1', "partprobe", dev])
             on_line(tr("{0}: auf den Rest der Platte vergrößert", last['node']))
 
     # -- Gastsystem finden
@@ -641,7 +641,7 @@ def execute(cfg: RescueConfig, plan: VmPlan, on_line: Callable[[str], None] = pr
     """Führt den Plan aus; die Aufräum-Schritte laufen immer. True = Erfolg."""
     ok = False
     try:
-        failed = run_steps(plan.steps, on_line, env=cfg.pbs_env(), dry_run=dry_run)
+        failed = run_steps(plan.steps, on_line, dry_run=dry_run)      # der Zugang zum Server steht in Step.env bzw. im Client
         ok = failed is None
         if failed:
             on_line(tr("FEHLER in: {0}", failed.title))

@@ -12,6 +12,20 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 ### Hinzugefügt
 - Schlüssel mit dem Master-Schlüssel direkt im Rettungs-Assistenten zurückholen (Knopf im ersten Schritt, findet `master-private.pem` auf USB-Sticks), in der Web-Oberfläche der Rettungs-ISO und in pbstui (Taste `K`). Der Schlüssel kommt aus dem neuesten Snapshot mit Schlüsselkopie und bleibt nur im Arbeitsspeicher. `pbsgui rescue recover-key` fragt die Passphrase nur noch ab, wenn der Master-Schlüssel eine hat.
 
+### Sicherheit
+- Web-Oberfläche der Rettungs-ISO: Der TLS-Handshake hat ein Zeitlimit (stumme Verbindungen belegten sonst dauerhaft alle 48 Plätze), abgebrochene Verbindungen schreiben keinen Stacktrace mehr ins Log im RAM, und Pfade oder Methoden aus dem Netz kommen ohne Steuerzeichen auf die Konsole (keine Terminal-Escape-Folgen).
+- Web-Oberfläche: Der Name der WireGuard-Schnittstelle wird geprüft, bevor er Teil eines Dateipfads wird (vorher konnte ein angemeldeter Benutzer damit beliebige `.conf`-Dateien schreiben).
+- Wiederherstellung: Token und Passphrasen aus der Umgebung erreichen nur noch den Schritt, der mit dem Server spricht, nicht mehr die übrigen Werkzeuge und das chroot ins Zielsystem. Gerätenamen gehen bei VM-Abbildern als Argumente statt als Shell-Text. USB-Sticks werden mit `nosuid,nodev,noexec` eingehängt. Die Kommandozeile lässt keine Temp-Datei mit den Verbindungsdaten mehr liegen.
+- Dateien zurückholen: Pfade mit `..` und Ordner-Links im Archiv können nie Dateien dieses Rechners lesen oder aus dem Zielordner heraus schreiben. Snapshots mit unzulässigem Typ oder unzulässiger Backup-ID vom Server werden verworfen (sie würden zu Programmargumenten und Dateinamen).
+- Vollbackup: Ein LUKS-Header aus der Zeit, als das Profil noch verschlüsselt war, bleibt nicht mehr im Wiederherstellungs-Ordner eines inzwischen unverschlüsselten Backups liegen.
+- NetBird: Die Management-URL muss `https://` sein (die Meldung sagte das schon, `http://` wurde aber angenommen). OpenVPN- und Datenbank-Passwörter mit Zeilenumbruch werden abgelehnt.
+
+### Behoben
+- Web-Oberfläche: Nach einem Trockenlauf wurde der Zugang gelöscht; der echte Lauf danach leerte die Platte und scheiterte dann beim Zurückspielen. Der Zugang bleibt jetzt bis zum echten Lauf, und ohne Zugang startet kein Lauf mehr.
+- Master-Schlüssel: Kommt der private Teil nie beim Benutzer an (Zieldatei existiert schon, Speichern scheitert, Dialog abgebrochen), wird der öffentliche Teil wieder ausgetragen. Vorher blieb ein Master-Schlüssel eingetragen, zu dem es keinen privaten Teil gab, und ein neuer ließ sich nicht einrichten.
+- Profilnamen wie `.` oder `..` ergeben keinen Ordnernamen mehr, der auf das Zustandsverzeichnis selbst zeigt.
+- Tests: Der System-Scope (`/etc/pbsgui`, `/var/lib/pbsgui`) zeigt in ein leeres Verzeichnis; auf einem Rechner mit installiertem pbsgui schlugen sonst drei Tests fehl und `scripts/release.sh` brach ab.
+
 ## [0.9.4] - 2026-11-15
 
 ### Geändert

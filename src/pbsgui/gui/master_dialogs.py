@@ -116,10 +116,18 @@ class MasterKeySetupDialog(QDialog):
         self.accept()
 
     def reject(self) -> None:
+        if self.key and self.finish_btn.isEnabled():      # gesichert und bestätigt, nur per Fenster-X geschlossen: gilt als fertig
+            self._finish()
+            return
         if self.key and not self.finish_btn.isEnabled() and QMessageBox.question(
                 self, tr("Master-Schlüssel nicht gesichert"),
                 tr("Der private Master-Schlüssel wurde noch nicht gesichert. Wenn du jetzt schließt, ist er verloren (die Passphrase allein reicht nicht). Trotzdem schließen?")) != QMessageBox.StandardButton.Yes:
             return
+        if self.key and self.result() != QDialog.DialogCode.Accepted:      # Sichern nie bestätigt: nicht als eingerichtet stehen lassen
+            try:
+                self.mgr.discard_master_key(self.key.fingerprint)
+            except Exception as e:
+                QMessageBox.warning(self, tr("Fehler"), str(e))
         super().reject()
 
 

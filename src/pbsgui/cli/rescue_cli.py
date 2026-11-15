@@ -101,7 +101,7 @@ def build_config(a) -> RescueConfig:
     if missing:
         raise RescueCliError(tr("Angaben fehlen: ") + ", ".join(m.replace("_", "-") for m in missing) +
                              tr(" (als Option oder in der Konfigurationsdatei)"))
-    cfg = RescueConfig.from_json(_tmp_json(base))
+    cfg = RescueConfig.from_dict(base)
     if not cfg.fingerprint:
         fp = fetch_fingerprint(cfg.server, cfg.port)
         print(tr("Fingerprint von {0}:{1}:\n  {2}", cfg.server, cfg.port, fp))
@@ -111,13 +111,6 @@ def build_config(a) -> RescueConfig:
         cfg.fingerprint = fp
     cfg.token = _secret("PBSGUI_TOKEN_SECRET", tr("Token-Secret für {0}", cfg.auth_id))
     return cfg
-
-
-def _tmp_json(d: dict) -> str:
-    f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-    json.dump(d, f)
-    f.close()
-    return f.name
 
 
 def cmd_rescue(a, mgr=None) -> int:

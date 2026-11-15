@@ -12,6 +12,20 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 ### Added
 - Recover the key with the master key directly in the rescue wizard (button in step 1, finds `master-private.pem` on USB sticks), in the web interface of the rescue ISO and in pbstui (key `K`). The key is fetched from the newest snapshot with a key copy and stays in memory only. `pbsgui rescue recover-key` asks for the passphrase only if the master key has one.
 
+### Security
+- Web interface of the rescue ISO: the TLS handshake has a time limit (silent connections used to hold all 48 slots forever), aborted connections no longer write a stack trace to the log in RAM, and paths or methods from the network reach the console without control characters (no terminal escape sequences).
+- Web interface: the name of the WireGuard interface is checked before it becomes part of a file path (before, a logged-in user could write arbitrary `.conf` files with it).
+- Restore: token and passphrases from the environment only reach the step that talks to the server, no longer the other tools and the chroot into the target system. For VM images device names are passed as arguments instead of shell text. USB sticks are mounted with `nosuid,nodev,noexec`. The command line no longer leaves a temp file with the connection data behind.
+- Restoring files: paths with `..` and directory links inside the archive can never read files of this computer or write outside the target folder. Snapshots with an invalid type or backup ID from the server are dropped (they would become program arguments and file names).
+- Full backup: a LUKS header from the time the profile was still encrypted no longer stays in the recovery folder of a backup that is now unencrypted.
+- NetBird: the management URL must be `https://` (the message already said so, but `http://` was accepted). OpenVPN and database passwords with a line break are rejected.
+
+### Fixed
+- Web interface: after a dry run the access data was cleared; the real run afterwards wiped the disk and then failed when restoring the files. The access data now stays until the real run, and no run starts without it.
+- Master key: if the private part never reaches the user (target file already exists, saving fails, dialog cancelled), the public part is removed again. Before, a master key stayed registered that had no private part, and a new one could not be set up.
+- Profile names like `.` or `..` no longer yield a folder name that points to the state directory itself.
+- Tests: the system scope (`/etc/pbsgui`, `/var/lib/pbsgui`) points to an empty directory; on a computer with pbsgui installed three tests failed otherwise and `scripts/release.sh` aborted.
+
 ## [0.9.4] - 2026-11-15
 
 ### Changed

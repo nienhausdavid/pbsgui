@@ -114,6 +114,8 @@ class RescueService:
             if "[Interface]" not in text:
                 raise ServiceError(tr("Das ist keine WireGuard-Konfiguration (Abschnitt [Interface] fehlt)"))
             name = _s(d, "name", 15) or "wg0"
+            if not vpn._IFACE.match(name):         # der Name wird Teil eines Dateipfads: nie "/" oder ".."
+                raise ServiceError(tr("Name der Schnittstelle ungültig (1 bis 15 Zeichen: Buchstaben, Ziffern, _ = + . -)"))
             path = self.workdir / f"{name}.conf"
             self._write_secret(path, text + "\n")
             try:
@@ -331,6 +333,8 @@ class RescueService:
             vm = self.mode == "vm"
             if not (self.cfg and self.snap and ((vm and self.vmplan) or (not vm and self.rec and self.plan))):
                 raise ServiceError(tr("Zuerst einen Plan erstellen"), 409)
+            if not self.cfg.token:      # nach einem echten Lauf gelöscht: ohne Zugang würde die Platte geleert und dann nichts zurückgespielt
+                raise ServiceError(tr("Der Zugang wurde nach dem letzten Lauf gelöscht: bitte erneut mit dem Server verbinden"), 409)
             if not dry:
                 if os.geteuid() != 0:
                     raise ServiceError(tr("Die Wiederherstellung braucht root (nur der Trockenlauf geht ohne)"), 403)
@@ -353,7 +357,8 @@ class RescueService:
             log(tr("FEHLER: {0}", str(e).replace(cfg.token, '***')))
         finally:
             self.run.state = "ok" if ok else "failed"
-            cfg.token = cfg.passphrase = cfg.new_passphrase = ""        # Geheimnisse nicht länger als nötig behalten
+            if not dry:      # nach einem Trockenlauf folgt der echte Lauf: der braucht Zugang und Passphrasen noch
+                cfg.token = cfg.passphrase = cfg.new_passphrase = ""        # Geheimnisse nicht länger als nötig behalten
             if self.on_finished:
                 self.on_finished(ok, dry)
 

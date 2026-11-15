@@ -84,7 +84,13 @@ class PbsClient:
             data = json.loads(out or "[]")
         except ValueError as e:
             raise ClientError(tr("Ungültige JSON-Ausgabe: {0}", e)) from None
-        return sorted((Snapshot.from_json(d) for d in data), key=lambda s: s.backup_time, reverse=True)
+        snaps = []
+        for d in data if isinstance(data, list) else []:
+            try:
+                snaps.append(Snapshot.from_json(d))
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue                 # Eintrag mit unzulässigem Typ oder ID: nie an den Client weiterreichen
+        return sorted(snaps, key=lambda s: s.backup_time, reverse=True)
 
     def test_connection(self) -> None:
         self.list_snapshots()

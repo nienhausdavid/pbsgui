@@ -274,6 +274,8 @@ def _dump_database(db: Database, dest_dir: Path, cred: dict | None, via_socket: 
         return _stream_to_file(_docker(db.socket, "exec", "-u", SOCKET_USER, db.container, "sh", "-c", _SOCKET_DUMP), dest)
     if not cred:
         raise DumpError(tr("kein Datenbank-Zugang hinterlegt"))
+    if any(ch in cred["password"] for ch in "\r\n"):
+        raise DumpError(tr("Das Passwort darf keinen Zeilenumbruch enthalten"))
     return _stream_to_file(_docker(db.socket, "exec", "-i", db.container, "sh", "-c", _MYSQL_DUMP, "sh",
                                    cred["user"]), dest, stdin_data=cred["password"] + "\n")
 
@@ -450,6 +452,8 @@ def setup_socket_access(db: Database, on_line: Callable[[str], None] = lambda _l
 def _mysql_session(db: Database, user: str, password: str, sql: str = "", script: str = _MYSQL_CLIENT,
                    timeout: float = 60) -> str:
     """Startet den mariadb-Client im Container; Passwort als erste stdin-Zeile, danach das SQL."""
+    if any(ch in password for ch in "\r\n"):
+        raise DumpError(tr("Das Passwort darf keinen Zeilenumbruch enthalten"))
     try:
         p = subprocess.run(_docker(db.socket, "exec", "-i", db.container, "sh", "-c", script, "sh", user),
                            input=password + "\n" + sql, capture_output=True, text=True, timeout=timeout)

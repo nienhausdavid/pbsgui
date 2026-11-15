@@ -149,6 +149,9 @@ def collect_recovery(dest: Path, profile: Profile, run: Callable | None = None,
         note(tr("mountinfo: {0}", e))
 
     luks = [n for n in devices if n.get("fstype") == "crypto_LUKS"]
+    if not profile.encrypt:
+        for old in dest.glob("luks-header-*.img"):      # Reste aus der Zeit, als das Profil noch verschlüsselt war
+            old.unlink(missing_ok=True)
     if luks and not profile.encrypt:
         # Der Header enthält die Schlüssel-Slots: nur in ein verschlüsseltes Backup legen
         note(tr("LUKS-Header NICHT gesichert: das Backup ist unverschlüsselt"))

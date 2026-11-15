@@ -215,6 +215,26 @@ class ProfileManager:
         self.save(profile)
         return fp
 
+    def discard_master_key(self, fingerprint: str) -> int:
+        """Einen gerade erzeugten Master-Schlüssel wieder austragen, dessen privater Teil nie beim Benutzer ankam.
+
+        Sonst bliebe ein öffentlicher Schlüssel eingetragen, zu dem es keinen privaten Teil mehr gibt: Die Anzeige meldete
+        einen Master-Schlüssel, der im Notfall nichts zurückholen kann. Gibt die Zahl der geänderten Profile zurück."""
+        if not fingerprint:
+            return 0
+        n, files = 0, set()
+        for p in self.profiles():
+            if p.master_fingerprint == fingerprint and not p.master_key_ack_at:
+                files.add(p.master_pubkey)
+                p.master_pubkey = p.master_fingerprint = p.master_key_ack_at = ""
+                self.save(p)
+                n += 1
+        still_used = {p.master_pubkey for p in self.profiles()}
+        for f in files - still_used:
+            if f and Path(f).parent == self.master_dir():
+                Path(f).unlink(missing_ok=True)
+        return n
+
     def confirm_master_key_backup(self, profile: Profile) -> None:
         profile.master_key_ack_at = time.strftime("%Y-%m-%d %H:%M:%S")
         for p in self.profiles():                        # gleicher öffentlicher Schlüssel = gleicher privater Teil

@@ -146,6 +146,8 @@ def openvpn_up(path: str, username: str = "", password: str = "", run: Run = sub
             "--writepid", str(d / "openvpn.pid"), "--log", str(d / "openvpn.log"), "--verb", "3",
             "--cd", str(Path(path).resolve().parent)]          # relative Pfade (ca, cert, key) in der .ovpn
     if username or password:
+        if any(ch in username + password for ch in "\r\n"):      # die Datei hat genau zwei Zeilen: Benutzer, Passwort
+            raise VpnError(tr("Benutzername und Passwort dürfen keinen Zeilenumbruch enthalten"))
         auth = d / "auth.txt"
         fd = os.open(auth, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
@@ -186,13 +188,13 @@ def openvpn_running() -> bool:
 # -- NetBird --------------------------------------------------------------------------------------------
 def netbird_up(setup_key: str = "", management_url: str = "", run: Run = subprocess.run) -> Result:
     """Startet den NetBird-Dienst und meldet das Gerät an. Der Setup-Key geht per Umgebung, nicht als Argument."""
+    if management_url and not re.match(r"^https://[^\s]+$", management_url):      # http würde den Setup-Key im Klartext senden
+        raise VpnError(tr("Management-URL muss mit https:// beginnen"))
     start = _run(["systemctl", "start", "netbird"], run, timeout=30)
     if not start.ok and start.missing:
         return start
     argv = ["netbird", "up"]
     if management_url:
-        if not re.match(r"^https?://[^\s]+$", management_url):
-            raise VpnError(tr("Management-URL muss mit https:// beginnen"))
         argv += ["--management-url", management_url]
     env = dict(os.environ)
     if setup_key:

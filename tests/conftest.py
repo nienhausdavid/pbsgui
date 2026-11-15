@@ -64,3 +64,17 @@ def _local_desktop_session(monkeypatch):
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-test")
     for var in ("SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT"):
         monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_system_scope(tmp_path, monkeypatch):
+    """Der System-Scope (/etc/pbsgui, /var/lib/pbsgui) zeigt in den Tests in ein leeres Verzeichnis: Auf einem Rechner mit
+    installiertem pbsgui würden sonst echte Profile, Läufe und Zeitpläne in die Tests hineinwirken."""
+    orig = Paths.for_scope.__func__
+    root = tmp_path / "system-scope"
+
+    def for_scope(cls, scope):
+        if scope == "system":
+            return cls("system", root / "etc/pbsgui", root / "etc/systemd/system", root / "etc/pbsgui/creds", root / "var/lib/pbsgui")
+        return orig(cls, scope)
+    monkeypatch.setattr(Paths, "for_scope", classmethod(for_scope))

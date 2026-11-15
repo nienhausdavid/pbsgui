@@ -221,6 +221,8 @@ def copy_selection(src_root: Path, rels: list[str], dest_root: Path, *, overwrit
     """
     res = CopyResult(safety_dir=safety_dir)
     src_root = Path(src_root)
+    if confine is None:
+        confine = Path(dest_root)        # ohne Vorgabe: nie aus dem Zielordner heraus (".." oder Links im Ziel)
 
     def dest_for(rel: str) -> Path:
         return dest_root / rel.lstrip("/")
@@ -228,8 +230,6 @@ def copy_selection(src_root: Path, rels: list[str], dest_root: Path, *, overwrit
     def guard(dest: Path) -> None:
         # Das Ziel selbst darf der erlaubte Ordner sein; sonst muss der (aufgelöste) Elternordner darin liegen,
         # damit ein Symlink im Ziel nie aus dem Bereich herausführen kann.
-        if confine is None:
-            return
         if dest.resolve(strict=False) == confine.resolve() or _within(dest.parent, confine):
             return
         raise FilesError(tr("Zielpfad liegt außerhalb des erlaubten Bereichs: {0}", dest))
@@ -276,6 +276,9 @@ def copy_selection(src_root: Path, rels: list[str], dest_root: Path, *, overwrit
 
     for rel in rels:
         src = src_root / rel.lstrip("/")
+        # Pfade kommen aus dem Katalog des Servers: ".." oder ein Ordner-Link im Archiv dürfen nie auf Dateien dieses Rechners zeigen
+        if ".." in Path(rel).parts or not (src == src_root or _within(src.parent, src_root)):
+            raise FilesError(tr("Pfad liegt außerhalb des Archivs: {0}", rel))
         if not os.path.lexists(src):
             res.skipped.append(tr("{0} (nicht im Archiv)", rel))
             continue

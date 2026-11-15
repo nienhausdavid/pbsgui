@@ -74,4 +74,6 @@ EN = {
     'Die Wiederherstellung braucht root (nur der Trockenlauf geht ohne)': 'The restore needs root (only the dry run works without)',
     'Bestätigung falsch: zum Starten {0} {1} eintippen': 'Wrong confirmation: type {0} {1} to start',
     'Das ist kein privater Master-Schlüssel (PEM mit „PRIVATE KEY“ erwartet)': 'This is not a private master key (PEM with “PRIVATE KEY” expected)',
+    'Name der Schnittstelle ungültig (1 bis 15 Zeichen: Buchstaben, Ziffern, _ = + . -)': 'Invalid interface name (1 to 15 characters: letters, digits, _ = + . -)',
+    'Der Zugang wurde nach dem letzten Lauf gelöscht: bitte erneut mit dem Server verbinden': 'The access data was cleared after the last run: please connect to the server again',
 }

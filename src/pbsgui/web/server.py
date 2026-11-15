@@ -34,6 +34,7 @@ DEFAULT_PORT = 8443
 MAX_BODY = 128 * 1024
 MAX_CONNECTIONS = 48
 MAX_TARPIT = 16
+HANDSHAKE_TIMEOUT = 10      # Sekunden für den TLS-Handshake
 INDEX = Path(__file__).with_name("index.html")
 INDEX_EN = Path(__file__).with_name("index.en.html")      # englische Fassung, gleiche Elemente und IDs
 
@@ -240,7 +241,7 @@ def make_handler(app: App):
             if not sess:
                 return self._json(401, {"error": tr("Nicht angemeldet oder Sitzung abgelaufen")})
             if self.command == "POST":
-                if not secrets.compare_digest(self.headers.get("X-CSRF-Token") or "", sess.csrf):
+                if not secrets.compare_digest((self.headers.get("X-CSRF-Token") or "").encode("utf-8", "replace"), sess.csrf.encode()):
                     return self._json(403, {"error": tr("CSRF-Prüfung fehlgeschlagen")})
             elif self.command not in ("GET", "HEAD"):
                 return self._json(405, {"error": tr("Methode nicht erlaubt")})
@@ -312,6 +313,9 @@ class BoundedServer(ThreadingHTTPServer):
         self.address_family = socket.AF_INET6 if ":" in addr[0] else socket.AF_INET
         super().__init__(addr, handler)
 
+    def handle_error(self, request, client_address):
+        """Abgebrochene Verbindungen sind Alltag: kein Stacktrace je Verbindung (das Log liegt im RAM und liefe sonst voll)."""
+
     def process_request(self, request, client_address):
         if not self._sem.acquire(blocking=False):      # zu viele gleichzeitige Verbindungen: sofort schließen
             self.shutdown_request(request)
@@ -321,6 +325,7 @@ class BoundedServer(ThreadingHTTPServer):
     def process_request_thread(self, request, client_address):
         try:
             try:
+                request.settimeout(HANDSHAKE_TIMEOUT)    # sonst hält eine stumme Verbindung ihren Platz für immer (48 davon sperren alle aus)
                 request = self.ctx.wrap_socket(request, server_side=True)    # TLS-Handshake im eigenen Thread (blockiert nicht den Server)
             except (ssl.SSLError, OSError):
                 self.shutdown_request(request)
@@ -491,6 +496,7 @@ def run(argv: list[str] | None = None) -> int:
 def _tee(orig, events_file: Path):
     def log(kind, who, detail=""):
         orig(kind, who, detail)
+        who, detail = auth.clean_text(who, 60), auth.clean_text(detail)
         line = f"{time.strftime('%H:%M:%S')}  {kind:<10} {who:<22} {detail}".rstrip()
         print(line, flush=True)
         try:

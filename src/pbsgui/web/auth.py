@@ -59,6 +59,11 @@ def check_passphrase(given: str, expected: str) -> bool:
     return hmac.compare_digest(normalize_passphrase(given).encode(), normalize_passphrase(expected).encode())
 
 
+def clean_text(s: str, limit: int = 200) -> str:
+    """Text aus dem Netz (Pfad, Methode) für Konsole und Protokoll: ohne Steuerzeichen (Terminal-Escape-Folgen), begrenzt."""
+    return "".join(ch if ch.isprintable() else "?" for ch in str(s))[:limit]
+
+
 # -- Adressen --------------------------------------------------------------------------------------------
 def client_key(addr: str) -> str:
     """Schlüssel für Sperren: IPv4 genau, IPv6 als /64 (ein Angreifer wechselt sonst einfach die Adresse im Block)."""
@@ -138,7 +143,7 @@ class Guard:
 
     # -- Protokoll
     def log(self, kind: str, who: str, detail: str = "") -> None:
-        self.events.append(Event(self.wall(), kind, who, detail))
+        self.events.append(Event(self.wall(), kind, clean_text(who, 60), clean_text(detail)))
 
     # -- Sperrstatus
     def blocked_for(self, key: str) -> float:
@@ -240,7 +245,7 @@ class Sessions:
         now = self.clock()
         with self._mu:
             s = self._s
-            if not s or not token or not hmac.compare_digest(s.token, token) or s.key != key:
+            if not s or not token or not hmac.compare_digest(s.token.encode(), token.encode("utf-8", "replace")) or s.key != key:
                 return None
             if now - s.last > self.idle or now - s.created > self.total:
                 self._s = None

@@ -385,7 +385,8 @@ def mount_removable(run: Callable = subprocess.run, base: str = "/media/pbsgui")
                 continue
             target = f"{base}/{n.name}"
             os.makedirs(target, exist_ok=True)
-            if run(["mount", "-o", "ro", n.path, target], capture_output=True, text=True).returncode == 0:
+            # fremde Datenträger: nur lesen, keine Programme, Geräte- oder setuid-Dateien daraus
+            if run(["mount", "-o", "ro,nosuid,nodev,noexec", n.path, target], capture_output=True, text=True).returncode == 0:
                 mounted.append(target)
     return mounted
 
@@ -534,6 +535,12 @@ def finish_steps(rec: RecoveryData, mount_root: str, target_disk: str, uefi: boo
 
 
 # -- Ausführung ------------------------------------------------------------------------
+# Geheimnisse aus der Umgebung des Aufrufers: Werkzeuge und das chroot ins Zielsystem (update-initramfs, apt …) bekommen sie nie.
+# Nur der Schritt, der mit dem Server spricht, erhält den Zugang ausdrücklich über Step.env.
+SECRET_ENV = ("PBS_PASSWORD", "PBS_ENCRYPTION_PASSWORD", "PBSGUI_TOKEN_SECRET", "PBSGUI_LUKS_PASSPHRASE", "PBSGUI_NEW_LUKS_PASSPHRASE",
+              "PBSGUI_MASTER_PASSPHRASE", "PBSGUI_ROOT_PASSWORD", "PBSGUI_VPN_PASSWORD", "NB_SETUP_KEY")
+
+
 def run_steps(steps: list[Step], on_line: Callable[[str], None] = print, env: dict[str, str] | None = None,
               dry_run: bool = False, popen=subprocess.Popen) -> Step | None:
     """Führt Schritte nacheinander aus; liefert den fehlgeschlagenen Schritt oder None."""
@@ -549,7 +556,7 @@ def run_steps(steps: list[Step], on_line: Callable[[str], None] = print, env: di
                 on_line(tr("    FEHLER: {0}", e))
                 return st
             continue
-        full_env = {**os.environ, **(env or {}), **st.env}
+        full_env = {**{k: v for k, v in os.environ.items() if k not in SECRET_ENV}, **(env or {}), **st.env}
         try:
             p = popen(st.argv, env=full_env, stdin=subprocess.PIPE if st.stdin is not None else subprocess.DEVNULL,
                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
@@ -604,11 +611,15 @@ class RescueConfig:
         return env
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "RescueConfig":
-        """Nicht geheime Verbindungsdaten (z. B. /etc/pbsgui/rescue.json aus der personalisierten ISO)."""
-        d = json.loads(Path(path).read_text())
+    def from_dict(cls, d: dict) -> "RescueConfig":
+        """Nicht geheime Verbindungsdaten; Geheimnisse (Token, Passphrasen) werden nie aus einer Datei übernommen."""
         known = {f for f in cls.__dataclass_fields__ if f not in ("token", "passphrase", "new_passphrase")}
         return cls(**{k: v for k, v in d.items() if k in known})
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> "RescueConfig":
+        """Nicht geheime Verbindungsdaten (z. B. /etc/pbsgui/rescue.json aus der personalisierten ISO)."""
+        return cls.from_dict(json.loads(Path(path).read_text()))
 
 
 def _client(cfg: RescueConfig):
@@ -715,19 +726,19 @@ def execute(cfg: RescueConfig, snapshot, rec: RecoveryData, plan: Plan, on_line:
     env = cfg.pbs_env()
     ok = False
     try:
-        if run_steps(plan.steps, on_line, env, dry_run, popen):
+        if run_steps(plan.steps, on_line, None, dry_run, popen):
             return False
         from .client import client_binary
         step = restore_step(cfg.client or client_binary(), snapshot.path, "root.pxar", plan.mount_root, cfg.namespace, cfg.keyfile, env)
-        if run_steps([step], on_line, env, dry_run, popen):
+        if run_steps([step], on_line, None, dry_run, popen):      # der Zugang steht in step.env
             return False
-        if run_steps(finish_steps(rec, plan.mount_root, cfg.target_disk, uefi, plan), on_line, env, dry_run, popen):
+        if run_steps(finish_steps(rec, plan.mount_root, cfg.target_disk, uefi, plan), on_line, None, dry_run, popen):
             return False
         ok = True
         return True
     finally:
         on_line(tr("==> Aufräumen"))
-        run_steps(plan.cleanup, on_line, env, dry_run, popen)
+        run_steps(plan.cleanup, on_line, None, dry_run, popen)
         if ok:
             on_line(tr("Trockenlauf beendet: es wurde nichts verändert.") if dry_run else
                     tr("Wiederherstellung abgeschlossen. System neu starten und das Rettungsmedium entfernen."))

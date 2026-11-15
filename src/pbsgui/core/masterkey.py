@@ -82,6 +82,7 @@ def run_with_prompts(argv: list[str], answers: list[str], cwd: str | None = None
         while True:
             if time.time() > end:
                 proc.kill()
+                proc.wait()
                 raise MasterKeyError(tr("Zeitüberschreitung beim Aufruf des Clients"))
             r, _, _ = select.select([master], [], [], 0.5)
             if not r:
