@@ -385,4 +385,8 @@ EN.update({
     'Datei zum Speichern (neue Datei, Rechte 0600)': 'File to save to (new file, permissions 0600)',
     'Kopiert. Jetzt im Passwortmanager einfügen und speichern.': 'Copied. Now paste it into your password manager and save it.',
     'Neue Datei angeben (die Datei darf noch nicht existieren)': 'Specify a new file (it must not exist yet)',
+    'Text mit der Maus markieren und kopieren (Strg+Umschalt+C, auf dem Mac ⌘C).': 'Select the text with the mouse and copy it (Ctrl+Shift+C, on a Mac ⌘C).',
+    'Eingabetaste drücken, um zurückzukehren …': 'Press Enter to return …',
+    'Dieses Terminal kann den Text nicht anzeigen; bitte „In Datei speichern“ verwenden.': 'This terminal cannot show the text; please use “Save to a file”.',
+    'Jetzt im Passwortmanager einfügen und speichern.': 'Now paste it into your password manager and save it.',
 })

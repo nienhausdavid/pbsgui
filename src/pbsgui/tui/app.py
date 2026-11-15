@@ -1,6 +1,7 @@
 """Terminal-Oberfläche (Textual) auf Basis von pbsgui.core."""
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -593,16 +594,45 @@ class PbsTui(App):
         elif e.button.id == "btn-key-file":
             self.action_key()
 
-    def copy_text_out(self, text: str) -> None:
-        """Zwischenablage: per SSH nur über das Terminal (OSC 52), sonst zuerst wl-copy/xclip/xsel, ersatzweise OSC 52."""
+    def copy_text_out(self, text: str, then=None) -> None:
+        """Text in die Zwischenablage; `then(gezeigt)` läuft danach.
+
+        Mit eigener Anzeige (nicht per SSH): wl-copy/xclip/xsel. Sonst die Terminal-Zwischenablage (OSC 52), je nach Terminal:
+        nimmt es OSC 52 sicher an, nur das; sicher nicht (GNOME Terminal, Terminal.app), dann den Text zum Markieren zeigen;
+        unbekannt, dann beides."""
         from ..core.clipboard import ClipboardError, copy_text, over_ssh
-        if not over_ssh():
+        from .terminal import NO, YES, clipboard_support
+        then = then or (lambda shown: None)
+        if not over_ssh() and (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
             try:
                 copy_text(text)
+                then(False)
                 return
             except ClipboardError:
                 pass
-        self.copy_to_clipboard(text)               # Textual: Terminal-Zwischenablage (OSC 52), wenn das Terminal es kann
+        support = clipboard_support()
+        if support != NO:
+            self.copy_to_clipboard(text)           # Textual: Terminal-Zwischenablage (OSC 52)
+        if support == YES:
+            then(False)
+            return
+        self.show_for_copy(text)
+        then(True)
+
+    def show_for_copy(self, text: str) -> None:
+        """TUI kurz verlassen und den Text als normale Terminal-Ausgabe zeigen: mit der Maus markieren und kopieren."""
+        from textual.app import SuspendNotSupported
+        try:
+            with self.suspend():
+                print("\n" + tr("Text mit der Maus markieren und kopieren (Strg+Umschalt+C, auf dem Mac ⌘C).") + "\n" + "-" * 40)
+                print(text)
+                print("-" * 40)
+                try:
+                    input(tr("Eingabetaste drücken, um zurückzukehren …"))
+                except EOFError:
+                    pass
+        except SuspendNotSupported:
+            self._notify(tr("Dieses Terminal kann den Text nicht anzeigen; bitte „In Datei speichern“ verwenden."), severity="error")
 
     def copy_what(self, what: str) -> None:
         """Schlüssel, Notfallblatt oder beides in die Zwischenablage; Schlüssel und Set zählen als gesicherter Export."""
@@ -614,15 +644,20 @@ class PbsTui(App):
         except Exception as e:
             self._notify(str(e), severity="error")
             return
-        self.copy_text_out(text)
-        if what == "sheet":
-            self._notify(tr("Notfallblatt kopiert (enthält keine Geheimnisse)"))
-            return
-        self.mgr.mark_key_exported(p)
-        self._notify(tr("Schlüssel und Notfallblatt kopiert. Jetzt im Passwortmanager einfügen und speichern!") if what == "kit"
-                     else tr("Schlüssel kopiert. Jetzt im Passwortmanager einfügen und speichern!"), severity="warning", timeout=12)
-        self._activate_schedule(p)
-        self.show_overview()
+
+        def done(shown: bool) -> None:
+            if what == "sheet":
+                if not shown:
+                    self._notify(tr("Notfallblatt kopiert (enthält keine Geheimnisse)"))
+                return
+            self.mgr.mark_key_exported(p)
+            if not shown:
+                self._notify(tr("Schlüssel und Notfallblatt kopiert. Jetzt im Passwortmanager einfügen und speichern!") if what == "kit"
+                             else tr("Schlüssel kopiert. Jetzt im Passwortmanager einfügen und speichern!"), severity="warning", timeout=12)
+            self._activate_schedule(p)
+            self.show_overview()
+
+        self.copy_text_out(text, done)
 
     def action_sheet(self) -> None:
         p = self._need()
@@ -731,4 +766,6 @@ class PbsTui(App):
 
 
 def run() -> None:
+    from .terminal import probe
+    probe()                                        # vor dem Start: danach liest Textual die Tastatur
     PbsTui().run()

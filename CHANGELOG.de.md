@@ -9,6 +9,9 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Geändert
+- pbstui: „Schlüssel kopieren“ erkennt das Terminal (XTVERSION/DA2). Terminals ohne Zwischenablage über SSH (GNOME Terminal und andere VTE-Terminals, Terminal.app unter macOS) zeigen den Text zum Markieren mit der Maus; bei unbekannten Terminals schickt pbstui ihn in die Zwischenablage und zeigt ihn zusätzlich.
+
 ## [0.9.3] - 2026-11-15
 
 ### Hinzugefügt

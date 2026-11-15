@@ -9,6 +9,9 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Changed
+- pbstui: "Copy key" detects the terminal (XTVERSION/DA2). Terminals without clipboard access over SSH (GNOME Terminal and other VTE terminals, macOS Terminal.app) get the text shown for selecting with the mouse; for unknown terminals pbstui sends it to the clipboard and also shows it.
+
 ## [0.9.3] - 2026-11-15
 
 ### Added

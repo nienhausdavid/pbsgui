@@ -55,3 +55,12 @@ def _allow_user_code_as_root(monkeypatch):
     """Die Tests laufen aus einem Entwickler-Checkout (gehört dem Benutzer): die Root-Code-Prüfung bewusst abschalten.
     Die Prüfung selbst testet tests/test_security.py mit entfernter Variable."""
     monkeypatch.setenv("PBSGUI_ALLOW_USER_CODE_AS_ROOT", "1")
+
+
+@pytest.fixture(autouse=True)
+def _local_desktop_session(monkeypatch):
+    """Die TUI-Tests laufen wie in einer lokalen Desktop-Sitzung: Kopieren geht über copy_text (in den Tests ersetzt), nicht
+    über das Terminal. Die SSH- und Terminal-Fälle prüft tests/test_terminal_clipboard.py ausdrücklich."""
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-test")
+    for var in ("SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT"):
+        monkeypatch.delenv(var, raising=False)

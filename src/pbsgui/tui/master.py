@@ -59,10 +59,12 @@ class MasterScreen(ModalScreen[bool]):
         elif bid == "mk-make":
             self._make()
         elif bid == "mk-copy" and self.key:
-            self.app.copy_text_out(self.key.private_pem)
-            self.saved = True
-            self._say(tr("Kopiert. Jetzt im Passwortmanager einfügen und speichern."))
-            self._update_done()
+            def done(shown: bool) -> None:
+                self.saved = True
+                self._say(tr("Jetzt im Passwortmanager einfügen und speichern.") if shown else tr("Kopiert. Jetzt im Passwortmanager einfügen und speichern."))
+                self._update_done()
+
+            self.app.copy_text_out(self.key.private_pem, done)
         elif bid == "mk-save" and self.key:
             dest = Path(self.query_one("#mk-path", Input).value).expanduser()
             if not str(dest) or dest.exists():
