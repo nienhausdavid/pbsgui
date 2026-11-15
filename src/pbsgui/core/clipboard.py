@@ -1,6 +1,7 @@
 """Text in die Zwischenablage legen (für die Kommandozeile; GUI und TUI haben eigene Wege)."""
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from typing import Callable
@@ -8,6 +9,11 @@ from typing import Callable
 from ..i18n import tr
 
 TOOLS = (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"])
+
+
+def over_ssh(env=os.environ) -> bool:
+    """Läuft das Programm in einer SSH-Sitzung? Dann gehört die Zwischenablage dem Terminal am anderen Ende, nicht diesem Rechner."""
+    return bool(env.get("SSH_CONNECTION") or env.get("SSH_TTY") or env.get("SSH_CLIENT"))
 
 
 class ClipboardError(RuntimeError):

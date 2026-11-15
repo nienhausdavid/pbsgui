@@ -593,6 +593,17 @@ class PbsTui(App):
         elif e.button.id == "btn-key-file":
             self.action_key()
 
+    def copy_text_out(self, text: str) -> None:
+        """Zwischenablage: per SSH nur über das Terminal (OSC 52), sonst zuerst wl-copy/xclip/xsel, ersatzweise OSC 52."""
+        from ..core.clipboard import ClipboardError, copy_text, over_ssh
+        if not over_ssh():
+            try:
+                copy_text(text)
+                return
+            except ClipboardError:
+                pass
+        self.copy_to_clipboard(text)               # Textual: Terminal-Zwischenablage (OSC 52), wenn das Terminal es kann
+
     def copy_what(self, what: str) -> None:
         """Schlüssel, Notfallblatt oder beides in die Zwischenablage; Schlüssel und Set zählen als gesicherter Export."""
         p = self._need()
@@ -603,11 +614,7 @@ class PbsTui(App):
         except Exception as e:
             self._notify(str(e), severity="error")
             return
-        from ..core.clipboard import ClipboardError, copy_text
-        try:
-            copy_text(text)
-        except ClipboardError:
-            self.copy_to_clipboard(text)           # Textual: Terminal-Zwischenablage (OSC 52), wenn das Terminal es kann
+        self.copy_text_out(text)
         if what == "sheet":
             self._notify(tr("Notfallblatt kopiert (enthält keine Geheimnisse)"))
             return

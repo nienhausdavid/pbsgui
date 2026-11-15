@@ -59,11 +59,7 @@ class MasterScreen(ModalScreen[bool]):
         elif bid == "mk-make":
             self._make()
         elif bid == "mk-copy" and self.key:
-            from ..core.clipboard import ClipboardError, copy_text
-            try:
-                copy_text(self.key.private_pem)
-            except ClipboardError:
-                self.app.copy_to_clipboard(self.key.private_pem)
+            self.app.copy_text_out(self.key.private_pem)
             self.saved = True
             self._say(tr("Kopiert. Jetzt im Passwortmanager einfügen und speichern."))
             self._update_done()
