@@ -113,3 +113,96 @@ class MasterScreen(ModalScreen[bool]):
         for wid in ("#mk-copy", "#mk-path", "#mk-save", "#mk-ack"):
             self.query_one(wid).disabled = False
         self._say(tr("Fertig erzeugt (Fingerprint {0}). Jetzt den PRIVATEN Schlüssel sichern und die Passphrase (falls vergeben) getrennt notieren.", key.fingerprint))
+
+
+class RecoverKeyScreen(ModalScreen[bool]):
+    """Verschlüsselungs-Schlüssel mit dem privaten Master-Schlüssel aus dem neuesten Snapshot mit Schlüsselkopie zurückholen."""
+    BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
+
+    def __init__(self, mgr: ProfileManager, profile: Profile):
+        super().__init__()
+        self.mgr, self.profile = mgr, profile
+        self.key_json = ""
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="dialog"):
+            yield Label(tr("Schlüssel zurückholen"), markup=False)
+            yield Static(tr("Holt den Verschlüsselungs-Schlüssel mit dem privaten Master-Schlüssel aus einem Snapshot zurück. Es gibt nur in Snapshots eine Schlüsselkopie, die mit eingerichtetem Master-Schlüssel erstellt wurden."), classes="hint", markup=False)
+            yield Label(tr("Privater Master-Schlüssel"), markup=False)
+            yield Input("", id="rk-pem", placeholder=tr("Datei mit dem privaten Master-Schlüssel (master-private.pem)"))
+            yield Label(tr("Passphrase (leer, wenn keine vergeben)"), markup=False); yield Input("", id="rk-pw", password=True)
+            yield Button(tr("Schlüssel zurückholen"), variant="primary", id="rk-go")
+            yield Static("", id="rk-status", markup=False)
+            yield Button(tr("Schlüssel kopieren"), id="rk-copy", disabled=True)
+            yield Input("", id="rk-path", placeholder=tr("Datei zum Speichern (neue Datei, Rechte 0600)"), disabled=True)
+            yield Button(tr("In Datei speichern"), id="rk-save", disabled=True)
+            yield Button(tr("Im Profil einsetzen"), id="rk-install", disabled=True)
+            yield Button(tr("Schließen"), id="rk-close")
+
+    def _say(self, text: str) -> None:
+        self.query_one("#rk-status", Static).update(text)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def on_button_pressed(self, e: Button.Pressed) -> None:
+        bid = e.button.id
+        if bid == "rk-close":
+            self.dismiss(False)
+        elif bid == "rk-go":
+            self._go()
+        elif bid == "rk-copy" and self.key_json:
+            self.app.copy_text_out(self.key_json, lambda shown: self._say(
+                tr("Jetzt im Passwortmanager einfügen und speichern.") if shown else tr("Kopiert. Jetzt im Passwortmanager einfügen und speichern.")))
+        elif bid == "rk-save" and self.key_json:
+            dest = Path(self.query_one("#rk-path", Input).value).expanduser()
+            if not str(dest) or dest.exists():
+                self._say(tr("Neue Datei angeben (die Datei darf noch nicht existieren)"))
+                return
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(self.key_json)
+            self._say(tr("Gespeichert in {0} (Rechte 0600).", dest))
+        elif bid == "rk-install" and self.key_json:
+            try:
+                self.mgr.install_recovered_key(self.profile, self.key_json)
+            except Exception as ex:
+                self._say(tr("Fehler: {0}", ex))
+                return
+            self.dismiss(True)
+
+    def _go(self) -> None:
+        from ..core.masterkey import ENCRYPTED_NAMES
+        try:
+            pem = Path(self.query_one("#rk-pem", Input).value.strip()).expanduser().read_text()
+        except OSError as ex:
+            self._say(tr("Fehler: {0}", ex))
+            return
+        pw_input = self.query_one("#rk-pw", Input)
+        pw, pw_input.value = pw_input.value, ""          # Geheimnisse nicht länger als nötig in der Oberfläche halten
+        self.query_one("#rk-go", Button).disabled = True
+        self._say(tr("Hole den Schlüssel …"))
+
+        def work() -> None:
+            try:
+                snaps = [s for s in self.mgr.snapshots(self.profile) if any(n in s.files for n in ENCRYPTED_NAMES)]
+                if not snaps:
+                    raise RuntimeError(tr("Kein Snapshot mit Schlüsselkopie vorhanden."))
+                key_json = self.mgr.recover_key(self.profile, max(snaps, key=lambda s: s.backup_time), pem, pw)
+            except Exception as ex:
+                self.app.call_from_thread(self._failed, str(ex))
+                return
+            self.app.call_from_thread(self._got, key_json)
+        self.run_worker(work, thread=True)
+
+    def _failed(self, msg: str) -> None:
+        self._say(tr("Fehler: {0}", msg))
+        self.query_one("#rk-go", Button).disabled = False
+
+    def _got(self, key_json: str) -> None:
+        self.key_json = key_json
+        self.query_one("#rk-go", Button).disabled = False
+        for wid in ("#rk-copy", "#rk-path", "#rk-save", "#rk-install"):
+            self.query_one(wid).disabled = False
+        self.query_one("#rk-path", Input).value = str(Path.home() / f"{self.profile.slug}-key.json")
+        self._say(tr("Schlüssel zurückgeholt. Jetzt sichern (kopieren oder als Datei) oder im Profil einsetzen."))

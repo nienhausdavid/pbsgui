@@ -196,3 +196,73 @@ def test_cli_master_create_no_passphrase(env, capsys, server, tmp_path):
     assert code == 0, err
     assert out_file.read_text().startswith("-----BEGIN PRIVATE KEY-----") and "BEGIN PRIVATE KEY" not in out
     assert mgr_for(env).profiles()[0].master_pubkey
+
+
+def test_core_recover_key_with_master_picks_newest_snapshot_with_copy(env, capsys, server, monkeypatch, tmp_path):
+    """Gemeinsamer Weg von Kommandozeile, Rettungs-Assistent und Web-Oberfläche."""
+    from pbsgui.core import rescue
+    from pbsgui.core.pbs_api import fetch_fingerprint
+    assert add_b(capsys, server)[0] == 0
+    key = mgr_for(env).setup_master_key(mgr_for(env).profiles()[0], "passphrase-123")
+    snaps = [{"backup-type": "host", "backup-id": "host", "backup-time": t, "size": 1,
+              "files": [{"filename": "root.pxar.didx"}] + ([{"filename": "rsa-encrypted.key.blob"}] if copy else [])}
+             for t, copy in ((1000, True), (2000, True), (3000, False))]
+    (env / "fake").mkdir(parents=True, exist_ok=True)
+    (env / "fake" / "snapshots.json").write_text(json.dumps(snaps))
+    monkeypatch.setenv("FAKE_PBS_RSA", FAKE_KEY)
+    monkeypatch.setenv("FAKE_PBS_RSA_BLOBNAME", "1")
+    cfg = rescue.RescueConfig(server="127.0.0.1", port=server, datastore="store1", auth_id="u@pbs!t", token="t",
+                              fingerprint=fetch_fingerprint("127.0.0.1", server))
+    key_json, snap = rescue.recover_key_with_master(cfg, key.private_pem, "passphrase-123")
+    assert json.loads(key_json)["fingerprint"] == "aa:bb:cc:dd" and snap.backup_time == 2000      # neuester MIT Kopie
+    path = rescue.write_recovered_key(key_json, tmp_path / "k.json")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    with pytest.raises(MasterKeyError):
+        rescue.recover_key_with_master(cfg, key.private_pem, "")                     # geschützt, aber keine Passphrase
+    with pytest.raises(rescue.RescueError):
+        rescue.recover_key_with_master(cfg, key.private_pem, "passphrase-123", snapshot="host/host/gibt-es-nicht")
+
+
+def test_find_master_keys_on_media(tmp_path):
+    from pbsgui.core.rescue import find_master_keys
+    (tmp_path / "usb" / "keys").mkdir(parents=True)
+    (tmp_path / "usb" / "keys" / "master-private.pem").write_text("-----BEGIN ENCRYPTED PRIVATE KEY-----\nabc\n")
+    (tmp_path / "usb" / "public.pem").write_text("-----BEGIN PUBLIC KEY-----\nabc\n")
+    (tmp_path / "usb" / "notes.txt").write_text("-----BEGIN PRIVATE KEY-----\n")
+    assert find_master_keys([str(tmp_path)]) == [str(tmp_path / "usb" / "keys" / "master-private.pem")]
+
+
+async def test_tui_recover_key_screen_installs_the_key(env, capsys, server, monkeypatch, tmp_path):
+    from textual.widgets import Button, Input
+    from pbsgui.core.manager import ProfileManager
+    from pbsgui.tui.app import PbsTui
+    assert add_b(capsys, server)[0] == 0
+    mgr = mgr_for(env)
+    p = mgr.profiles()[0]
+    pem = tmp_path / "master-private.pem"
+    pem.write_text("-----BEGIN PRIVATE KEY-----\nabc\n")
+    copy = Snapshot(backup_type="host", backup_id="host", backup_time=2000, files=["rsa-encrypted.key.blob"])
+    plain = Snapshot(backup_type="host", backup_id="host", backup_time=3000, files=[])
+    got = []
+    monkeypatch.setattr(ProfileManager, "snapshots", lambda self, prof: [plain, copy])
+    monkeypatch.setattr(ProfileManager, "recover_key", lambda self, prof, snap, text, pw: got.append((snap.backup_time, text, pw)) or
+                        json.dumps({"kdf": None, "data": "eA==", "fingerprint": p.key_fingerprint}))
+    async with PbsTui(mgr).run_test(size=(150, 60)) as pilot:
+        await pilot.pause()
+        await pilot.press("K")
+        await pilot.pause()
+        scr = pilot.app.screen
+        assert scr.__class__.__name__ == "RecoverKeyScreen"
+        scr.query_one("#rk-pem", Input).value = str(pem)
+        scr.query_one("#rk-pw", Input).value = "pw"
+        scr.query_one("#rk-go", Button).press()
+        for _ in range(100):
+            await pilot.pause(0.05)
+            if scr.key_json:
+                break
+        assert got == [(2000, pem.read_text(), "pw")] and scr.query_one("#rk-pw", Input).value == ""
+        assert not scr.query_one("#rk-install", Button).disabled
+        scr.query_one("#rk-install", Button).press()
+        await pilot.pause()
+        assert pilot.app.screen.__class__.__name__ != "RecoverKeyScreen"
+    assert mgr.secrets.get(p.slug, "key") and not mgr.profiles()[0].key_exported_at == ""

@@ -341,3 +341,27 @@ async def test_vm_mode_wizard_maps_disks_and_confirms_all_devices(fake_env, tmp_
         plan.query_one("#confirm", Input).value = "/dev/sdb /dev/sda"
         plan.query_one("#go", Button).press()
         assert await wait_for(pilot, lambda: ran == [([("scsi0", "/dev/sda"), ("scsi1", "/dev/sdb")], False)])
+
+
+async def test_master_key_button_recovers_and_enters_the_keyfile(lab, monkeypatch, tmp_path):
+    pem = tmp_path / "master-private.pem"
+    pem.write_text("-----BEGIN PRIVATE KEY-----\nabc\n")
+    calls = []
+    monkeypatch.setattr(rescue_mod, "recover_key_with_master", lambda cfg, text, pw, snapshot="":
+                        calls.append((cfg.server, cfg.token, text, pw)) or ('{"kdf": null, "fingerprint": "aa"}', None))
+    monkeypatch.setattr(rescue_mod, "write_recovered_key", lambda key_json, dest=None: tmp_path / "key.json")
+    app = rtui.RescueApp(RescueConfig(server="", datastore="", auth_id=""))
+    async with app.run_test(size=(140, 60)) as pilot:
+        await pilot.pause()
+        s = app.screen
+        s.query_one("#master", Button).press()
+        await pilot.pause()
+        assert app.screen is s                                              # ohne Verbindungsdaten geht es nicht weiter
+        fill(s, server="pbs.example", datastore="store1", **{"auth-id": "u@pbs!t"}, token="geheim", fingerprint="AA:BB")
+        s.query_one("#master", Button).press()
+        assert await wait_for(pilot, lambda: app.screen.__class__.__name__ == "MasterKeyScreen")
+        fill(app.screen, pem=str(pem), pw="master-pw")
+        app.screen.query_one("#go", Button).press()
+        assert await wait_for(pilot, lambda: app.screen is s)
+        assert s.query_one("#keyfile", Input).value == str(tmp_path / "key.json")
+        assert calls == [("pbs.example", "geheim", pem.read_text(), "master-pw")]

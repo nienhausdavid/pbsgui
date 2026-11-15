@@ -90,6 +90,7 @@ class ConnectScreen(Screen):
             yield Input(value=c.keyfile, placeholder=tr("Schlüsseldatei (verschlüsseltes Backup), z. B. /media/usb/key.json"),
                         id="keyfile")
             yield Button(tr("USB-Stick nach Schlüsseldatei durchsuchen"), id="usb")
+            yield Button(tr("Schlüssel verloren? Mit Master-Schlüssel zurückholen …"), id="master")
             yield Checkbox(tr("VM-Abbild wiederherstellen (Proxmox-VE-Backup einer virtuellen Maschine auf eine Platte)"), id="vm-mode")
             yield Say(id="status")
             yield Button(tr("Weiter"), variant="primary", id="next")
@@ -151,20 +152,35 @@ class ConnectScreen(Screen):
                 self._say(tr("{0} Schlüsseldatei(en) gefunden, die erste wurde eingetragen: {1}", len(keys), keys[0]))
             else:
                 self._say(tr("Keine Schlüsseldatei gefunden. USB-Stick einstecken und erneut suchen oder den Pfad von Hand eintragen."))
+        elif e.button.id == "master":
+            if self._take_fields():
+                self.app.push_screen(MasterKeyScreen(), self._recovered)
         elif e.button.id == "next":
             await self._next()
 
-    async def _next(self) -> None:
+    def _recovered(self, keyfile: str | None) -> None:
+        if keyfile:
+            self.query_one("#keyfile", Input).value = keyfile
+            self._say(tr("Schlüssel zurückgeholt und eingetragen: {0}. Jetzt „Weiter“.", keyfile))
+
+    def _take_fields(self) -> bool:
+        """Verbindungsdaten aus den Feldern übernehmen; False, wenn ein Pflichtfeld fehlt."""
         for wid, name in (("server", "Server"), ("datastore", "Datastore"), ("auth-id", "Token-ID"),
                           ("token", "Token-Secret"), ("fingerprint", "Fingerprint")):
             if not self.query_one(f"#{wid}", Input).value.strip():
                 self._say(tr("{0} fehlt.", name))
-                return
+                return False
         c = self.app.cfg
         c.server, c.port = self._v("server"), int(self._v("port") or 8007)
         c.datastore, c.namespace, c.backup_id = self._v("datastore"), self._v("namespace"), self._v("backup-id")
         c.auth_id, c.fingerprint, c.keyfile = self._v("auth-id"), self._v("fingerprint"), self._v("keyfile")
         c.token = self.query_one("#token", Input).value
+        return True
+
+    async def _next(self) -> None:
+        if not self._take_fields():
+            return
+        c = self.app.cfg
         if c.keyfile and not Path(c.keyfile).is_file():
             self._say(tr("Schlüsseldatei nicht gefunden: {0}", c.keyfile))
             return
@@ -193,6 +209,67 @@ class ConnectScreen(Screen):
             return
         self.app.snaps = snaps
         self.app.push_screen(SnapshotScreen())
+
+
+class MasterKeyScreen(Screen[str | None]):
+    """Schlüssel verloren: mit dem privaten Master-Schlüssel aus dem neuesten Snapshot zurückholen."""
+    BINDINGS = [("escape", "back", tr("Zurück"))]
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="panel"):
+            yield Label(tr("Schlüssel mit dem Master-Schlüssel zurückholen"), classes="title", markup=False)
+            yield Static(tr("Holt den Verschlüsselungs-Schlüssel aus dem neuesten Snapshot, der mit eingerichtetem Master-Schlüssel erstellt wurde. Dazu braucht es den privaten Master-Schlüssel (master-private.pem) und seine Passphrase, falls eine vergeben wurde. Der Schlüssel bleibt nur im Arbeitsspeicher."),
+                         classes="hint", markup=False)
+            yield Input(placeholder=tr("Privater Master-Schlüssel, z. B. /media/usb/master-private.pem"), id="pem")
+            yield Button(tr("USB-Stick nach Master-Schlüssel durchsuchen"), id="usb")
+            yield Input(placeholder=tr("Passphrase (leer, wenn keine vergeben)"), password=True, id="pw")
+            yield Say(id="status")
+            with Horizontal():
+                yield Button(tr("Zurück"), id="back")
+                yield Button(tr("Schlüssel zurückholen"), variant="primary", id="go")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#pem", Input).focus()
+
+    def _say(self, text: str) -> None:
+        self.query_one("#status", Say).update(text)
+
+    def action_back(self) -> None:
+        self.dismiss(None)
+
+    async def on_button_pressed(self, e: Button.Pressed) -> None:
+        if e.button.id == "back":
+            self.dismiss(None)
+        elif e.button.id == "usb":
+            self._say(tr("Suche auf USB-Sticks und anderen Datenträgern …"))
+            found = await asyncio.to_thread(rescue.find_master_keys, None, True)
+            if found:
+                self.query_one("#pem", Input).value = found[0]
+                self._say(tr("{0} Datei(en) gefunden, die erste wurde eingetragen: {1}", len(found), found[0]))
+            else:
+                self._say(tr("Kein privater Master-Schlüssel gefunden. USB-Stick einstecken und erneut suchen oder den Pfad von Hand eintragen."))
+        elif e.button.id == "go":
+            await self._go()
+
+    async def _go(self) -> None:
+        path = self.query_one("#pem", Input).value.strip()
+        try:
+            pem = Path(path).read_text()
+        except OSError as ex:
+            self._say(tr("Fehler: {0}", ex))
+            return
+        pw_input = self.query_one("#pw", Input)
+        self._say(tr("Hole den Schlüssel …"))
+        try:
+            key_json, snap = await asyncio.to_thread(rescue.recover_key_with_master, self.app.cfg, pem, pw_input.value)
+            keyfile = await asyncio.to_thread(rescue.write_recovered_key, key_json)
+        except Exception as ex:
+            self._say(tr("Fehler: {0}", str(ex).replace(self.app.cfg.token, "***") if self.app.cfg.token else ex))
+            return
+        finally:
+            pw_input.value = ""                    # Geheimnisse nicht länger als nötig in der Oberfläche halten
+        self.dismiss(str(keyfile))
 
 
 class VpnScreen(Screen):

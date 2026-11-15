@@ -79,7 +79,12 @@ CSRF token. Wiping a disk requires typing the device name, as everywhere.
 ## If the key is lost: recover it with the master key
 
 If `key.json` is gone but you set up a **master key** earlier (GUI “Set up the master key …”, `pbsgui key master-create`), you can get the key back from any
-snapshot that was created afterwards. You need the private master key (`master-private.pem`) and its passphrase, plus the server access from the emergency sheet:
+snapshot that was created afterwards. You need the private master key (`master-private.pem`), its passphrase (if one was set) and the server access from the emergency sheet.
+
+**In the wizard:** in the first step fill in server, token and fingerprint, then “Key lost? Recover it with the master key …”. Give the file there (or let it
+search the USB stick) and type the passphrase. The key is fetched from the newest snapshot with a key copy, kept in memory only and entered as the key file;
+then “Next” as usual. **In the web interface:** under “Key lost? Recover it with the master key” paste the content of `master-private.pem`. **In pbstui** (on a
+computer with a profile): key `K`. **On the command line:**
 
 ```bash
 PBSGUI_TOKEN_SECRET=… PBSGUI_MASTER_PASSPHRASE=… pbsgui rescue recover-key --server pbs.example.org --datastore main \

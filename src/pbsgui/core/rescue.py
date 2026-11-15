@@ -418,6 +418,32 @@ def find_key_files(roots: list[str] | None = None, mount: bool = False, run: Cal
     return sorted(found)
 
 
+def find_master_keys(roots: list[str] | None = None, mount: bool = False, run: Callable = subprocess.run) -> list[str]:
+    """Sucht private Master-Schlüssel (PEM-Dateien mit „PRIVATE KEY“) auf eingehängten Medien."""
+    if mount:
+        mount_removable(run)
+    found: list[str] = []
+    for root in roots or ["/media", "/mnt", "/run/media"]:
+        base = Path(root)
+        if not base.is_dir():
+            continue
+        for dirpath, dirs, files in os.walk(base):
+            if len(Path(dirpath).relative_to(base).parts) >= 4:
+                dirs.clear()
+                continue
+            for f in files:
+                p = Path(dirpath) / f
+                try:
+                    if not f.lower().endswith((".pem", ".key")) or p.stat().st_size > 16384:
+                        continue
+                    head = p.read_text(errors="replace")[:80]
+                except OSError:
+                    continue
+                if head.startswith("-----BEGIN") and "PRIVATE KEY" in head:
+                    found.append(str(p))
+    return sorted(found)
+
+
 def original_encrypted(rec: RecoveryData) -> bool:
     """War die Quell-Platte mit LUKS verschlüsselt?"""
     return any(n.fstype == "crypto_LUKS" for n in rec.root_disk().walk())
@@ -588,6 +614,35 @@ class RescueConfig:
 def _client(cfg: RescueConfig):
     from .client import PbsClient, client_binary
     return PbsClient(cfg.profile(), cfg.token, binary=cfg.client or client_binary(), key_path=cfg.keyfile)
+
+
+def recover_key_with_master(cfg: RescueConfig, master_private_pem: str, passphrase: str = "", snapshot: str = ""):
+    """Schlüssel (key.json als Text) mit dem privaten Master-Schlüssel aus dem neuesten Snapshot mit Schlüsselkopie holen.
+
+    Für den Fall, dass Gerät und key.json verloren sind. Liefert (key_json, snapshot)."""
+    import tempfile
+    from .client import client_binary
+    from .masterkey import ENCRYPTED_NAMES, _ram_dir, recover_key
+    client = _client(cfg)
+    snaps = [s for s in client.list_snapshots() if (not cfg.backup_id or s.backup_id == cfg.backup_id)
+             and any(n in s.files for n in ENCRYPTED_NAMES) and (not snapshot or s.path == snapshot)]
+    if not snaps:
+        raise RescueError(tr("Kein Snapshot mit Schlüsselkopie gefunden (Backups ohne Master-Schlüssel enthalten keine)"))
+    snap = max(snaps, key=lambda s: s.backup_time)
+    with tempfile.TemporaryDirectory(prefix="pbsgui-blob-", dir=_ram_dir()) as tmp:
+        blob = client.restore_encrypted_key(snap, str(Path(tmp) / "rsa-encrypted.key"))
+    return recover_key(cfg.client or client_binary(), blob, master_private_pem, passphrase), snap
+
+
+def write_recovered_key(key_json: str, dest: str | Path | None = None) -> Path:
+    """Zurückgeholten Schlüssel als 0600-Datei ablegen (Standard: neues Verzeichnis im RAM); liefert den Pfad für --keyfile."""
+    import tempfile
+    from .masterkey import _ram_dir
+    path = Path(dest) if dest else Path(tempfile.mkdtemp(prefix="pbsgui-key-", dir=_ram_dir())) / "key.json"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(key_json)
+    return path
 
 
 def list_full_snapshots(cfg: RescueConfig):

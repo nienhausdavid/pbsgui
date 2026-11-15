@@ -389,4 +389,13 @@ EN.update({
     'Eingabetaste drücken, um zurückzukehren …': 'Press Enter to return …',
     'Dieses Terminal kann den Text nicht anzeigen; bitte „In Datei speichern“ verwenden.': 'This terminal cannot show the text; please use “Save to a file”.',
     'Jetzt im Passwortmanager einfügen und speichern.': 'Now paste it into your password manager and save it.',
+    'Key zurückholen': 'Recover key',
+    'Schlüssel zurückgeholt und eingetragen: {0}. Jetzt „Weiter“.': 'Key recovered and entered: {0}. Now “Next”.',
+    'Schlüssel verloren? Mit Master-Schlüssel zurückholen …': 'Key lost? Recover it with the master key …',
+    'Schlüssel mit dem Master-Schlüssel zurückholen': 'Recover the key with the master key',
+    'Holt den Verschlüsselungs-Schlüssel aus dem neuesten Snapshot, der mit eingerichtetem Master-Schlüssel erstellt wurde. Dazu braucht es den privaten Master-Schlüssel (master-private.pem) und seine Passphrase, falls eine vergeben wurde. Der Schlüssel bleibt nur im Arbeitsspeicher.': 'Gets the encryption key from the newest snapshot that was created with a master key set up. This needs the private master key (master-private.pem) and its passphrase, if one was set. The key stays in memory only.',
+    'USB-Stick nach Master-Schlüssel durchsuchen': 'Search USB sticks for the master key',
+    'Privater Master-Schlüssel, z. B. /media/usb/master-private.pem': 'Private master key, e.g. /media/usb/master-private.pem',
+    '{0} Datei(en) gefunden, die erste wurde eingetragen: {1}': '{0} file(s) found, the first one was entered: {1}',
+    'Kein privater Master-Schlüssel gefunden. USB-Stick einstecken und erneut suchen oder den Pfad von Hand eintragen.': 'No private master key found. Plug in the USB stick and search again, or enter the path by hand.',
 })

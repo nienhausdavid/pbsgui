@@ -153,29 +153,18 @@ def cmd_rescue(a, mgr=None) -> int:
 
 def _recover_key(a) -> int:
     """Schlüssel aus einem Snapshot zurückholen, wenn Gerät und key.json verloren sind (nur der private Master-Schlüssel ist da)."""
-    from ..core.client import client_binary
-    from ..core.masterkey import ENCRYPTED_NAMES, MasterKeyError, recover_key
-    from ..core.rescue import _client
+    from ..core.masterkey import MasterKeyError, is_protected
+    from ..core.rescue import recover_key_with_master, write_recovered_key
     cfg = build_config(a)
-    client = _client(cfg)
-    snaps = [s for s in client.list_snapshots() if (not cfg.backup_id or s.backup_id == cfg.backup_id)
-             and any(n in s.files for n in ENCRYPTED_NAMES)]
-    if a.snapshot:
-        snaps = [s for s in snaps if s.path == a.snapshot]
-    if not snaps:
-        raise RescueCliError(tr("Kein Snapshot mit Schlüsselkopie gefunden (Backups ohne Master-Schlüssel enthalten keine)"))
     if Path(a.output).exists():
         raise RescueCliError(tr("{0} existiert bereits", a.output))
-    pw = _secret("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels"))
+    pem = Path(a.master_key).read_text()
+    pw = _secret("PBSGUI_MASTER_PASSPHRASE", tr("Passphrase des Master-Schlüssels")) if is_protected(pem) else ""
     try:
-        with tempfile.TemporaryDirectory(prefix="pbsgui-blob-") as tmp:
-            blob = client.restore_encrypted_key(snaps[0], str(Path(tmp) / "rsa-encrypted.key"))
-        key_json = recover_key(cfg.client or client_binary(), blob, Path(a.master_key).read_text(), pw)
+        key_json, _snap = recover_key_with_master(cfg, pem, pw, a.snapshot or "")
     except MasterKeyError as e:
         raise RescueCliError(str(e))
-    fd = os.open(a.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(key_json)
+    write_recovered_key(key_json, a.output)
     print(tr("Schlüssel zurückgeholt und in {0} gespeichert (Rechte 0600). Jetzt mit --keyfile {0} wiederherstellen.", a.output))
     return 0
 

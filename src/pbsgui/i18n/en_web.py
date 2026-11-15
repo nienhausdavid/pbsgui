@@ -73,4 +73,5 @@ EN = {
     'Das ist keine OpenVPN-Konfiguration (remote/client fehlt)': 'This is not an OpenVPN configuration (remote/client missing)',
     'Die Wiederherstellung braucht root (nur der Trockenlauf geht ohne)': 'The restore needs root (only the dry run works without)',
     'Bestätigung falsch: zum Starten {0} {1} eintippen': 'Wrong confirmation: type {0} {1} to start',
+    'Das ist kein privater Master-Schlüssel (PEM mit „PRIVATE KEY“ erwartet)': 'This is not a private master key (PEM with “PRIVATE KEY” expected)',
 }

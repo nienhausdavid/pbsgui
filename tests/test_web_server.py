@@ -302,3 +302,28 @@ def test_vm_mode_flow_maps_disks_and_needs_all_devices_confirmed(web, fake_env, 
             break
         time.sleep(0.05)
     assert d["state"] == "ok" and "vm fertig" in d["lines"] and ran == [([("scsi0", "/dev/sda"), ("scsi1", "/dev/sdb")], False)]
+
+
+def test_master_key_endpoint_recovers_and_stores_the_key_0600(web, monkeypatch):
+    import os, stat
+    from pbsgui.core import rescue
+    from pbsgui.core.masterkey import MasterKeyError
+    c = Client(web); c.login()
+    conn = {"server": "pbs.example", "datastore": "store1", "auth_id": "u@pbs!t", "token": "geheim-token", "fingerprint": "AA:BB"}
+    seen = []
+
+    def fake(cfg, pem, pw, snapshot=""):
+        seen.append((cfg.server, cfg.token, pw))
+        if pw == "falsch":
+            raise MasterKeyError("geheim-token passt nicht")
+        return json.dumps({"kdf": None, "data": "eA==", "fingerprint": "aa:bb"}), type("S", (), {"path": "host/pc/2026"})()
+    monkeypatch.setattr(rescue, "recover_key_with_master", fake)
+    assert c.req("POST", "/api/master-key", {**conn, "master_key": "kein pem"})[0] == 400
+    assert c.req("POST", "/api/master-key", {**conn, "token": "", "master_key": "-----BEGIN PRIVATE KEY-----"})[0] == 400
+    code, _, out = c.req("POST", "/api/master-key", {**conn, "master_key": "-----BEGIN PRIVATE KEY-----", "passphrase": "falsch"})
+    assert code == 400 and "geheim-token" not in json.dumps(out)                     # Token nie in der Antwort
+    code, _, out = c.req("POST", "/api/master-key", {**conn, "master_key": "-----BEGIN ENCRYPTED PRIVATE KEY-----", "passphrase": "pw"})
+    assert code == 200 and out["fingerprint"] == "aa:bb" and out["snapshot"] == "host/pc/2026"
+    p = web.app.service.workdir / "key.json"
+    assert stat.S_IMODE(os.stat(p).st_mode) == 0o600 and web.app.service.keyfile == str(p)
+    assert seen[-1] == ("pbs.example", "geheim-token", "pw")

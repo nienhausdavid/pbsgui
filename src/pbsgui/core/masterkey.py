@@ -146,9 +146,14 @@ def create_master_key(passphrase: str, binary: str) -> MasterKey:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def is_protected(master_private_pem: str) -> bool:
+    """Ist der private Master-Schlüssel durch eine Passphrase geschützt?"""
+    return "ENCRYPTED" in master_private_pem.strip().splitlines()[0] if master_private_pem.strip() else False
+
+
 def recover_key(binary: str, encrypted_key: bytes, master_private_pem: str, passphrase: str) -> str:
     """Holt den Verschlüsselungs-Schlüssel (key.json als Text) aus der RSA-verschlüsselten Kopie zurück (`key import-with-master-key`)."""
-    protected = "ENCRYPTED" in master_private_pem.splitlines()[0] if master_private_pem.strip() else False
+    protected = is_protected(master_private_pem)
     if protected and not passphrase:
         raise MasterKeyError(tr("Dieser private Master-Schlüssel ist durch eine Passphrase geschützt"))
     work = tempfile.mkdtemp(prefix="pbsgui-recover-", dir=_ram_dir())

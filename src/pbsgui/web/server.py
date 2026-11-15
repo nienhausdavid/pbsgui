@@ -275,7 +275,7 @@ def make_handler(app: App):
                           "/api/log": lambda: service.log(self._query_int("since"))}
             post_routes = {"/api/fingerprint": service.fingerprint, "/api/connect": service.connect,
                            "/api/choose": service.choose, "/api/plan": service.make_plan, "/api/start": service.start,
-                           "/api/key": service.set_key, "/api/vpn/up": service.vpn_up, "/api/vpn/down": service.vpn_down,
+                           "/api/key": service.set_key, "/api/master-key": service.recover_key, "/api/vpn/up": service.vpn_up, "/api/vpn/down": service.vpn_down,
                            "/api/power": service.power}
             if self.command in ("GET", "HEAD") and path in get_routes:
                 return self._json(200, get_routes[path]())

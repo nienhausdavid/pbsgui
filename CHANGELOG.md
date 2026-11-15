@@ -9,6 +9,9 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Added
+- Recover the key with the master key directly in the rescue wizard (button in step 1, finds `master-private.pem` on USB sticks), in the web interface of the rescue ISO and in pbstui (key `K`). The key is fetched from the newest snapshot with a key copy and stays in memory only. `pbsgui rescue recover-key` asks for the passphrase only if the master key has one.
+
 ## [0.9.4] - 2026-11-15
 
 ### Changed

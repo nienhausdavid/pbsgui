@@ -76,8 +76,13 @@ CSRF-Token. Das Löschen einer Platte verlangt wie überall das Eintippen des Ge
 ## Schlüssel verloren: mit dem Master-Schlüssel zurückholen
 
 Ist `key.json` weg, du hast aber vorher einen **Master-Schlüssel** eingerichtet (GUI „Master-Schlüssel einrichten …“, `pbsgui key master-create`), holst du den
-Schlüssel aus jedem danach erstellten Snapshot zurück. Du brauchst den privaten Master-Schlüssel (`master-private.pem`) mit seiner Passphrase und den Zugang
-vom Notfallblatt:
+Schlüssel aus jedem danach erstellten Snapshot zurück. Du brauchst den privaten Master-Schlüssel (`master-private.pem`), seine Passphrase (falls vergeben) und den Zugang
+vom Notfallblatt.
+
+**Im Assistenten:** im ersten Schritt Server, Token und Fingerprint ausfüllen, dann „Schlüssel verloren? Mit Master-Schlüssel zurückholen …“. Dort die Datei
+angeben (oder den USB-Stick durchsuchen lassen) und die Passphrase eintippen. Der Schlüssel wird aus dem neuesten Snapshot mit Schlüsselkopie geholt, nur im
+Arbeitsspeicher abgelegt und als Schlüsseldatei eingetragen; danach wie gewohnt „Weiter“. **In der Web-Oberfläche:** unter „Schlüssel verloren? Mit dem
+Master-Schlüssel zurückholen“ den Inhalt von `master-private.pem` einfügen. **In pbstui** (auf einem Rechner mit Profil): Taste `K`. **Auf der Kommandozeile:**
 
 ```bash
 PBSGUI_TOKEN_SECRET=… PBSGUI_MASTER_PASSPHRASE=… pbsgui rescue recover-key --server pbs.example.org --datastore main \

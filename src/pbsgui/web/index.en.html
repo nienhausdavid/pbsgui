@@ -8,6 +8,7 @@
 :root{--bg:#f3f4f7;--card:#fff;--text:#0f172a;--muted:#475569;--line:#8a94a6;--soft:#dde2ec;--acc:#1d4ed8;--acct:#fff;--bad:#b91c1c;--ok:#166534}
 @media (prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1c2027;--text:#f1f5f9;--muted:#b6c0d0;--line:#6b7686;--soft:#2b3240;--acc:#3b82f6;--acct:#0b1220;--bad:#ff8a8a;--ok:#7bdc98}}
 *{box-sizing:border-box}
+details{margin:.8rem 0}summary{cursor:pointer;color:var(--acc);font-weight:600}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
 header{display:flex;justify-content:space-between;align-items:center;padding:.8rem 1.2rem;background:var(--card);border-bottom:1px solid var(--line)}
 header h1{font-size:1.1rem;margin:0}
@@ -79,6 +80,10 @@ code{font-family:ui-monospace,monospace}
   <button id="getfp">Fetch fingerprint</button><span class="muted">Compare it with the value in the PBS interface!</span>
   <label for="keytext">Key file (only for an encrypted backup: paste the content of key.json)</label><textarea id="keytext" spellcheck="false"></textarea>
   <button id="setkey">Use key</button>
+  <details id="masterbox"><summary>Key lost? Recover it with the master key</summary><p class="muted">Gets the key from the newest snapshot that was created with a master key set up. Fill in server, token and fingerprint above.</p>
+    <label for="mastertext">Private master key (paste the content of master-private.pem)</label><textarea id="mastertext" spellcheck="false"></textarea>
+    <label for="masterpw">Passphrase (empty if none was set)</label><input id="masterpw" type="password" autocomplete="off">
+    <button id="recoverkey">Recover key</button></details>
   <div><button class="back">Back</button><button id="connect" class="primary">Find snapshots</button></div>
   <div id="smsg" class="msg"></div>
 </section>
@@ -186,6 +191,14 @@ $("getfp").onclick = ev => busy(ev.target, async () => {
 $("setkey").onclick = ev => busy(ev.target, async () => {
   try { const d = await api("/api/key", {content: $("keytext").value}); $("keytext").value = ""; msg("smsg", "Key taken over (fingerprint " + d.fingerprint + ").", "ok"); }
   catch (e) { msg("smsg", e.message, "bad"); }
+});
+$("recoverkey").onclick = ev => busy(ev.target, async () => {
+  msg("smsg", "Getting the key …");
+  try { const d = await api("/api/master-key", {server: $("server").value, port: $("port").value, datastore: $("datastore").value, namespace: $("namespace").value,
+      backup_id: $("backup_id").value, auth_id: $("auth_id").value, token: $("token").value, fingerprint: $("fp").value,
+      master_key: $("mastertext").value, passphrase: $("masterpw").value});
+    $("mastertext").value = ""; $("masterpw").value = ""; $("masterbox").open = false; msg("smsg", "Key recovered (fingerprint " + d.fingerprint + ", from " + d.snapshot + ") and taken over. Now “Search snapshots”.", "ok"); }
+  catch (e) { $("masterpw").value = ""; msg("smsg", e.message, "bad"); }
 });
 $("connect").onclick = ev => busy(ev.target, async () => {
   msg("smsg", $("mode").value === "vm" ? "Looking for VM backups …" : "Looking for full backups …");

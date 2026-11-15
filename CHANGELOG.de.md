@@ -9,6 +9,9 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Schlüssel mit dem Master-Schlüssel direkt im Rettungs-Assistenten zurückholen (Knopf im ersten Schritt, findet `master-private.pem` auf USB-Sticks), in der Web-Oberfläche der Rettungs-ISO und in pbstui (Taste `K`). Der Schlüssel kommt aus dem neuesten Snapshot mit Schlüsselkopie und bleibt nur im Arbeitsspeicher. `pbsgui rescue recover-key` fragt die Passphrase nur noch ab, wenn der Master-Schlüssel eine hat.
+
 ## [0.9.4] - 2026-11-15
 
 ### Geändert

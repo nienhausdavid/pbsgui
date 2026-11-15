@@ -169,8 +169,27 @@ class RescueService:
         self.keyfile = str(path)
         return {"ok": True, "fingerprint": k.get("fingerprint", "")}
 
+    def recover_key(self, d: dict) -> dict:
+        """Schlüssel verloren: mit dem privaten Master-Schlüssel aus dem neuesten Snapshot mit Schlüsselkopie zurückholen."""
+        cfg = self._config(d)
+        pem = _s(d, "master_key", MAX_PASTE)
+        if "PRIVATE KEY" not in pem:
+            raise ServiceError(tr("Das ist kein privater Master-Schlüssel (PEM mit „PRIVATE KEY“ erwartet)"))
+        pw = d.get("passphrase") or ""
+        if not isinstance(pw, str) or len(pw) > 1024:
+            raise ServiceError(tr("Ungültiger Wert für {0}", "passphrase"))
+        try:
+            key_json, snap = rescue.recover_key_with_master(cfg, pem, pw)
+        except Exception as e:      # RescueError, MasterKeyError, ClientError u. ä.
+            raise ServiceError(str(e).replace(cfg.token, "***")[-400:]) from None
+        path = self.workdir / "key.json"
+        self._write_secret(path, key_json)
+        self.keyfile = str(path)
+        return {"ok": True, "fingerprint": json.loads(key_json).get("fingerprint", ""), "snapshot": snap.path}
+
     # -- Verbindung und Snapshots -----------------------------------------------------------------------------
-    def connect(self, d: dict) -> dict:
+    def _config(self, d: dict) -> RescueConfig:
+        """Verbindungsdaten aus der Anfrage prüfen und als RescueConfig liefern."""
         fp = _s(d, "fingerprint", 100)
         if not _FP.match(fp):
             raise ServiceError(tr("Fingerprint ungültig"))
@@ -190,6 +209,11 @@ class RescueService:
                            fingerprint=fp, namespace=ns.strip("/"), backup_id=bid, keyfile=self.keyfile)
         if not cfg.fingerprint:
             raise ServiceError(tr("Fingerprint fehlt: erst abrufen und mit dem Wert in PBS vergleichen"))
+        return cfg
+
+    def connect(self, d: dict) -> dict:
+        cfg = self._config(d)
+        token = cfg.token
         mode = _s(d, "mode") or "files"
         if mode not in ("files", "vm"):
             raise ServiceError(tr("Unbekannte Art der Wiederherstellung"))
