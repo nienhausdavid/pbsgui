@@ -9,6 +9,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-11-15
+
 ### Geändert
 - pbstui: „Schlüssel kopieren“ erkennt das Terminal (XTVERSION/DA2). Terminals ohne Zwischenablage über SSH (GNOME Terminal und andere VTE-Terminals, Terminal.app unter macOS) zeigen den Text zum Markieren mit der Maus; bei unbekannten Terminals schickt pbstui ihn in die Zwischenablage und zeigt ihn zusätzlich.
 
@@ -297,7 +299,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.4
 [0.9.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.3
 [0.9.2]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.2
 [0.9.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.1

@@ -9,6 +9,8 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-11-15
+
 ### Changed
 - pbstui: "Copy key" detects the terminal (XTVERSION/DA2). Terminals without clipboard access over SSH (GNOME Terminal and other VTE terminals, macOS Terminal.app) get the text shown for selecting with the mouse; for unknown terminals pbstui sends it to the clipboard and also shows it.
 
@@ -295,7 +297,8 @@ First published version. (The intermediate states 0.1.0 and 0.2.0 were internal 
 - System-scope schedules and root password login with 2FA are only tested to a limited extent in practice.
 - The rescue ISO brings no FUSE; the file browser is not intended there.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.4
 [0.9.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.3
 [0.9.2]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.2
 [0.9.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.1
