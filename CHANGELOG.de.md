@@ -9,6 +9,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-11-16
+
 ### Behoben
 - Die Suche in allen Snapshots und „alle Fassungen einer Datei“ hielten die Dateibäume sämtlicher Snapshots im Speicher. Auf einem Server mit 17 Snapshots zu je rund 940.000 Einträgen dauerte das fast 7 Minuten und brauchte 7,7 GiB Speicher, auch wenn alle Dateilisten schon zwischengespeichert waren. Jetzt werden die Snapshots nacheinander und zeilenweise gelesen: 13 Sekunden und 29 MiB auf demselben Rechner.
 - Das Lesen einer Dateiliste ist schneller (Vergleich zweier großer Snapshots: 55 s → 34 s).
@@ -361,7 +363,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.7...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.8...HEAD
+[0.9.8]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.8
 [0.9.7]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.7
 [0.9.6]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.6
 [0.9.5]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.5

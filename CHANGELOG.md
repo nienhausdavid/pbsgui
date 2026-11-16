@@ -9,6 +9,8 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-11-16
+
 ### Fixed
 - Search in all snapshots and "all versions of a file" kept the file trees of every snapshot in memory. On a server with 17 snapshots of about 940,000 entries each this took almost 7 minutes and 7.7 GiB of memory, even with all file lists cached. Now the snapshots are processed one after the other and line by line: 13 seconds and 29 MiB on the same machine.
 - Reading a file list is faster (comparison of two large snapshots: 55 s → 34 s).
@@ -359,7 +361,8 @@ First published version. (The intermediate states 0.1.0 and 0.2.0 were internal 
 - System-scope schedules and root password login with 2FA are only tested to a limited extent in practice.
 - The rescue ISO brings no FUSE; the file browser is not intended there.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.7...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.8...HEAD
+[0.9.8]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.8
 [0.9.7]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.7
 [0.9.6]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.6
 [0.9.5]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.5
