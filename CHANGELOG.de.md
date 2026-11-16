@@ -9,6 +9,16 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Behoben
+- Die Suche in allen Snapshots und „alle Fassungen einer Datei“ hielten die Dateibäume sämtlicher Snapshots im Speicher. Auf einem Server mit 17 Snapshots zu je rund 940.000 Einträgen dauerte das fast 7 Minuten und brauchte 7,7 GiB Speicher, auch wenn alle Dateilisten schon zwischengespeichert waren. Jetzt werden die Snapshots nacheinander und zeilenweise gelesen: 13 Sekunden und 29 MiB auf demselben Rechner.
+- Das Lesen einer Dateiliste ist schneller (Vergleich zweier großer Snapshots: 55 s → 34 s).
+- pbstui: Vergleich und Dateivorschau zeigten das Ende des Textes statt des Anfangs.
+- Englische Oberfläche: „aktiv“/„inaktiv“ in `pbsgui list` und `pbsgui status`, „letzter Lauf“ in `pbsgui show` und der Titel „Datenbank-Dumps“ waren nicht übersetzt.
+
+### Geändert
+- Die Suche in allen Snapshots und die Dateifassungen zeigen, welche Dateiliste gerade gelesen wird („Dateiliste 3 von 17“); wird der Dialog geschlossen, endet der Durchlauf nach dem aktuellen Snapshot.
+- Snapshot-Listen zeigen die Archivnamen (`root.pxar, dbdumps.pxar`) statt der internen Dateinamen (`root.ppxar.didx, root.mpxar.didx, …`), die die Spalte füllten, ohne etwas zu sagen. `pbsgui snapshots --json` bleibt unverändert.
+
 ## [0.9.7] - 2026-11-16
 
 ### Behoben

@@ -221,6 +221,43 @@ def test_versions_and_search_and_diff_end_to_end(world):
     assert {(i.change, i.path) for i in d.items} == {("removed", "/b.txt"), ("added", "/c.txt")}
 
 
+def test_search_keeps_only_one_snapshot_in_memory(world, monkeypatch):
+    """Die Suche geht Snapshot für Snapshot durch die Zeilen und baut keine Dateibäume auf (Server: > 6 GiB bei 17 Snapshots)."""
+    prof, arch, snaps, client, cache, _ = world
+    load = cache.loader(client, prof)
+    monkeypatch.setattr(versions, "Catalog", lambda *a, **k: pytest.fail("Dateibaum aufgebaut"))
+    newest_first = list(reversed(snaps))
+    assert {h.path for h in search_snapshots(newest_first, load, "A.T*").hits} == {"/a.txt"}
+    assert [len(v.snapshots) for v in file_versions(newest_first, load, "/a.txt").versions] == [2, 1]
+
+
+def test_damaged_cache_entry_is_reported_and_fetched_again(world):
+    prof, arch, snaps, client, cache, _ = world
+    load = cache.loader(client, prof)
+    assert len(search_snapshots([snaps[2]], load, "txt").hits) == 2
+    f = cache._file(prof, snaps[2])
+    f.write_bytes(f.read_bytes()[:-6])                                    # abgeschnitten: Fehler erst am Ende des Lesens
+    res = search_snapshots([snaps[2]], load, "txt")
+    assert res.hits == [] and res.checked == 0 and "beschädigt" in res.errors[0] and not f.exists()
+    assert len(search_snapshots([snaps[2]], load, "txt").hits) == 2 and f.exists()
+    f.write_bytes(b"kein gzip")                                           # Fehler vor dem ersten Eintrag: gleich neu holen
+    res = search_snapshots([snaps[2]], load, "txt")
+    assert len(res.hits) == 2 and res.errors == []
+
+
+def test_line_hint_never_drops_a_match():
+    from pbsgui.core.files import iter_catalog, line_hint, name_test
+    lines = ['d "./h.pxar.didx"', 'f "./h.pxar.didx/Übung \\"neu\\".TXT" 3 2026-10-01T10:00:00Z',
+             'f "./h.pxar.didx/a\\u{308}b.txt" 3 2026-10-01T10:00:00Z', 'f "./h.pxar.didx/anderes.pdf" 3 2026-10-01T10:00:00Z']
+    for pattern in ("txt", "*.TXT", "übung", '"neu"', "a\u0308b", "?b.txt", "*", "neu*"):
+        test = name_test(pattern)
+        want = [e.path for _a, e in iter_catalog(lines) if e.path != "/" and test(e.name.lower())]
+        got = [e.path for _a, e in iter_catalog(lines, line_hint(pattern, fold=True)) if e.path != "/" and test(e.name.lower())]
+        assert got == want, pattern
+    assert line_hint("übung", fold=True) is None and line_hint('a"b') is None and line_hint("") is None
+    assert line_hint("*.txt", fold=True)('f "./h.pxar.didx/X.TXT" 1 t') and not line_hint("a*b")('f "./x/ab" 1 t')
+
+
 def test_restore_test_compares_with_unchanged_original(world):
     prof, arch, snaps, client, cache, origin = world
     make_tree(origin, {"a.txt": "zwei-lang", "c.txt": "neu"})

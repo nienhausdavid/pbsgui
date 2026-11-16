@@ -654,7 +654,7 @@ class MainWindow(QMainWindow):
             self.snap_table.setRowCount(len(snaps))
             for i, s in enumerate(snaps):
                 vals = [time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(s.backup_time)), s.backup_id,
-                        fmt_size(s.size), ", ".join(s.files)]
+                        fmt_size(s.size), ", ".join(s.archives or s.files)]
                 for j, v in enumerate(vals):
                     self.snap_table.setItem(i, j, QTableWidgetItem(v))
             self._snap_hint(tr("Auf dem Server liegen noch keine Snapshots dieses Profils."))

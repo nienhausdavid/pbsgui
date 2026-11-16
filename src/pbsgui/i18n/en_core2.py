@@ -196,6 +196,7 @@ EN = {
     '(kein Log)': '(no log)',
     'aus': 'off',
     'aktiv': 'active',
+    'Zwischengespeicherte Dateiliste beschädigt, bitte wiederholen: {0}': 'Cached file list damaged, please try again: {0}',
     'aktiv: {0}': 'active: {0}',
     'nicht installiert': 'not installed',
     'verbunden': 'connected',

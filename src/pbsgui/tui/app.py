@@ -162,7 +162,7 @@ class PbsTui(App):
     def on_mount(self) -> None:
         from .. import __version__
         self.sub_title = tr("Version {0}", __version__)
-        self._q("#snaps", DataTable).add_columns("#", tr("Zeit"), "ID", tr("Größe"), tr("Dateien"))
+        self._q("#snaps", DataTable).add_columns("#", tr("Zeit"), "ID", tr("Größe"), tr("Archive"))
         self._q("#hist-table", DataTable).add_columns("Start", tr("Profil"), tr("Ergebnis"), tr("Dauer"), tr("Meldung"))
         self._runs: list = []
         self.reload()
@@ -391,7 +391,7 @@ class PbsTui(App):
         t.loading = False
         t.clear()
         for i, s in enumerate(snaps):
-            t.add_row(str(i), fmt_time(s.backup_time), s.backup_id, fmt_size(s.size), ", ".join(s.files))
+            t.add_row(str(i), fmt_time(s.backup_time), s.backup_id, fmt_size(s.size), ", ".join(s.archives or s.files))
         self._notify(tr("{0} Snapshots", len(snaps)))
 
     def action_files(self) -> None:

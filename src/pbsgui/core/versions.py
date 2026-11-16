@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import os
 import random
 import shutil
@@ -18,12 +19,12 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Iterator
 
 from ..i18n import tr
 from .client import PbsClient
-from .files import (Catalog, CatalogEntry, FilesError, _within, archive_origin, copy_selection, mounted,
-                    parse_catalog)
+from .files import (Catalog, CatalogEntry, FilesError, _within, archive_origin, copy_selection, iter_catalog,
+                    line_hint, mounted, name_test)
 from .models import Profile, Snapshot, slugify
 
 Loader = Callable[[Snapshot], "dict[str, Catalog]"]
@@ -48,28 +49,55 @@ class CatalogCache:
     def _file(self, profile: Profile, snapshot: Snapshot) -> Path:
         return self.dir / profile.slug / f"{slugify(snapshot.backup_id)}-{int(snapshot.backup_time)}.txt.gz"
 
+    def _text(self, client: PbsClient, profile: Profile, snapshot: Snapshot) -> str:
+        f = self._file(profile, snapshot)
+        try:
+            return gzip.decompress(f.read_bytes()).decode("utf-8")
+        except (OSError, EOFError, ValueError):
+            pass
+        text = client.catalog(snapshot)
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(self.dir, 0o700)
+            os.chmod(f.parent, 0o700)
+            tmp = f.with_name(f.name + f".{os.getpid()}.tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(gzip.compress(text.encode("utf-8"), 3))
+            tmp.replace(f)
+        except OSError:
+            pass                     # Zwischenspeicher ist nur eine Beschleunigung
+        return text
+
     def loader(self, client: PbsClient, profile: Profile) -> Loader:
-        def load(snapshot: Snapshot) -> dict[str, Catalog]:
+        """Lädt die Dateibäume eines Snapshots. `loader.entries(snapshot, hint)` liefert dieselben Einträge einzeln,
+        ohne die Bäume aufzubauen: ein Server-Snapshot hat schnell über eine Million Einträge."""
+        def entries(snapshot: Snapshot, hint: Callable[[str], bool] | None = None) -> Iterator[tuple[str, CatalogEntry]]:
             f = self._file(profile, snapshot)
-            text = None
-            try:
-                text = gzip.decompress(f.read_bytes()).decode("utf-8")
-            except (OSError, EOFError, ValueError):
-                pass
-            if text is None:
-                text = client.catalog(snapshot)
+            if f.is_file():
+                done = 0
                 try:
-                    f.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                    os.chmod(self.dir, 0o700)
-                    os.chmod(f.parent, 0o700)
-                    tmp = f.with_name(f.name + f".{os.getpid()}.tmp")
-                    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                    with os.fdopen(fd, "wb") as fh:
-                        fh.write(gzip.compress(text.encode("utf-8"), 3))
-                    tmp.replace(f)
-                except OSError:
-                    pass                     # Zwischenspeicher ist nur eine Beschleunigung
-            return {k: Catalog(v) for k, v in parse_catalog(text).items() if k.endswith(".pxar")}
+                    with gzip.open(f, "rt", encoding="utf-8", newline="\n") as lines:  # zeilenweise: entpackt mehrere 100 MiB
+                        for name, entry in iter_catalog(lines, hint):
+                            if name.endswith(".pxar"):
+                                done += 1
+                                yield name, entry
+                    return
+                except (OSError, EOFError, ValueError) as e:
+                    f.unlink(missing_ok=True)        # beschädigt: beim nächsten Mal neu holen
+                    if done:                         # ein Teil ist schon ausgeliefert: nicht doppelt liefern
+                        raise FilesError(tr("Zwischengespeicherte Dateiliste beschädigt, bitte wiederholen: {0}", e)) from e
+            for name, entry in iter_catalog(io.StringIO(self._text(client, profile, snapshot)), hint):
+                if name.endswith(".pxar"):
+                    yield name, entry
+
+        def load(snapshot: Snapshot) -> dict[str, Catalog]:
+            groups: dict[str, list[CatalogEntry]] = {}
+            for name, entry in entries(snapshot):
+                groups.setdefault(name, []).append(entry)
+            return {name: Catalog(found) for name, found in groups.items()}
+
+        load.entries = entries
         return load
 
     def prune(self, profile: Profile, snapshots: Iterable[Snapshot]) -> int:
@@ -95,22 +123,34 @@ def _key(entry: CatalogEntry) -> tuple:
     return (entry.kind, entry.size, entry.mtime)
 
 
-def _gather(snapshots: list[Snapshot], loader: Loader, archive: str | None, on_progress: Progress | None
-            ) -> tuple[list[tuple[Snapshot, dict[str, Catalog]]], list[str]]:
-    out, errors = [], []
+def _scan(snapshots: list[Snapshot], loader: Loader, archive: str | None, on_progress: Progress | None, errors: list[str],
+          want: Callable[[CatalogEntry], bool], hint: Callable[[str], bool] | None = None, per_archive: int | None = None
+          ) -> Iterator[tuple[Snapshot, list[tuple[str, CatalogEntry]]]]:
+    """Geht die Snapshots einzeln durch und liefert je Snapshot nur die passenden Einträge (Archiv, Eintrag).
+
+    Es bleibt nie mehr als ein Snapshot im Speicher: alle Bäume gleichzeitig zu halten kostete bei einem Server mit
+    17 Snapshots über 6 GiB."""
+    stream = getattr(loader, "entries", None)
     for i, snap in enumerate(snapshots):
         if on_progress:
             on_progress(i, len(snapshots))
+        found: list[tuple[str, CatalogEntry]] = []
+        counts: dict[str, int] = {}
         try:
-            cats = loader(snap)
+            source = stream(snap, hint) if stream else ((n, e) for n, c in loader(snap).items() for e in c.entries)
+            for name, entry in source:
+                if name == "recovery.pxar" or (archive is not None and name != archive) or not want(entry):
+                    continue
+                if per_archive is not None and counts.get(name, 0) >= per_archive:
+                    continue
+                counts[name] = counts.get(name, 0) + 1
+                found.append((name, entry))
         except Exception as e:                      # ein defekter Snapshot darf die übrigen nicht verhindern
             errors.append(f"{snap.path}: {e}")
             continue
-        cats = {k: v for k, v in cats.items() if k != "recovery.pxar" and (archive is None or k == archive)}
-        out.append((snap, cats))
+        yield snap, found
     if on_progress:
         on_progress(len(snapshots), len(snapshots))
-    return out, errors
 
 
 # -- Dateiversionen -----------------------------------------------------------------------------------
@@ -138,35 +178,28 @@ class VersionsResult:
     errors: list[str] = field(default_factory=list)
 
 
-def find_archive(cats_by_snapshot: list[tuple[Snapshot, dict[str, Catalog]]], path: str) -> str | None:
-    found: dict[str, int] = {}
-    for _snap, cats in cats_by_snapshot:
-        for name, cat in cats.items():
-            if path in cat.by_path:
-                found[name] = found.get(name, 0) + 1
-    if not found:
-        return None
-    return max(found, key=lambda k: found[k])
-
-
 def file_versions(snapshots: list[Snapshot], loader: Loader, path: str, archive: str | None = None,
                   on_progress: Progress | None = None) -> VersionsResult:
     """Alle Fassungen einer Datei aus allen Snapshots. Ohne `archive` wird das Archiv gewählt, in dem der Pfad am häufigsten steht."""
     path = "/" + path.strip("/")
-    loaded, errors = _gather(snapshots, loader, archive, on_progress)
-    archive = archive or find_archive(loaded, path) or ""
+    errors: list[str] = []
+    found: dict[str, list[tuple[Snapshot, CatalogEntry]]] = {}
+    checked = 0
+    for snap, matches in _scan(snapshots, loader, archive, on_progress, errors, lambda e: e.path == path,
+                               line_hint(path.rsplit("/", 1)[-1])):
+        checked += 1
+        for name, e in matches:
+            found.setdefault(name, []).append((snap, e))
+    archive = archive or (max(found, key=lambda k: len(found[k])) if found else "")
     versions: dict[tuple, FileVersion] = {}
     order: list[tuple] = []
-    for snap, cats in loaded:                       # snapshots: neueste zuerst
-        e = cats.get(archive).by_path.get(path) if archive in cats else None
-        if e is None:
-            continue
+    for snap, e in found.get(archive, []):          # snapshots: neueste zuerst
         k = _key(e)
         if k not in versions:
             versions[k] = FileVersion(e)
             order.append(k)
         versions[k].snapshots.append(snap)
-    return VersionsResult(archive, path, [versions[k] for k in order], len(loaded), errors)
+    return VersionsResult(archive, path, [versions[k] for k in order], checked, errors)
 
 
 # -- Suche über alle Snapshots -----------------------------------------------------------------------------
@@ -192,30 +225,34 @@ class SearchResult:
 def search_snapshots(snapshots: list[Snapshot], loader: Loader, pattern: str, archive: str | None = None,
                      limit: int = 500, on_progress: Progress | None = None) -> SearchResult:
     """Sucht einen Namen (Teilstring oder `*` `?`) in allen Snapshots; Treffer sind je Pfad zusammengefasst."""
-    loaded, errors = _gather(snapshots, loader, archive, on_progress)
+    test = name_test(pattern)
+    errors: list[str] = []
     hits: dict[tuple[str, str], SearchHit] = {}
     keys: dict[tuple[str, str], set] = {}
     truncated = False
-    for snap, cats in loaded:
-        for name, cat in cats.items():
-            for e in cat.search(pattern, limit=limit * 4):
-                k = (name, e.path)
-                h = hits.get(k)
-                if h is None:
-                    if len(hits) >= limit:
-                        truncated = True
-                        continue
-                    h = hits[k] = SearchHit(name, e.path, e.kind, latest=e)
-                    keys[k] = set()
-                h.snapshots.append(snap)
-                keys[k].add(_key(e))
+    checked = 0
+    newest = None
+    for snap, matches in _scan(snapshots, loader, archive, on_progress, errors,
+                               lambda e: e.path != "/" and test(e.name.lower()), line_hint(pattern, fold=True), limit * 4):
+        checked += 1
+        newest = newest or snap
+        for name, e in matches:
+            k = (name, e.path)
+            h = hits.get(k)
+            if h is None:
+                if len(hits) >= limit:
+                    truncated = True
+                    continue
+                h = hits[k] = SearchHit(name, e.path, e.kind, latest=e)
+                keys[k] = set()
+            h.snapshots.append(snap)
+            keys[k].add(_key(e))
     for k, h in hits.items():
         h.versions = len(keys[k])
-    newest = loaded[0][0] if loaded else None
     ordered = sorted(hits.values(), key=lambda h: (-h.snapshots[0].backup_time, h.path.lower()))
     for h in ordered:
         h.in_newest = newest is not None and h.snapshots[0] is newest
-    return SearchResult(ordered, len(loaded), truncated, errors)
+    return SearchResult(ordered, checked, truncated, errors)
 
 
 # -- Vergleich ------------------------------------------------------------------------------------------

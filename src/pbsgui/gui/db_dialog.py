@@ -84,7 +84,7 @@ class DbDumpDialog(QDialog):
         self.dbs: list[Database] = []
         self.states: dict[str, str] = {}
         self._worker: Worker | None = None
-        self.setWindowTitle("Datenbank-Dumps")
+        self.setWindowTitle(tr("Datenbank-Dumps"))
         self.setMinimumWidth(560)
         note = QLabel(tr("Vor jedem Backup werden laufende Datenbank-Container gedumpt und als eigenes Archiv (dbdumps.pxar) mitgesichert. Gestoppte Container nicht: ihre Dateien sind konsistent und im normalen Backup enthalten. Dumps von Containern, die länger als 14 Tage nicht mehr erkannt werden, räumt pbsgui auf."))
         note.setWordWrap(True)

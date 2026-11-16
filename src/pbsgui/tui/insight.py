@@ -58,6 +58,13 @@ class WorkScreen(ModalScreen[None]):
         except Exception:  # nosec B110  (Dialog inzwischen geschlossen oder App beendet)
             return
 
+    def progress(self, done: int, total: int) -> None:
+        """Für lange Durchläufe über alle Snapshots: Stand anzeigen; ist der Dialog zu, bricht der Durchlauf hier ab."""
+        if not self.is_attached:
+            raise RuntimeError(tr("abgebrochen"))
+        if done < total:
+            self._later(self.say, tr("Dateiliste {0} von {1} … (der erste Durchlauf lädt sie vom Server und dauert länger)", done + 1, total))
+
     def say(self, text: str) -> None:
         if self.is_attached:
             self.query_one("#info", Static).update(Text(text))
@@ -76,7 +83,7 @@ class TextScreen(WorkScreen):
     def compose(self) -> ComposeResult:
         with Vertical(classes="box"):
             yield Static(Text(self._title), id="title")
-            yield RichLog(id="text", wrap=False, markup=False, classes="grow")
+            yield RichLog(id="text", wrap=False, markup=False, auto_scroll=False, classes="grow")   # Anfang zeigen, nicht das Ende
             yield Static("", id="info")
         yield Footer()
 
@@ -179,7 +186,7 @@ class VersionsScreen(WorkScreen):
     def on_mount(self) -> None:
         self.query_one("#versions", DataTable).add_columns("Nr.", tr("Geändert"), tr("Größe"), "Snapshots", tr("Neuester Snapshot"))
         self.say(tr("Suche in allen Snapshots …"))
-        self.work(lambda: self.mgr.file_versions(self.profile, self.path, self.archive), self._loaded)
+        self.work(lambda: self.mgr.file_versions(self.profile, self.path, self.archive, self.progress), self._loaded)
 
     def _loaded(self, res) -> None:
         self.result = res
@@ -248,7 +255,7 @@ class SearchAllScreen(WorkScreen):
     def on_mount(self) -> None:
         self.query_one("#hits", DataTable).add_columns(tr("Pfad"), tr("Archiv"), "Snapshots", tr("Fassungen"), tr("Zuletzt gesehen"), tr("Im neuesten"))
         self.say(tr("Suche … (der erste Durchlauf lädt die Dateilisten und dauert länger)"))
-        self.work(lambda: self.mgr.search_all(self.profile, self.pattern), self._loaded)
+        self.work(lambda: self.mgr.search_all(self.profile, self.pattern, on_progress=self.progress), self._loaded)
 
     def _loaded(self, res) -> None:
         self.result = res

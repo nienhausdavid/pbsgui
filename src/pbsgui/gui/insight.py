@@ -62,6 +62,20 @@ def fill_table(t: QTableWidget, rows: list[list[str]]) -> None:
             t.setItem(i, j, QTableWidgetItem(v))
 
 
+def progress_for(dialog, on_line):
+    """Fortschritt eines Durchlaufs über alle Snapshots als Textzeile; ist der Dialog zu (`watch_close`), bricht er hier ab."""
+    def report(done: int, total: int) -> None:
+        if getattr(dialog, "_gone", False):
+            raise RuntimeError(tr("abgebrochen"))
+        if done < total:
+            on_line(tr("Dateiliste {0} von {1} … (der erste Durchlauf lädt sie vom Server und dauert länger)", done + 1, total))
+    return report
+
+
+def watch_close(dialog) -> None:
+    dialog.finished.connect(lambda _r: setattr(dialog, "_gone", True))
+
+
 class Runner:
     """Führt blockierende Aufrufe in einem Worker aus; veraltete Ergebnisse (neuere Anfrage läuft) werden verworfen."""
 
@@ -152,7 +166,9 @@ class VersionsDialog(QDialog):
         close.clicked.connect(self.accept)
         self.btn_restore.clicked.connect(self._restore)
         self.table.itemSelectionChanged.connect(self._selected)
-        self.runner.run(lambda _l: mgr.file_versions(profile, path, archive), self._loaded)
+        watch_close(self)
+        w = self.runner.run(lambda line: mgr.file_versions(profile, path, archive, progress_for(self, line)), self._loaded)
+        w.line.connect(self.info.setText)
 
     def _loaded(self, res) -> None:
         self.result = res
@@ -223,6 +239,7 @@ class SearchAllDialog(QDialog):
         self.btn_versions.clicked.connect(self._versions)
         self.table.itemSelectionChanged.connect(lambda: self.btn_versions.setEnabled(self._hit() is not None))
         self.table.itemDoubleClicked.connect(lambda _i: self._versions())
+        watch_close(self)
         if pattern:
             QTimer.singleShot(0, self.search)
 
@@ -232,7 +249,8 @@ class SearchAllDialog(QDialog):
             return
         self.info.setText(tr("Suche …")); self.bar.setRange(0, 0)
         self.table.setRowCount(0)
-        self.runner.run(lambda _l: self.mgr.search_all(self.profile, text), self._done)
+        w = self.runner.run(lambda line: self.mgr.search_all(self.profile, text, on_progress=progress_for(self, line)), self._done)
+        w.line.connect(self.info.setText)
 
     def _done(self, res) -> None:
         self.result = res

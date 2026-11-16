@@ -592,7 +592,7 @@ class DbCredScreen(Dialog[bool]):
 class DbDumpScreen(Dialog[bool]):
     """Datenbank-Dumps des Profils: ein/aus, erkannte Datenbanken, Zugänge der MariaDB/MySQL-Container."""
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
-    TITLE_TEXT = "Datenbank-Dumps"
+    TITLE_TEXT = tr("Datenbank-Dumps")
 
     def __init__(self, mgr, profile: Profile):
         super().__init__()

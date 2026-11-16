@@ -17,7 +17,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
 
 from ..i18n import tr
 from .client import ClientError, PbsClient
@@ -29,7 +29,7 @@ class FilesError(RuntimeError):
 
 
 # -- Katalog ----------------------------------------------------------------------------------
-@dataclass
+@dataclass(slots=True)
 class CatalogEntry:
     kind: str            # "d" Ordner, "f" Datei, "l" Symlink, andere (Sockets, Geräte …)
     path: str            # innerhalb des Archivs, mit führendem "/" (Wurzel = "/")
@@ -51,6 +51,8 @@ _ESC = {"\\": "\\", '"': '"', "'": "'", "n": "\n", "t": "\t", "r": "\r", "0": "\
 
 def unescape(s: str) -> str:
     """Rust-Debug-Quoting des Clients: \\\\ \\" \\' \\n \\t \\r \\0 und \\u{…}; Unicode steht unmaskiert da."""
+    if "\\" not in s:                # der Normalfall; die Schleife unten kostet bei einer Million Einträgen viele Sekunden
+        return s
     out, i = [], 0
     while i < len(s):
         c = s[i]
@@ -72,11 +74,15 @@ def unescape(s: str) -> str:
 _LINE = re.compile(r'^(?P<kind>\S) "(?P<path>(?:[^"\\]|\\.)*)"(?:\s+(?P<size>\d+)\s+(?P<mtime>\S+))?\s*$')
 
 
-def parse_catalog(text: str) -> dict[str, list[CatalogEntry]]:
-    """`catalog dump`-Ausgabe -> {Archivname: Einträge}. Oberste Ebene des Katalogs sind die Archive (`x.pxar.didx`)."""
-    archives: dict[str, list[CatalogEntry]] = {}
-    for line in text.splitlines():
-        m = _LINE.match(line)
+def iter_catalog(lines: Iterable[str], hint: Callable[[str], bool] | None = None) -> Iterator[tuple[str, CatalogEntry]]:
+    """`catalog dump`-Zeilen -> (Archivname, Eintrag), einer nach dem anderen und ohne den ganzen Baum im Speicher zu halten.
+
+    `hint` sortiert Zeilen vor dem Zerlegen aus (siehe `line_hint`): bei der Suche über viele große Snapshots zählt das.
+    """
+    for line in lines:
+        if hint is not None and not hint(line):
+            continue
+        m = _LINE.match(line.rstrip("\n"))
         if not m:
             continue
         path = unescape(m["path"])
@@ -85,9 +91,39 @@ def parse_catalog(text: str) -> dict[str, list[CatalogEntry]]:
         parts = path[2:].split("/", 1)
         archive = logical_archive(parts[0]) or parts[0].removesuffix(".didx").removesuffix(".fidx")
         inner = "/" + (parts[1] if len(parts) > 1 else "")
-        archives.setdefault(archive, []).append(
-            CatalogEntry(m["kind"], inner, int(m["size"]) if m["size"] else None, m["mtime"] or ""))
+        yield archive, CatalogEntry(m["kind"], inner, int(m["size"]) if m["size"] else None, m["mtime"] or "")
+
+
+def parse_catalog(text: str) -> dict[str, list[CatalogEntry]]:
+    """`catalog dump`-Ausgabe -> {Archivname: Einträge}. Oberste Ebene des Katalogs sind die Archive (`x.pxar.didx`)."""
+    archives: dict[str, list[CatalogEntry]] = {}
+    for archive, entry in iter_catalog(text.splitlines()):
+        archives.setdefault(archive, []).append(entry)
     return archives
+
+
+def name_test(pattern: str) -> Callable[[str], bool]:
+    """Prüft einen kleingeschriebenen Dateinamen: `*` und `?` als Platzhalter, sonst Teilstring."""
+    pat = pattern.lower()
+    if any(ch in pat for ch in "*?"):
+        rx = re.compile(re.escape(pat).replace(r"\*", ".*").replace(r"\?", "."))
+        return lambda name: rx.fullmatch(name) is not None
+    return lambda name: pat in name
+
+
+def line_hint(text: str, fold: bool = False) -> Callable[[str], bool] | None:
+    """Schneller Vorfilter für Katalogzeilen: Kommt `text` nicht in der Zeile vor, kann der Name ihn nicht enthalten.
+
+    Das stimmt nur für Zeichen, die der Client nie maskiert, also druckbares ASCII ohne \\ " und '. Für alles andere
+    (und für leeren Text) gibt es keinen Vorfilter. `text` darf Platzhalter enthalten: benutzt wird das längste feste Stück.
+    """
+    chunk = max(re.split(r"[*?]", text) if fold else [text], key=len)
+    if not chunk or not chunk.isascii() or not chunk.isprintable() or any(c in chunk for c in "\\\"'"):
+        return None
+    if fold:
+        chunk = chunk.lower()
+        return lambda line: chunk in line.lower()
+    return lambda line: chunk in line
 
 
 class Catalog:
@@ -120,12 +156,7 @@ class Catalog:
 
     def search(self, pattern: str, limit: int = 500) -> list[CatalogEntry]:
         """Groß-/Kleinschreibung egal; `*` und `?` als Platzhalter, sonst Teilstring des Namens."""
-        pat = pattern.lower()
-        if any(ch in pat for ch in "*?"):
-            rx = re.compile(re.escape(pat).replace(r"\*", ".*").replace(r"\?", "."))
-            test = lambda name: rx.fullmatch(name) is not None
-        else:
-            test = lambda name: pat in name
+        test = name_test(pattern)
         out = []
         for e in self.entries:
             if e.path != "/" and test(e.name.lower()):

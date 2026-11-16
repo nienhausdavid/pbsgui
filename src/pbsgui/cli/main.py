@@ -77,7 +77,7 @@ def schedule_text(mgr: ProfileManager, p: Profile) -> str:
         st = mgr.schedule_status(p)
     except Exception:
         return "?"
-    return "aktiv" if st["active"] else ("inaktiv" if st["installed"] else "-")
+    return tr("aktiv") if st["active"] else (tr("inaktiv") if st["installed"] else "-")
 
 
 def last_run_text(p: Profile) -> str:
@@ -109,7 +109,7 @@ def cmd_show(a, mgr) -> int:
     for k, v in p.to_dict().items():
         print(f"{k:16} {v}")
     print(f"{'repository':16} {p.repository}")
-    print(f"{'letzter Lauf':16} {last_run_text(p)}")
+    print(f"{tr('letzter Lauf'):16} {last_run_text(p)}")
     return 0
 
 
@@ -314,8 +314,8 @@ def cmd_snapshots(a, mgr) -> int:
         print(json.dumps([{"index": i, "path": s.path, "time": s.backup_time, "size": s.size, "files": s.files}
                           for i, s in enumerate(snaps)], indent=2))
         return 0
-    print(table([[str(i), fmt_time(s.backup_time), s.backup_id, fmt_size(s.size), ", ".join(s.files)]
-                 for i, s in enumerate(snaps)], ["#", tr("Zeit"), "ID", tr("Größe"), tr("Dateien")]))
+    print(table([[str(i), fmt_time(s.backup_time), s.backup_id, fmt_size(s.size), ", ".join(s.archives or s.files)]
+                 for i, s in enumerate(snaps)], ["#", tr("Zeit"), "ID", tr("Größe"), tr("Archive")]))
     return 0
 
 
@@ -586,12 +586,12 @@ def cmd_detection(a, mgr) -> int:
 def cmd_status(a, mgr) -> int:
     p = find_profile(mgr, a.name)
     st = mgr.schedule_status(p)
-    print(tr("Zeitplan:     {0} ({1}, {2})", 'aktiv' if st['active'] else (tr("installiert, inaktiv") if st['installed'] else tr("nicht eingerichtet")), p.scope, p.schedule or tr("kein Ausdruck")))
+    print(tr("Zeitplan:     {0} ({1}, {2})", tr("aktiv") if st['active'] else (tr("installiert, inaktiv") if st['installed'] else tr("nicht eingerichtet")), p.scope, p.schedule or tr("kein Ausdruck")))
     if st["next"] and st["next"] != "n/a":
         print(tr("Nächster Lauf: {0}", st['next']))
     d = st.get("data") or {}
     if p.weekly_data_active or d.get("installed"):
-        print(tr("Wöchentlich alles neu lesen (data): {0} ({1})", 'aktiv' if d.get('active') else (tr("installiert, inaktiv") if d.get('installed') else tr("nicht eingerichtet")), p.data_schedule))
+        print(tr("Wöchentlich alles neu lesen (data): {0} ({1})", tr("aktiv") if d.get('active') else (tr("installiert, inaktiv") if d.get('installed') else tr("nicht eingerichtet")), p.data_schedule))
         if d.get("next") and d["next"] != "n/a":
             print(tr("Nächster data-Lauf: {0}", d['next']))
     print(tr("Letzter Lauf: {0}", last_run_text(p)))

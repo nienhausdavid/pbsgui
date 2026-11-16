@@ -248,6 +248,8 @@ EN = {
     '{0}: Zeitplan ungültig: {1}': '{0}: invalid schedule: {1}',
     '--user angeben (Passwort per Prompt oder PBSGUI_DB_PASSWORD)': 'Specify --user (password by prompt or PBSGUI_DB_PASSWORD)',
     'installiert, inaktiv': 'installed, inactive',
+    'inaktiv': 'inactive',
+    'letzter Lauf': 'last run',
     'nicht eingerichtet': 'not set up',
     ' (exportiert am {0})': ' (exported on {0})',
     ': fehlt ': ': missing ',

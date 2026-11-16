@@ -9,6 +9,16 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Fixed
+- Search in all snapshots and "all versions of a file" kept the file trees of every snapshot in memory. On a server with 17 snapshots of about 940,000 entries each this took almost 7 minutes and 7.7 GiB of memory, even with all file lists cached. Now the snapshots are processed one after the other and line by line: 13 seconds and 29 MiB on the same machine.
+- Reading a file list is faster (comparison of two large snapshots: 55 s → 34 s).
+- pbstui: comparison and file preview showed the end of the text instead of the beginning.
+- English interface: "aktiv"/"inaktiv" in `pbsgui list` and `pbsgui status`, "letzter Lauf" in `pbsgui show` and the title "Datenbank-Dumps" were not translated.
+
+### Changed
+- Search in all snapshots and file versions show which file list is being read ("file list 3 of 17"), and closing the dialog stops the run after the current snapshot.
+- Snapshot lists show the archive names (`root.pxar, dbdumps.pxar`) instead of the internal file names (`root.ppxar.didx, root.mpxar.didx, …`), which filled the column without saying anything. `pbsgui snapshots --json` is unchanged.
+
 ## [0.9.7] - 2026-11-16
 
 ### Fixed
