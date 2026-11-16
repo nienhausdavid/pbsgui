@@ -480,9 +480,10 @@ class PbsTui(App):
             self._q("#dashboard", Static).update(tr("Keine Profile. Mit [a] einen Server hinzufügen."))
             return
         # Tabelle, die sich der Breite anpasst (als fester Text brach sie in schmalen Fenstern mitten in der Zeile um)
-        grid = Table(box=None, padding=(0, 2, 0, 0), header_style="bold", expand=False)
+        grid = Table(box=None, padding=(0, 1, 0, 0), header_style="bold", expand=False)
+        names = min(24, max(len(o.profile.name) for o in ovs))      # der Name bleibt lesbar; schmaler werden zuerst die Zahlen
         for i, head in enumerate(OVERVIEW_HEADER):
-            grid.add_column(head, no_wrap=i != 0)
+            grid.add_column(head, no_wrap=True, min_width=names if i == 0 else None)
         for o in ovs:
             row = overview_row(o)
             color = {"ok": "green", "error": "bold red", "warning": "yellow", "running": "cyan"}.get(o.state, "")
