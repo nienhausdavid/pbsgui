@@ -9,6 +9,13 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Fixed
+- Restore test: the comparison with the original never took place ("0 compared with the original"), because the client writes local time into the catalog and pbsgui compared it with UTC. Unchanged files are now compared by SHA-256 again.
+- Restore test and file restore of a full backup without administrator rights: files that only root may read were reported as "not in the archive" and counted as errors, so the test failed although the backup was fine. They are now shown as locked, are not an error, and the test draws other files instead. A test in which nothing could be read does not pass.
+- Dashboard: a token without audit right on the datastore led to "0 B of 0 B used (0 %)"; it now says that the usage cannot be queried.
+- pbstui: the right-hand panel was as wide as the whole screen and was cut off on the right (long lines, the right border, the check boxes in the history). It now fits the screen; long values in the overview wrap inside their column, the dashboard table adapts to the width, and loading the snapshots shows an indicator.
+- pbsgui: table headers are aligned with their columns, the status dots are easier to see on the selected profile, and "Add server" fits into the narrow side bar.
+
 ## [0.9.6] - 2026-11-16
 
 ### Changed

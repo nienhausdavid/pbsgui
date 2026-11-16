@@ -110,7 +110,10 @@ def datastore_usage(profile: Profile, token: str, timeout: float = 15) -> Datast
         st = api.datastore_status(profile.datastore)
     except ApiError:
         return None
-    if not st or "total" not in st:
+    try:
+        if not st or int(st.get("total") or 0) <= 0:      # ohne Audit-Recht liefert der Server Nullen statt eines Fehlers
+            return None
+    except (TypeError, ValueError):
         return None
     gc = st.get("gc-status") or {}
     dedup = None

@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
         self.lang_box.currentIndexChanged.connect(self._language_changed)
         lrow = QHBoxLayout(); lrow.addWidget(QLabel(tr("Sprache"))); lrow.addWidget(self.lang_box, 1)
         ll.addLayout(lrow)
-        left.setMinimumWidth(180)
+        left.setMinimumWidth(215)      # „＋  Server hinzufügen“ muss ganz hineinpassen
 
         self.head = QLabel(""); self.head.setObjectName("pageTitle")
         self.subhead = QLabel(""); self.subhead.setObjectName("muted"); self.subhead.setWordWrap(True)

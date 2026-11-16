@@ -360,3 +360,13 @@ async def test_tui_add_dialog_rejects_a_bad_port_and_a_taken_name():
         await pilot.pause()
         await scr._setup()
         assert "schon ein Profil" in str(scr.query_one("#status", Static).render())
+
+
+def test_datastore_usage_of_zeros_is_unknown(monkeypatch, profile):
+    """Ohne Audit-Recht liefert der echte Server Nullen statt eines Fehlers: das ist keine Belegung von „0 B von 0 B“."""
+    from pbsgui.core import dashboard
+    monkeypatch.setattr(dashboard.PbsApi, "use_token", lambda self, *a: None)
+    monkeypatch.setattr(dashboard.PbsApi, "datastore_status", lambda self, ds: {"total": 0, "used": 0, "avail": 0})
+    assert dashboard.datastore_usage(profile, "t") is None
+    monkeypatch.setattr(dashboard.PbsApi, "datastore_status", lambda self, ds: {"total": 100, "used": 40, "avail": 60})
+    assert dashboard.datastore_usage(profile, "t").percent == 40

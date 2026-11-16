@@ -103,7 +103,8 @@ def diff_lines(res: DiffResult, limit: int = 200) -> list[str]:
 
 
 def restore_test_lines(res: RestoreTestResult) -> list[str]:
-    icons = {"ok": "OK", "gelesen": tr("gelesen"), "abweichung": tr("ABWEICHUNG"), "groesse": tr("GRÖSSE"), "fehler": tr("FEHLER")}
+    icons = {"ok": "OK", "gelesen": tr("gelesen"), "abweichung": tr("ABWEICHUNG"), "groesse": tr("GRÖSSE"), "fehler": tr("FEHLER"),
+             "kein_zugriff": tr("gesperrt")}
     lines = [f"{icons.get(s.status, s.status):<10} {s.path} ({fmt_size(s.size)}) – {s.detail}" for s in res.samples]
     return [*lines, res.summary()]
 

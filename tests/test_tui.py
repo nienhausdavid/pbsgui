@@ -43,7 +43,15 @@ def mgr(fake_env, tmp_path, monkeypatch, profile):
 def text(widget: Static) -> str:
     """Text eines Widgets; die Spaltenbreite der Übersicht (Leerzeichen nach der Bezeichnung) ist dabei egal."""
     import re
-    return re.sub(r":[ ]{2,}", ": ", str(widget.render()))
+    from rich.console import Console
+    from rich.text import Text
+    content = widget.content
+    if not isinstance(content, (str, Text)):          # die Übersicht ist eine Tabelle: als Text ausgeben
+        console = Console(width=400, color_system=None)
+        with console.capture() as cap:
+            console.print(content)
+        content = "\n".join(line.rstrip() for line in cap.get().splitlines())
+    return re.sub(r":[ ]{2,}", ": ", str(content))
 
 
 async def test_overview_shows_profile_and_warns_when_unencrypted(mgr):

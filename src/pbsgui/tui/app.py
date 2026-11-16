@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 
 from rich.markup import escape
+from rich.console import Group
+from rich.table import Table
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -17,7 +19,7 @@ from textual.widgets.option_list import Option
 
 from ..i18n import tr
 from ..cli.insight import OVERVIEW_HEADER, overview_details, overview_row, run_row, usage_text
-from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text, table
+from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import METADATA, Profile
 from ..core.modes import FULL, describe, plan_mounts
@@ -36,26 +38,29 @@ _ROW = re.compile(r"^([^:\n]{1,28}:)\s+(.*)$", re.S)
 _HINT = re.compile(r"\((?:mit|with) \[.\][^)]*\)")
 
 
-def overview_text(sections: list[tuple[str, list[str]]]) -> Text:
+def overview_text(sections: list[tuple[str, list[str]]]) -> Table:
     """Übersicht als zwei Spalten mit Abschnitten: Bezeichnung in einer festen Breite, Auffälliges farbig."""
     rows = [[(m.group(1), m.group(2)) if (m := _ROW.match(line)) else ("", line) for line in lines] for _t, lines in sections]
     width = max((len(label) for sec in rows for label, _v in sec), default=0) + 2
     bad = (tr("NEIN"), tr("NOCH NICHT"), tr("FEHLER"), "FEHLER", tr("gesperrt"))
-    out = Text()
+    grid = Table.grid(padding=(0, 0))
+    grid.add_column(width=width, no_wrap=True)
+    grid.add_column(ratio=1, overflow="fold")
+    first = True
     for (title, _lines), sec in zip(sections, rows):
         if not sec:
             continue
-        out.append(("\n" if out else "") + title.upper() + "\n", style="bold dim")
+        if not first:
+            grid.add_row("", "")
+        first = False
+        grid.add_row(Text(title.upper(), style="bold dim"), "")
         for label, value in sec:
             v = Text(value)
             v.highlight_regex(_HINT, "dim")
             v.highlight_words(bad, "bold red")
             v.highlight_regex(r"\bOK\b", "bold green")
-            out.append(label.ljust(width), style="bold")
-            out.append_text(v)
-            out.append("\n")
-    out.rstrip()
-    return out
+            grid.add_row(Text(label, style="bold"), v)
+    return grid
 
 
 class PbsTui(App):
@@ -64,13 +69,14 @@ class PbsTui(App):
     CSS = """
     #profiles { width: 32; height: 1fr; border: round $primary; border-title-color: $text; border-title-style: bold; padding: 0 1; }
     #profiles:focus { border: round $accent; }
-    #main { height: 1fr; border: round $primary; padding: 0 1; }
+    #main { width: 1fr; height: 1fr; border: round $primary; padding: 0 1; }
     #overview { height: auto; margin-top: 1; }
     #key-buttons { height: auto; margin-top: 1; }
     #key-buttons Button { margin-right: 1; }
     #dashboard { margin-top: 1; }
     #hist-filter { height: 3; }
     #hist-text { width: 1fr; }
+    #hist-filter Checkbox { width: auto; }
     #hist-table { height: 1fr; min-height: 4; }
     #hist-log { height: 1fr; border-top: solid $primary; }
     #bar { margin-top: 1; }
@@ -361,6 +367,7 @@ class PbsTui(App):
         if not p or not self._start():
             return
         self._q(TabbedContent).active = "tab-snaps"
+        self._q("#snaps", DataTable).loading = True          # der Server braucht einige Sekunden: zeigen, dass etwas läuft
 
         def work():
             try:
@@ -374,12 +381,14 @@ class PbsTui(App):
 
     def _fail(self, msg: str) -> None:
         self._busy = False
+        self._q("#snaps", DataTable).loading = False
         self._notify(msg, severity="error", timeout=10)
 
     def _show_snaps(self, snaps: list) -> None:
         self._busy = False
         self._snaps = snaps
         t = self._q("#snaps", DataTable)
+        t.loading = False
         t.clear()
         for i, s in enumerate(snaps):
             t.add_row(str(i), fmt_time(s.backup_time), s.backup_id, fmt_size(s.size), ", ".join(s.files))
@@ -470,13 +479,22 @@ class PbsTui(App):
         if not ovs:
             self._q("#dashboard", Static).update(tr("Keine Profile. Mit [a] einen Server hinzufügen."))
             return
-        lines = [table([overview_row(o) for o in ovs], OVERVIEW_HEADER), ""]
+        # Tabelle, die sich der Breite anpasst (als fester Text brach sie in schmalen Fenstern mitten in der Zeile um)
+        grid = Table(box=None, padding=(0, 2, 0, 0), header_style="bold", expand=False)
+        for i, head in enumerate(OVERVIEW_HEADER):
+            grid.add_column(head, no_wrap=i != 0)
+        for o in ovs:
+            row = overview_row(o)
+            color = {"ok": "green", "error": "bold red", "warning": "yellow", "running": "cyan"}.get(o.state, "")
+            grid.add_row(Text(row[0], style="bold"), Text(row[1], style=color), *row[2:])
+        lines = []
         for o in ovs:
             lines += overview_details(o)
             t = tests.get(o.profile.slug)
             lines.append(f"{o.profile.name}: " + (tr("letzter Restore-Test {0}: {1}", fmt_time(t['time']), t['summary']) if t
                                                    else tr("noch kein Restore-Test (mit [w] im Snapshot-Tab)")))
-        self._q("#dashboard", Static).update("\n".join([*lines, "", *usages]))
+        self._dashboard_loaded = True
+        self._q("#dashboard", Static).update(Group(grid, Text(""), Text("\n".join([*lines, "", *usages]))))
 
     def action_history(self) -> None:
         self._q(TabbedContent).active = "tab-history"
@@ -521,7 +539,7 @@ class PbsTui(App):
             return
         if e.pane.id == "tab-history":
             self.reload_history()
-        elif e.pane.id == "tab-dashboard" and not str(self._q("#dashboard", Static).render()).strip():
+        elif e.pane.id == "tab-dashboard" and not getattr(self, "_dashboard_loaded", False):
             self.action_dashboard()
 
     def on_input_submitted(self, e: Input.Submitted) -> None:

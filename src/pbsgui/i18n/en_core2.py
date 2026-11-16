@@ -237,4 +237,8 @@ EN.update({
     'fest': 'fixed',
     'angepasst': 'adjusted',
     'gesperrt': 'locked',
+    '{0} (kein Zugriff: nur mit Administrator-Rechten lesbar)': '{0} (no access: readable with administrator rights only)',
+    'Keine der {0} Dateien war lesbar: sie gehören einem anderen Benutzer. Den Test mit Administrator-Rechten ausführen.': 'None of the {0} files was readable: they belong to another user. Run the test with administrator rights.',
+    '; {0} ohne Zugriff übersprungen (nur mit Administrator-Rechten lesbar)': '; {0} skipped without access (readable with administrator rights only)',
+    'nur mit Administrator-Rechten lesbar': 'readable with administrator rights only',
 })

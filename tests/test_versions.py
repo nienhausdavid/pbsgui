@@ -284,3 +284,31 @@ def test_preview_rejects_dotdot_and_outside_symlink(tmp_path):
     os.symlink("/etc/passwd", tmp_path / "aussen-link")
     assert preview_path(root, "/../geheim.txt").kind == "missing"
     assert preview_path(root, "/../aussen-link").kind == "missing"         # nicht einmal das Linkziel verraten
+
+
+def test_catalog_time_is_local_time_with_a_z(monkeypatch):
+    """Der echte Client schreibt die Ortszeit mit „Z“ in den Katalog; beide Schreibweisen gelten als dieselbe Zeit."""
+    import time as time_mod
+    from pbsgui.core.versions import catalog_times
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time_mod.tzset()
+    try:
+        assert catalog_times(1792244804) == ("2026-10-17T15:46:44Z", "2026-10-17T13:46:44Z")
+    finally:
+        monkeypatch.delenv("TZ")
+        time_mod.tzset()
+
+
+def test_restore_test_skips_files_this_user_may_not_read(world, monkeypatch):
+    """Vollbackup, Test ohne Administrator-Rechte: gesperrte Dateien sind kein Fehler des Backups."""
+    from pbsgui.core import files as files_mod
+    prof, arch, snaps, client, cache, _origin = world
+    cat_ = cache.loader(client, prof)(snaps[2])[arch]
+    real_access = os.access
+    monkeypatch.setattr(files_mod.os, "access", lambda p, mode: False if str(p).endswith("a.txt") else real_access(p, mode))
+    res = restore_test(client, prof, snaps[2], arch, cat_, count=5, rng=random.Random(1))
+    assert {s.path: s.status for s in res.samples} == {"/a.txt": "kein_zugriff", "/c.txt": "gelesen"}
+    assert res.ok and "1 von 1" in res.summary() and "ohne Zugriff" in res.summary()
+    monkeypatch.setattr(files_mod.os, "access", lambda p, mode: False)
+    res = restore_test(client, prof, snaps[2], arch, cat_, count=5, rng=random.Random(1))
+    assert not res.ok and "Administrator" in res.summary()                 # nichts geprüft ist kein bestandener Test

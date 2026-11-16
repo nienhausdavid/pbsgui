@@ -9,6 +9,13 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Behoben
+- Restore-Test: Der Vergleich mit dem Original fand nie statt („0 mit dem Original verglichen“), weil der Client die Ortszeit in den Katalog schreibt und pbsgui sie mit UTC verglich. Unveränderte Dateien werden jetzt wieder per SHA-256 verglichen.
+- Restore-Test und Dateien zurückholen bei einem Vollbackup ohne Administrator-Rechte: Dateien, die nur root lesen darf, wurden als „nicht im Archiv“ gemeldet und als Fehler gezählt; der Test schlug fehl, obwohl das Backup in Ordnung war. Sie werden jetzt als gesperrt gezeigt, sind kein Fehler, und der Test zieht stattdessen andere Dateien. Ein Test, bei dem nichts lesbar war, gilt nicht als bestanden.
+- Dashboard: Ein Token ohne Audit-Recht auf dem Datastore führte zu „0 B von 0 B belegt (0 %)“; jetzt steht dort, dass die Belegung nicht abrufbar ist.
+- pbstui: Der rechte Bereich war so breit wie der ganze Bildschirm und rechts abgeschnitten (lange Zeilen, der rechte Rand, die Haken im Verlauf). Er passt jetzt auf den Bildschirm; lange Werte in der Übersicht brechen in ihrer Spalte um, die Tabelle im Dashboard passt sich der Breite an, und das Laden der Snapshots zeigt eine Anzeige.
+- pbsgui: Tabellenköpfe stehen bündig über ihren Spalten, die Zustandspunkte sind auf dem gewählten Profil besser zu erkennen, und „Server hinzufügen“ passt in die schmale Seitenleiste.
+
 ## [0.9.6] - 2026-11-16
 
 ### Geändert

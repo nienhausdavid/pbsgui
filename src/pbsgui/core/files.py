@@ -190,6 +190,7 @@ class CopyResult:
     safety_copies: int = 0
     safety_dir: Path | None = None
     bytes: int = 0
+    denied: int = 0        # davon übersprungen, weil dieser Benutzer sie im Archiv nicht lesen darf
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -238,6 +239,10 @@ def copy_selection(src_root: Path, rels: list[str], dest_root: Path, *, overwrit
         dest = dest_for(rel)
         guard(dest)
         st = src.lstat()
+        if not stat.S_ISLNK(st.st_mode) and not os.access(src, os.R_OK | (os.X_OK if stat.S_ISDIR(st.st_mode) else 0)):
+            res.skipped.append(tr("{0} (kein Zugriff: nur mit Administrator-Rechten lesbar)", rel))
+            res.denied += 1
+            return
         if stat.S_ISDIR(st.st_mode):
             dest.mkdir(parents=True, exist_ok=True)
             guard(dest / "x")
@@ -279,7 +284,13 @@ def copy_selection(src_root: Path, rels: list[str], dest_root: Path, *, overwrit
         # Pfade kommen aus dem Katalog des Servers: ".." oder ein Ordner-Link im Archiv dürfen nie auf Dateien dieses Rechners zeigen
         if ".." in Path(rel).parts or not (src == src_root or _within(src.parent, src_root)):
             raise FilesError(tr("Pfad liegt außerhalb des Archivs: {0}", rel))
-        if not os.path.lexists(src):
+        try:
+            os.lstat(src)
+        except PermissionError:      # liegt im Archiv, gehört aber einem anderen Benutzer (z. B. root bei einem Vollbackup)
+            res.skipped.append(tr("{0} (kein Zugriff: nur mit Administrator-Rechten lesbar)", rel))
+            res.denied += 1
+            continue
+        except OSError:
             res.skipped.append(tr("{0} (nicht im Archiv)", rel))
             continue
         on_line(tr("Kopiere {0}", rel))

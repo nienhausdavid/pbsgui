@@ -406,13 +406,18 @@ MAX_SAMPLE_SIZE = 64 * 1024 * 1024
 class SampleResult:
     path: str
     size: int
-    status: str            # ok | gelesen | abweichung | groesse | fehler
+    status: str            # ok | gelesen | abweichung | groesse | fehler | kein_zugriff
     detail: str = ""
     sha256: str = ""
 
     @property
     def good(self) -> bool:
-        return self.status in ("ok", "gelesen")
+        return self.status in ("ok", "gelesen", "kein_zugriff")
+
+    @property
+    def checked(self) -> bool:
+        """Wurde die Datei wirklich gelesen? „kein_zugriff“ heißt: dieser Benutzer darf sie im Archiv nicht lesen."""
+        return self.status != "kein_zugriff"
 
 
 @dataclass
@@ -425,7 +430,7 @@ class RestoreTestResult:
 
     @property
     def ok(self) -> bool:
-        return bool(self.samples) and all(s.good for s in self.samples)
+        return any(s.checked for s in self.samples) and all(s.good for s in self.samples)
 
     @property
     def compared(self) -> int:
@@ -435,8 +440,13 @@ class RestoreTestResult:
         if not self.samples:
             return tr("Keine geeigneten Dateien für den Test gefunden")
         bad = [s for s in self.samples if not s.good]
-        text = tr("{0} von {1} Dateien in Ordnung ({2} mit dem Original verglichen)", len(self.samples) - len(bad), len(self.samples), self.compared)
-        return text + (tr(", {0} FEHLER", len(bad)) if bad else "")
+        checked = [s for s in self.samples if s.checked]
+        denied = len(self.samples) - len(checked)
+        if not checked:
+            return tr("Keine der {0} Dateien war lesbar: sie gehören einem anderen Benutzer. Den Test mit Administrator-Rechten ausführen.", denied)
+        text = tr("{0} von {1} Dateien in Ordnung ({2} mit dem Original verglichen)", len(checked) - len(bad), len(checked), self.compared)
+        text += tr(", {0} FEHLER", len(bad)) if bad else ""
+        return text + (tr("; {0} ohne Zugriff übersprungen (nur mit Administrator-Rechten lesbar)", denied) if denied else "")
 
     def to_dict(self) -> dict:
         return {"snapshot": self.snapshot, "archive": self.archive, "time": self.time, "seconds": round(self.seconds, 1),
@@ -464,6 +474,12 @@ def _iso_utc(ts: float) -> str:
     return datetime.fromtimestamp(int(ts), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def catalog_times(ts: float) -> tuple[str, str]:
+    """So kann eine Änderungszeit im Katalog stehen. Der Client schreibt die ORTSZEIT mit einem „Z“ dahinter (gemessen mit
+    proxmox-backup-client 3.x/4.x); die echte UTC-Zeit wird ebenfalls angenommen, falls ein Client das einmal richtig macht."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.localtime(int(ts))), _iso_utc(ts)
+
+
 def pick_samples(cat: Catalog, count: int, rng: random.Random | None = None, max_size: int = MAX_SAMPLE_SIZE
                  ) -> list[CatalogEntry]:
     rng = rng or random.Random()  # noqa: S311  # nosec B311 (Stichprobe, keine Kryptographie)
@@ -487,15 +503,29 @@ def restore_test(client: PbsClient, profile: Profile, snapshot: Snapshot, archiv
     results: list[SampleResult] = []
     if not samples:
         return RestoreTestResult(snapshot.path, archive, results, time.time() - t0)
+    queue, spare, checked = list(samples), None, 0
     with tempfile.TemporaryDirectory(prefix="pbsgui-test-", dir=_ram_dir()) as tmp, mounted(client, snapshot, archive) as mp:
-        for e in samples:
+        while queue and checked < len(samples):
+            e = queue.pop(0)
             on_line(tr("Prüfe {0}", e.path))
             dest = Path(tmp) / "r"
             try:
                 res = copy_selection(mp, [e.path], dest)
             except (OSError, FilesError) as ex:
                 results.append(SampleResult(e.path, e.size or 0, "fehler", str(ex)))
+                checked += 1
                 continue
+            if res.denied:
+                # Vollbackup, Test ohne Administrator-Rechte: die Datei ist da, aber für diesen Benutzer gesperrt. Das ist kein
+                # Fehler des Backups; stattdessen eine andere Stichprobe ziehen (höchstens dreimal so viele Ersatzdateien).
+                if len([r for r in results if not r.checked]) < len(samples):
+                    results.append(SampleResult(e.path, e.size or 0, "kein_zugriff", tr("nur mit Administrator-Rechten lesbar")))
+                if spare is None:
+                    spare = [x for x in pick_samples(cat, len(samples) * 4, rng, max_size) if x not in samples]
+                if spare:
+                    queue.append(spare.pop(0))
+                continue
+            checked += 1
             got = dest / e.path.lstrip("/")
             if res.skipped or not got.is_file():
                 results.append(SampleResult(e.path, e.size or 0, "fehler", "; ".join(res.skipped) or tr("nicht wiederhergestellt")))
@@ -510,7 +540,7 @@ def restore_test(client: PbsClient, profile: Profile, snapshot: Snapshot, archiv
             try:
                 if orig is not None and orig.is_file() and not orig.is_symlink():
                     ost = orig.stat()
-                    if ost.st_size == e.size and _iso_utc(ost.st_mtime) == e.mtime:
+                    if ost.st_size == e.size and e.mtime in catalog_times(ost.st_mtime):
                         if sha256_file(orig) == digest:
                             status, detail = "ok", tr("identisch mit dem Original")
                         else:

@@ -22,13 +22,13 @@ THEMES = {
         "bg": "#eef0f4", "surface": "#ffffff", "alt": "#f3f5f9", "text": "#0f172a", "muted": "#475569",
         "border": "#6b7587", "soft": "#c3cad8", "accent": "#1d4ed8", "accent_hover": "#1e40af", "accent_text": "#ffffff",
         "button": "#e2e7ef", "button_hover": "#d3dae6", "disabled": "#6b7585", "danger": "#b91c1c",
-        "titlebar": "#dde2ec", "tab_sel": "#1d4ed8", "ok": "#166534", "warn": "#92400e", "idle": "#8a94a6", "pressed": "#c3cad8",
+        "titlebar": "#dde2ec", "tab_sel": "#1d4ed8", "ok": "#166534", "warn": "#92400e", "idle": "#8a94a6", "dot_ok": "#22c55e", "dot_danger": "#ef4444", "dot_warn": "#f59e0b", "pressed": "#c3cad8",
     },
     "dark": {
         "bg": "#14171c", "surface": "#1c2027", "alt": "#222731", "text": "#f1f5f9", "muted": "#b6c0d0",
         "border": "#6b7686", "soft": "#394150", "accent": "#3b82f6", "accent_hover": "#5b9bff", "accent_text": "#0b1220",
         "button": "#2b3240", "button_hover": "#363f50", "disabled": "#8a94a6", "danger": "#ff7b7b",
-        "titlebar": "#0f1216", "tab_sel": "#6aa3ff", "ok": "#4ade80", "warn": "#fbbf24", "idle": "#6b7686", "pressed": "#434d60",
+        "titlebar": "#0f1216", "tab_sel": "#6aa3ff", "ok": "#4ade80", "warn": "#fbbf24", "idle": "#6b7686", "dot_ok": "#4ade80", "dot_danger": "#ff7b7b", "dot_warn": "#fbbf24", "pressed": "#434d60",
     },
 }
 
@@ -78,7 +78,7 @@ QTabBar::tab:selected {{ border-bottom-color: {tab_sel}; font-weight: 700; color
 QTabBar::tab:hover:!selected {{ border-bottom-color: {border}; color: {text}; }}
 QProgressBar {{ border: 1px solid {border}; border-radius: 6px; text-align: center; height: 18px; background: {surface}; color: {text}; }}
 QProgressBar::chunk {{ background: {accent}; border-radius: 5px; }}
-QHeaderView::section {{ padding: 7px 10px; border: none; border-bottom: 1px solid {border}; background: {surface}; color: {muted}; font-weight: 700; }}
+QHeaderView::section {{ padding: 7px 4px; border: none; border-bottom: 1px solid {border}; background: {surface}; color: {muted}; font-weight: 700; }}
 QTableWidget {{ alternate-background-color: {alt}; gridline-color: {soft}; padding: 0; }}
 QTableWidget::item, QTreeWidget::item {{ padding: 5px 10px; }}
 QLabel#empty {{ color: {muted}; padding: 28px; }}
@@ -184,7 +184,8 @@ def dot_icon(color_key: str, theme: str | None = None) -> QIcon:
     theme = theme or (QApplication.instance().property("pbsgui_theme") or "light")
     pm = QPixmap(24, 24); pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setPen(QPen(QColor(THEMES[theme]["surface"]), 2.5)); p.setBrush(QColor(THEMES[theme][color_key]))      # Rand: auch auf der Auswahlfarbe sichtbar
+    color = THEMES[theme].get("dot_" + color_key, THEMES[theme][color_key])      # Punkte kräftiger als Schrift: auch auf der Auswahlfarbe erkennbar
+    p.setPen(QPen(QColor(THEMES[theme]["surface"]), 2.5)); p.setBrush(QColor(color))
     p.drawEllipse(QPointF(12, 12), 7, 7)
     p.end()
     return QIcon(pm)
