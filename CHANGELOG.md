@@ -9,6 +9,8 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-11-16
+
 ### Changed
 - pbstui: the overview is a two-column table with sections, problems are shown in red, a successful last run in green. Each profile has a dot for its last run. The footer shows the common keys only; `?` lists all keys by group. Dialogs carry their title in the frame, every input field keeps its name in the frame while you type, and the buttons sit side by side. The history tab no longer wastes half the screen on the filter row.
 - pbstui: a confirmation starts on "No" (an accidental Enter confirms nothing) and takes `y`/`j` and `n`.
@@ -338,7 +340,8 @@ First published version. (The intermediate states 0.1.0 and 0.2.0 were internal 
 - System-scope schedules and root password login with 2FA are only tested to a limited extent in practice.
 - The rescue ISO brings no FUSE; the file browser is not intended there.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.6
 [0.9.5]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.5
 [0.9.4]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.4
 [0.9.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.3

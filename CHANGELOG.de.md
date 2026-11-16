@@ -9,6 +9,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-11-16
+
 ### Geändert
 - pbstui: Die Übersicht ist eine zweispaltige Tabelle mit Abschnitten, Probleme stehen in Rot, ein gelungener letzter Lauf in Grün. Jedes Profil hat einen Punkt für seinen letzten Lauf. Die Fußzeile zeigt nur die häufigen Tasten; `?` listet alle Tasten nach Gruppen. Dialoge tragen ihren Titel im Rahmen, jedes Eingabefeld behält seinen Namen im Rahmen, auch beim Tippen, und die Knöpfe stehen nebeneinander. Im Verlauf belegt die Filterzeile nicht mehr den halben Bildschirm.
 - pbstui: Eine Rückfrage beginnt auf „Nein“ (ein versehentliches Enter bestätigt nichts) und nimmt `j`/`y` und `n` an.
@@ -340,7 +342,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.6
 [0.9.5]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.5
 [0.9.4]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.4
 [0.9.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.3
