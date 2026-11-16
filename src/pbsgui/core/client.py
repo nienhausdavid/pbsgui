@@ -1,12 +1,13 @@
 """Wrapper um `proxmox-backup-client`. Geheimnisse gehen nur über Umgebungsvariablen."""
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
 import threading
 from contextlib import contextmanager
-from typing import Callable, Iterator
+from typing import BinaryIO, Callable, Iterator
 
 from pathlib import Path
 
@@ -167,12 +168,48 @@ class PbsClient:
                 if sampler:
                     sampler.stop()
 
-    def catalog(self, snapshot: Snapshot) -> str:
-        """Dateiliste aller Archive des Snapshots (`catalog dump`; bei verschlüsselten Backups mit Schlüssel)."""
+    def catalog_to(self, snapshot: Snapshot, out: BinaryIO, timeout: float = 600) -> None:
+        """Schreibt die Dateiliste aller Archive des Snapshots (`catalog dump`; bei verschlüsselten Backups mit Schlüssel)
+        stückweise nach `out`. Sie ist bei einem Server schnell 200 MiB groß und soll nicht im Speicher liegen."""
         with self._keyfile() as kf:
-            # Gemessen mit Client 4.2.8: `catalog dump` schreibt die Dateiliste auf STDERR (stdout bleibt leer)
-            return self._run(["catalog", "dump", snapshot.path, *self._ns(), *(["--keyfile", kf] if kf else [])],
-                             timeout=600, merge_stderr=True)
+            args = ["catalog", "dump", snapshot.path, *self._ns(), *(["--keyfile", kf] if kf else [])]
+            try:
+                # Gemessen mit Client 4.2.8: `catalog dump` schreibt die Dateiliste auf STDERR (stdout bleibt leer)
+                proc = subprocess.Popen([self.binary, *args], env=self._env(), stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            except FileNotFoundError:
+                raise ClientError(tr("Client nicht gefunden: {0}", self.binary)) from None
+            if proc.stdout is None:
+                raise ClientError(tr("Kein Ausgabestrom vom Client"))
+            expired = threading.Event()
+
+            def stop() -> None:
+                expired.set()
+                proc.kill()
+            timer = threading.Timer(timeout, stop)
+            timer.daemon = True
+            timer.start()
+            tail = b""
+            try:
+                while chunk := proc.stdout.read(1024 * 1024):
+                    out.write(chunk)
+                    tail = (tail + chunk)[-2000:]              # für die Fehlermeldung
+                code = proc.wait()
+            finally:
+                timer.cancel()
+                if proc.poll() is None:                        # Schreiben gescheitert: Client nicht weiterlaufen lassen
+                    proc.kill()
+                    proc.wait()
+            if expired.is_set():
+                raise ClientError(tr("Zeitüberschreitung beim Aufruf des Clients"))
+            if code != 0:
+                raise ClientError(tail.decode("utf-8", "replace").strip() or tr("Client-Exitcode {0}", code))
+
+    def catalog(self, snapshot: Snapshot) -> str:
+        """Die Dateiliste als Text (siehe `catalog_to`)."""
+        buf = io.BytesIO()
+        self.catalog_to(snapshot, buf)
+        return buf.getvalue().decode("utf-8", "replace")
 
     def mount(self, snapshot: Snapshot, archive: str, target: str) -> None:
         """Hängt ein Archiv per FUSE ein. Der Client läuft danach als Hintergrundprozess weiter (Aushängen: fusermount3 -u)."""

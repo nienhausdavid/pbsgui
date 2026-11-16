@@ -9,6 +9,9 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Fixed
+- The first search after a new backup held the whole file list of the new snapshot in memory (about 1.3 GiB on a server with 940,000 entries). The list now runs from the client straight into the compressed cache file: 184 MiB on the same machine.
+
 ## [0.9.8] - 2026-11-16
 
 ### Fixed

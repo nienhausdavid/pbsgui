@@ -49,32 +49,36 @@ class CatalogCache:
     def _file(self, profile: Profile, snapshot: Snapshot) -> Path:
         return self.dir / profile.slug / f"{slugify(snapshot.backup_id)}-{int(snapshot.backup_time)}.txt.gz"
 
-    def _text(self, client: PbsClient, profile: Profile, snapshot: Snapshot) -> str:
+    def _fetch(self, client: PbsClient, profile: Profile, snapshot: Snapshot) -> bool:
+        """Holt die Dateiliste vom Server und schreibt sie beim Lesen gleich gepackt in den Zwischenspeicher: so liegt sie
+        nie ganz im Speicher. False, wenn sich der Zwischenspeicher nicht schreiben lässt."""
         f = self._file(profile, snapshot)
-        try:
-            return gzip.decompress(f.read_bytes()).decode("utf-8")
-        except (OSError, EOFError, ValueError):
-            pass
-        text = client.catalog(snapshot)
+        tmp = f.with_name(f.name + f".{os.getpid()}.tmp")
         try:
             f.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             os.chmod(self.dir, 0o700)
             os.chmod(f.parent, 0o700)
-            tmp = f.with_name(f.name + f".{os.getpid()}.tmp")
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(gzip.compress(text.encode("utf-8"), 3))
-            tmp.replace(f)
         except OSError:
-            pass                     # Zwischenspeicher ist nur eine Beschleunigung
-        return text
+            return False
+        try:
+            with os.fdopen(fd, "wb") as fh, gzip.GzipFile(fileobj=fh, mode="wb", compresslevel=3) as gz:
+                client.catalog_to(snapshot, gz)
+            tmp.replace(f)
+            return True
+        except OSError:
+            return False             # z. B. Platte voll; der Zwischenspeicher ist nur eine Beschleunigung
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def loader(self, client: PbsClient, profile: Profile) -> Loader:
         """Lädt die Dateibäume eines Snapshots. `loader.entries(snapshot, hint)` liefert dieselben Einträge einzeln,
         ohne die Bäume aufzubauen: ein Server-Snapshot hat schnell über eine Million Einträge."""
         def entries(snapshot: Snapshot, hint: Callable[[str], bool] | None = None) -> Iterator[tuple[str, CatalogEntry]]:
             f = self._file(profile, snapshot)
-            if f.is_file():
+            for _attempt in range(2):                # zweiter Anlauf, wenn die vorhandene Datei beschädigt war
+                if not f.is_file() and not self._fetch(client, profile, snapshot):
+                    break
                 done = 0
                 try:
                     with gzip.open(f, "rt", encoding="utf-8", newline="\n") as lines:  # zeilenweise: entpackt mehrere 100 MiB
@@ -87,7 +91,7 @@ class CatalogCache:
                     f.unlink(missing_ok=True)        # beschädigt: beim nächsten Mal neu holen
                     if done:                         # ein Teil ist schon ausgeliefert: nicht doppelt liefern
                         raise FilesError(tr("Zwischengespeicherte Dateiliste beschädigt, bitte wiederholen: {0}", e)) from e
-            for name, entry in iter_catalog(io.StringIO(self._text(client, profile, snapshot)), hint):
+            for name, entry in iter_catalog(io.StringIO(client.catalog(snapshot)), hint):    # ohne Zwischenspeicher
                 if name.endswith(".pxar"):
                     yield name, entry
 

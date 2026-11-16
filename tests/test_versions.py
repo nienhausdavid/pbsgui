@@ -245,6 +245,29 @@ def test_damaged_cache_entry_is_reported_and_fetched_again(world):
     assert len(res.hits) == 2 and res.errors == []
 
 
+def test_new_file_list_goes_to_the_cache_without_being_held_in_memory(world, monkeypatch):
+    """Die Dateiliste eines neuen Snapshots läuft vom Client direkt in die gepackte Datei (Server: 200 MiB Text je Snapshot)."""
+    prof, arch, snaps, client, cache, _ = world
+    monkeypatch.setattr(PbsClient, "catalog", lambda *a, **k: pytest.fail("Dateiliste als Text geholt"))
+    load = cache.loader(client, prof)
+    assert {h.path for h in search_snapshots([snaps[2]], load, "txt").hits} == {"/a.txt", "/c.txt"}
+    assert [f.name for f in (cache.dir / prof.slug).iterdir()] == [cache._file(prof, snaps[2]).name]   # keine .tmp-Reste
+
+
+def test_failed_fetch_leaves_nothing_in_the_cache(world):
+    prof, arch, snaps, _client, cache, _ = world
+    res = search_snapshots([snaps[2]], cache.loader(PbsClient(prof, "secret", binary="false"), prof), "txt")
+    assert res.hits == [] and res.checked == 0 and len(res.errors) == 1
+    assert list((cache.dir / prof.slug).iterdir()) == []
+
+
+def test_search_works_without_a_writable_cache(world, tmp_path):
+    prof, arch, snaps, client, _cache, _ = world
+    (tmp_path / "datei").write_text("kein Ordner")
+    load = CatalogCache(tmp_path / "datei" / "cache").loader(client, prof)
+    assert {h.path for h in search_snapshots([snaps[2]], load, "txt").hits} == {"/a.txt", "/c.txt"}
+
+
 def test_line_hint_never_drops_a_match():
     from pbsgui.core.files import iter_catalog, line_hint, name_test
     lines = ['d "./h.pxar.didx"', 'f "./h.pxar.didx/Übung \\"neu\\".TXT" 3 2026-10-01T10:00:00Z',

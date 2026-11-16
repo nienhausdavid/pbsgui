@@ -9,6 +9,9 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Behoben
+- Die erste Suche nach einem neuen Backup hielt die ganze Dateiliste des neuen Snapshots im Speicher (rund 1,3 GiB auf einem Server mit 940.000 Einträgen). Die Liste läuft jetzt vom Client direkt in die gepackte Datei des Zwischenspeichers: 184 MiB auf demselben Rechner.
+
 ## [0.9.8] - 2026-11-16
 
 ### Behoben
