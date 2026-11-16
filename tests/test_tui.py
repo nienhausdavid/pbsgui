@@ -45,7 +45,7 @@ def text(widget: Static) -> str:
     import re
     from rich.console import Console
     from rich.text import Text
-    content = widget.content
+    content = widget.content if hasattr(widget, "content") else widget.renderable      # Textual 2.x (Debian 13): renderable
     if not isinstance(content, (str, Text)):          # die Übersicht ist eine Tabelle: als Text ausgeben
         console = Console(width=400, color_system=None)
         with console.capture() as cap:
