@@ -9,6 +9,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-16
+
 ### Hinzugefügt
 - Schlüssel mit dem Master-Schlüssel direkt im Rettungs-Assistenten zurückholen (Knopf im ersten Schritt, findet `master-private.pem` auf USB-Sticks), in der Web-Oberfläche der Rettungs-ISO und in pbstui (Taste `K`). Der Schlüssel kommt aus dem neuesten Snapshot mit Schlüsselkopie und bleibt nur im Arbeitsspeicher. `pbsgui rescue recover-key` fragt die Passphrase nur noch ab, wenn der Master-Schlüssel eine hat.
 
@@ -316,7 +318,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.5
 [0.9.4]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.4
 [0.9.3]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.3
 [0.9.2]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.2
