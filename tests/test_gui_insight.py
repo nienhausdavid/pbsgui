@@ -420,3 +420,48 @@ def test_window_master_buttons_follow_state(app, world, monkeypatch):
     w.reload(select="Laptop")
     assert not w.master_btn.isEnabled() and "Master-Schlüssel: ja" in w.key_info.text()
     assert w.minimumSizeHint().width() < 800                         # Fenster bleibt klein ziehbar
+
+
+# -- Profilwechsel, Zwischenablage, Symbole ---------------------------------------------------------------------------
+def test_snapshots_of_another_profile_are_never_shown_or_used(app, world):
+    mgr, prof, _arch, snaps, _paths = world
+    other = Profile(name="Zweites", server="127.0.0.1", port=1, datastore="d", auth_id="u@pbs!t", fingerprint="AA", backup_id="zwei",
+                    sources=["/tmp"], encrypt=False)
+    mgr.save(other, token="t")
+    w = window_mod.MainWindow(mgr)
+    w.choose_profile("Laptop")
+    w.refresh_snapshots()
+    assert pump(app, lambda: w.snap_table.rowCount() == 3) and w._snaps
+    w.choose_profile("Zweites")
+    assert w._snaps == [] and w.snap_table.rowCount() == 0 and not w.snap_empty.isHidden()
+    w.choose_profile("Laptop")
+    w.refresh_snapshots()
+    w.choose_profile("Zweites")                             # Antwort für „Laptop“ kommt erst danach an
+    pump(app, lambda: False, timeout=1.0)
+    assert w._snaps == [] and w.snap_table.rowCount() == 0
+
+
+def test_copied_secret_is_marked_for_clipboard_managers_and_cleared(app):
+    from PySide6.QtWidgets import QApplication
+    from pbsgui.gui.master_dialogs import copy_secret
+    cb = QApplication.clipboard()
+    copy_secret("streng geheim", clear_ms=50)
+    assert cb.text() == "streng geheim" and bytes(cb.mimeData().data("x-kde-passwordManagerHint")) == b"secret"
+    assert pump(app, lambda: cb.text() == "", timeout=3)
+    copy_secret("zweites", clear_ms=50)
+    cb.setText("etwas vom Benutzer")                        # inzwischen etwas anderes kopiert: das bleibt
+    pump(app, lambda: False, timeout=0.3)
+    assert cb.text() == "etwas vom Benutzer"
+
+
+def test_icon_folder_of_someone_else_is_not_used(app, tmp_path, monkeypatch):
+    import tempfile
+    from pbsgui.gui import style
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    victim = tmp_path / "ziel"
+    victim.mkdir()
+    (tmp_path / f"pbsgui-style-{os.getuid()}").symlink_to(victim)          # jemand hat den Ordner als Link vorbereitet
+    d = style._icon_dir()
+    assert d != tmp_path / f"pbsgui-style-{os.getuid()}" and d.stat().st_mode & 0o077 == 0 and not list(victim.iterdir())
+    style._check_icon("light")
+    assert not list(victim.iterdir())

@@ -234,4 +234,7 @@ EN.update({
     'Das Passwort darf keinen Zeilenumbruch enthalten': 'The password must not contain a line break',
     'Pfad liegt außerhalb des Archivs: {0}': 'The path is outside the archive: {0}',
     'Benutzername und Passwort dürfen keinen Zeilenumbruch enthalten': 'User name and password must not contain a line break',
+    'fest': 'fixed',
+    'angepasst': 'adjusted',
+    'gesperrt': 'locked',
 })

@@ -36,7 +36,9 @@ class WorkScreen(ModalScreen[None]):
     BINDINGS = [("escape", "close", tr("Schließen"))]
     DEFAULT_CSS = """
     WorkScreen { align: center middle; }
-    .box { width: 100; max-width: 95%; height: 90%; border: thick $accent; background: $surface; padding: 0 1; }
+    .box { width: 100; max-width: 95%; height: 90%; border: round $accent; background: $surface; padding: 0 1; }
+    .box #title { text-style: bold; color: $accent; }
+    .box #info { color: $text-muted; }
     .grow { height: 1fr; }
     """
 
@@ -57,7 +59,8 @@ class WorkScreen(ModalScreen[None]):
             return
 
     def say(self, text: str) -> None:
-        self.query_one("#info", Static).update(Text(text))
+        if self.is_attached:
+            self.query_one("#info", Static).update(Text(text))
 
     def action_close(self) -> None:
         self.dismiss(None)

@@ -4,10 +4,11 @@ from __future__ import annotations
 import asyncio
 import os
 
+from rich.markup import escape
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Vertical, VerticalScroll
-from textual.screen import ModalScreen
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen, ScreenResultType
 from textual.widgets import Button, Checkbox, Input, Label, OptionList, RadioButton, RadioSet, Select, SelectionList, Static
 from textual.widgets.option_list import Option
 
@@ -31,9 +32,57 @@ def mount_selection(selected: list[str] | None, **kw) -> SelectionList:
     return SelectionList[str](*items, **kw)
 
 
-class MountsScreen(ModalScreen["list[str] | None"]):
+class Dialog(ModalScreen[ScreenResultType]):
+    """Basis der Dialoge: der Titel steht im Rahmen, und jedes Eingabefeld trägt seinen Namen im Rahmen (der Platzhalter
+    verschwindet beim Tippen, danach wäre sonst nicht mehr zu sehen, wofür das Feld ist)."""
+    TITLE_TEXT = ""
+
+    def on_mount(self) -> None:
+        for box in self.query("#dialog"):
+            if self.TITLE_TEXT:
+                box.border_title = escape(self.TITLE_TEXT)
+        for inp in self.query(Input):
+            if inp.placeholder and not inp.border_title:
+                inp.border_title = escape(inp.placeholder)
+
+    def alive(self) -> bool:
+        """Ist der Dialog noch offen? Ergebnisse aus Hintergrund-Arbeit kommen manchmal erst nach dem Schließen an."""
+        return self.is_attached
+
+
+class KeysScreen(Dialog[None]):
+    """Alle Tasten der Hauptansicht, nach Gruppen."""
+    BINDINGS = [("escape", "close", tr("Schließen")), ("question_mark", "close", tr("Schließen")), ("q", "close", tr("Schließen"))]
+    TITLE_TEXT = tr("Alle Tasten")
+
+    def __init__(self, groups: list[tuple[str, list[tuple[str, str]]]]):
+        super().__init__()
+        self._groups = groups
+
+    def compose(self) -> ComposeResult:
+        text = Text()
+        for title, keys in self._groups:
+            text.append(("\n" if text else "") + title.upper() + "\n", style="bold dim")
+            for key, what in keys:
+                text.append(f"  {key:<3}", style="bold")
+                text.append(f" {what}\n")
+        text.rstrip()
+        with VerticalScroll(id="dialog"):
+            yield Static(text)
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Schließen"), variant="primary", id="close")
+
+    def on_button_pressed(self, _e: Button.Pressed) -> None:
+        self.dismiss(None)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
+class MountsScreen(Dialog["list[str] | None"]):
     """Laufwerke eines Vollbackup-Profils wählen (Leertaste = an/aus)."""
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
+    TITLE_TEXT = tr("Laufwerke mitsichern (Leertaste = an/aus)")
 
     def __init__(self, selected: list[str] | None):
         super().__init__()
@@ -41,11 +90,11 @@ class MountsScreen(ModalScreen["list[str] | None"]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Label(tr("Laufwerke mitsichern (Leertaste = an/aus)"), markup=False)
             yield Static(tr("USB-Laufwerke werden nur gesichert, wenn du sie ausdrücklich auswählst. Bind-Mount-Duplikate werden nie doppelt gesichert."), classes="hint", markup=False)
             yield mount_selection(self._selected, id="mounts")
-            yield Button(tr("Speichern"), variant="primary", id="ok")
-            yield Button(tr("Abbrechen"), id="cancel")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Abbrechen"), id="cancel")
+                yield Button(tr("Speichern"), variant="primary", id="ok")
 
     def on_button_pressed(self, e: Button.Pressed) -> None:
         self.dismiss(list(self.query_one("#mounts", SelectionList).selected) if e.button.id == "ok" else None)
@@ -54,7 +103,7 @@ class MountsScreen(ModalScreen["list[str] | None"]):
         self.dismiss(None)
 
 
-class PromptScreen(ModalScreen[str | None]):
+class PromptScreen(Dialog[str | None]):
     """Einzeiliger Eingabedialog; liefert den Text oder None bei Abbruch."""
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
 
@@ -68,8 +117,9 @@ class PromptScreen(ModalScreen[str | None]):
             if self._hint:
                 yield Static(self._hint, classes="hint", markup=False)
             yield Input(value=self._value, id="prompt-input")
-            yield Button("OK", variant="primary", id="ok")
-            yield Button(tr("Abbrechen"), id="cancel")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Abbrechen"), id="cancel")
+                yield Button("OK", variant="primary", id="ok")
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
@@ -84,8 +134,9 @@ class PromptScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
-class ConfirmScreen(ModalScreen[bool]):
-    BINDINGS = [("escape", "no", tr("Nein"))]
+class ConfirmScreen(Dialog[bool]):
+    """Rückfrage. Der Fokus steht auf „Nein“: ein versehentliches Enter bestätigt nichts."""
+    BINDINGS = [("escape", "no", tr("Nein")), ("n", "no", tr("Nein")), ("j", "yes", tr("Ja")), ("y", "yes", tr("Ja"))]
 
     def __init__(self, text: str):
         super().__init__()
@@ -94,32 +145,40 @@ class ConfirmScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
             yield Static(self._text, markup=False)
-            yield Button("Ja", variant="warning", id="yes")
-            yield Button(tr("Nein"), id="no")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Nein"), id="no")
+                yield Button(tr("Ja"), variant="warning", id="yes")
+
+    def on_mount(self) -> None:
+        self.query_one("#no", Button).focus()
 
     def on_button_pressed(self, e: Button.Pressed) -> None:
         self.dismiss(e.button.id == "yes")
+
+    def action_yes(self) -> None:
+        self.dismiss(True)
 
     def action_no(self) -> None:
         self.dismiss(False)
 
 
-class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
+class AddServerScreen(Dialog["tuple[Profile, str, bool] | None"]):
     """Server hinzufügen: Fingerprint -> Zugang -> Verbindung prüfen -> Datastore/Namespace -> Einrichten.
 
     Ergebnis: (Profil, Token-Secret, „Backup direkt starten“).
     """
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
+    TITLE_TEXT = tr("Server hinzufügen")
 
-    def __init__(self):
+    def __init__(self, taken=None):
         super().__init__()
+        self._taken = taken or (lambda _name: False)      # gibt es schon ein Profil mit diesem Namen?
         self._api: PbsApi | None = None
         self._namespaces: list[str] | None = None
         self._replace_token = False
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="dialog"):
-            yield Label(tr("Server hinzufügen"), markup=False)
             yield Input(value=os.uname().nodename, placeholder=tr("Profilname"), id="name")
             yield Input(placeholder=tr("Server, z. B. pbs.example.org"), id="server")
             yield Input(value="8007", placeholder="Port", id="port")
@@ -166,8 +225,9 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
             yield Static(tr("Modus data, sonntags 03:00. Fängt Änderungen ab, die der Metadaten-Vergleich nicht bemerkt, und Lesefehler in selten benutzten Dateien. Gilt nur mit einem Zeitplan."), classes="hint", markup=False)
             yield Checkbox(tr("Direkt nach dem Anlegen das erste Backup starten"), id="start-now")
             yield Static("", id="status", markup=False)
-            yield Button(tr("Einrichten"), variant="primary", id="setup")
-            yield Button(tr("Abbrechen"), id="cancel")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Abbrechen"), id="cancel")
+                yield Button(tr("Einrichten"), variant="primary", id="setup")
 
     # -- Hilfen ---------------------------------------------------------------
     def _v(self, wid: str) -> str:
@@ -175,6 +235,17 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
 
     def _say(self, text: str) -> None:
         self.query_one("#status", Static).update(text)
+
+    def _port(self) -> int | None:
+        """Port als Zahl; None (mit Meldung), wenn das Feld etwas anderes enthält."""
+        try:
+            port = int(self._v("port") or 8007)
+        except ValueError:
+            port = 0
+        if not 1 <= port <= 65535:
+            self._say(tr("Ungültiger Port"))
+            return None
+        return port
 
     @property
     def weg_a(self) -> bool:
@@ -332,10 +403,13 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
         if not host:
             self._say(tr("Bitte zuerst den Server eintragen."))
             return
+        port = self._port()
+        if port is None:
+            return
         self._say(tr("Hole Fingerprint …"))
         try:
-            fp = await asyncio.to_thread(fetch_fingerprint, host, int(self._v("port") or 8007))
-        except (ApiError, ValueError) as ex:
+            fp = await asyncio.to_thread(fetch_fingerprint, host, port)
+        except (ApiError, ValueError, OSError) as ex:
             self._say(tr("Fehler: {0}", ex))
             return
         self.query_one("#fp", Static).update(fp)
@@ -353,9 +427,9 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
     async def _check(self) -> None:
         fp = self._fp()
         host = self._v("server")
-        if not fp or not host:
+        port = self._port() if fp and host else None
+        if port is None:
             return
-        port = int(self._v("port") or 8007)
         if self.weg_a:
             user, pw, tfa = self._v("root-user"), self.query_one("#root-pw", Input).value, self._v("tfa")
             if not user or not pw:
@@ -377,8 +451,11 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
         self._say(tr("Prüfe Verbindung …"))
         try:
             self._api, stores = await asyncio.to_thread(work)
-        except ApiError as ex:
-            self._say(tr("Fehler: {0}", ex))
+        except (ApiError, OSError) as ex:
+            if self.alive():
+                self._say(tr("Fehler: {0}", ex))
+            return
+        if not self.alive():
             return
         self.query_one("#stores", Static).update(tr("Verfügbar: ") + (", ".join(stores) if stores else tr("(keine sichtbar, Namen von Hand eintragen)")))
         if stores and not self._v("datastore"):
@@ -406,10 +483,16 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
         if not (fp and host and ds and name):
             self._say(tr("Name, Server, Datastore und bestätigter Fingerprint sind Pflicht."))
             return
+        if self._taken(name):      # vor dem Anlegen des Zugangs: sonst überschriebe das neue Profil das vorhandene samt Token
+            self._say(tr("Es gibt schon ein Profil mit dem Namen '{0}': bitte einen anderen Profilnamen wählen.", name))
+            return
         if not self._api:
             self._say(tr("Bitte zuerst „Verbindung prüfen“ ausführen."))
             return
-        weg_a, api, port = self.weg_a, self._api, int(self._v("port") or 8007)
+        port = self._port()
+        if port is None:
+            return
+        weg_a, api = self.weg_a, self._api
         hostname = os.uname().nodename
         if not weg_a and namespace_state(self._namespaces, ns) == "new":
             self._say(tr("Dieser Namespace existiert nicht und lässt sich mit Weg B nicht anlegen."))
@@ -448,7 +531,7 @@ class AddServerScreen(ModalScreen["tuple[Profile, str, bool] | None"]):
                       secret, self.query_one("#start-now", Checkbox).value))
 
 
-class DbCredScreen(ModalScreen[bool]):
+class DbCredScreen(Dialog[bool]):
     """Zugang zu einem MariaDB/MySQL-Container festlegen: vorhandener Benutzer oder Dump-Benutzer anlegen lassen."""
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
 
@@ -467,8 +550,9 @@ class DbCredScreen(ModalScreen[bool]):
             yield Input(value="root", placeholder=tr("Admin-Benutzer (wird nur einmal benutzt)"), id="admin-user")
             yield Input(placeholder=tr("Admin-Passwort (wird nicht gespeichert)"), password=True, id="admin-pw")
             yield Static("", id="cred-status", markup=False)
-            yield Button(tr("Speichern & prüfen"), variant="primary", id="save")
-            yield Button(tr("Abbrechen"), id="cancel")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Abbrechen"), id="cancel")
+                yield Button(tr("Speichern & prüfen"), variant="primary", id="save")
 
     def _say(self, text: str) -> None:
         self.query_one("#cred-status", Static).update(text)
@@ -498,14 +582,17 @@ class DbCredScreen(ModalScreen[bool]):
             else:
                 await asyncio.to_thread(self._mgr.set_db_credential, self._profile, self._db, user, pw)
         except Exception as ex:   # Dialog bleibt offen
-            self._say(tr("Fehler: {0}", ex))
+            if self.alive():
+                self._say(tr("Fehler: {0}", ex))
             return
-        self.dismiss(True)
+        if self.alive():
+            self.dismiss(True)
 
 
-class DbDumpScreen(ModalScreen[bool]):
+class DbDumpScreen(Dialog[bool]):
     """Datenbank-Dumps des Profils: ein/aus, erkannte Datenbanken, Zugänge der MariaDB/MySQL-Container."""
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
+    TITLE_TEXT = "Datenbank-Dumps"
 
     def __init__(self, mgr, profile: Profile):
         super().__init__()
@@ -516,7 +603,6 @@ class DbDumpScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="dialog"):
-            yield Label("Datenbank-Dumps", markup=False)
             yield Static(tr("Vor jedem Backup werden laufende Datenbank-Container gedumpt und als eigenes Archiv (dbdumps.pxar) mitgesichert. Gestoppte Container nicht: ihre Dateien sind konsistent und im normalen Backup enthalten."), classes="hint", markup=False)
             yield Checkbox(tr("Dumps vor jedem Backup anlegen"), value=self._profile.db_dump, id="dump-on")
             yield Static(tr("Suche Datenbank-Container …"), id="db-status", markup=False)
@@ -524,19 +610,20 @@ class DbDumpScreen(ModalScreen[bool]):
             yield Button(tr("Ohne Passwort einrichten … (empfohlen, Container steht kurz still)"), id="socket", disabled=True)
             yield Button(tr("Zugang mit Passwort festlegen …"), id="cred", disabled=True)
             yield Button(tr("Zugang entfernen"), id="cred-del", disabled=True)
-            yield Button(tr("Speichern"), variant="primary", id="ok")
-            yield Button(tr("Abbrechen"), id="cancel")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Abbrechen"), id="cancel")
+                yield Button(tr("Speichern"), variant="primary", id="ok")
 
     def on_mount(self) -> None:
         self.run_worker(self._scan, thread=True)
 
     def _scan(self) -> None:
-        from ..core.dbdump import DumpError, access_state, find_databases
+        from ..core.dbdump import access_state, find_databases
         try:
             dbs, err = find_databases(), ""
             creds = self._mgr.db_credentials(self._profile)
             states = {d.key: access_state(d, creds) for d in dbs}
-        except DumpError as ex:
+        except Exception as ex:      # auch Unerwartetes anzeigen statt die Oberfläche zu beenden
             dbs, err, states = [], str(ex), {}
         self.app.call_from_thread(self._show, dbs, err, states)
 
@@ -554,6 +641,8 @@ class DbDumpScreen(ModalScreen[bool]):
         return Text(f"{db.container} ({db.owner}): {state}")
 
     def _show(self, dbs: list, err: str = "", states: dict | None = None) -> None:
+        if not self.alive():
+            return
         self._states = states if states is not None else self._states
         self._dbs = {d.key: d for d in dbs}
         lst = self.query_one("#db-list", OptionList)
@@ -574,12 +663,12 @@ class DbDumpScreen(ModalScreen[bool]):
             maria and self._current in self._mgr.db_credentials(self._profile))
 
     def _setup_access(self, db) -> None:
-        from ..core.dbdump import DumpError, setup_socket_access
+        from ..core.dbdump import setup_socket_access
         failed = False
         try:
             setup_socket_access(db)
             msg = tr("{0}: passwortloser Lesezugang eingerichtet", db.container)
-        except DumpError as ex:
+        except Exception as ex:
             msg, failed = tr("Fehler: {0}", ex), True
         self.app.call_from_thread(self.app.notify, escape_markup(msg), severity="error" if failed else "information", timeout=15)
         self._scan()
@@ -621,13 +710,13 @@ class DbDumpScreen(ModalScreen[bool]):
 
 
 def escape_markup(text: str) -> str:
-    from rich.markup import escape
     return escape(text)
 
 
-class DetectScreen(ModalScreen["Profile | None"]):
+class DetectScreen(Dialog["Profile | None"]):
     """Änderungserkennung eines Profils: nur Geändertes lesen und wöchentlicher Prüflauf (Modus data)."""
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
+    TITLE_TEXT = tr("Änderungserkennung")
 
     def __init__(self, profile: Profile):
         super().__init__()
@@ -635,15 +724,15 @@ class DetectScreen(ModalScreen["Profile | None"]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Label(tr("Änderungserkennung"), markup=False)
             yield Static(tr("Nur Geändertes lesen: Der Client liest nur Dateien, deren Metadaten sich geändert haben. Das nächste Backup nach dem Einschalten liest einmal alles. Der PBS-Server muss Version 3.3 oder neuer sein."), classes="hint", markup=False)
             yield Checkbox(tr("Nur geänderte Dateien lesen"), value=self._p.change_detection == METADATA, id="det-changed")
             yield Checkbox(tr("Zusätzlich wöchentlich alles neu lesen (Modus data)"), value=self._p.weekly_data,
                            id="det-weekly", disabled=self._p.change_detection != METADATA)
             yield Input(value=self._p.data_schedule, placeholder=tr("Zeitpunkt (OnCalendar)"), id="det-schedule")
             yield Static("", id="det-status", markup=False)
-            yield Button(tr("Speichern"), variant="primary", id="ok")
-            yield Button(tr("Abbrechen"), id="cancel")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Abbrechen"), id="cancel")
+                yield Button(tr("Speichern"), variant="primary", id="ok")
 
     def on_checkbox_changed(self, e: Checkbox.Changed) -> None:
         if e.checkbox.id == "det-changed":

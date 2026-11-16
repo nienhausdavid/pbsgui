@@ -114,8 +114,15 @@ class ConnectScreen(Screen):
         self.query_one("#status", Say).update(text)
 
     def action_network(self) -> None:
-        with self.app.suspend():
-            subprocess.run(["nmtui"])
+        import shutil
+        if not shutil.which("nmtui"):
+            self._say(tr("nmtui ist nicht installiert: Netzwerk bitte von Hand einrichten (z. B. mit nmcli oder ip)."))
+            return
+        try:
+            with self.app.suspend():
+                subprocess.run(["nmtui"])
+        except Exception as ex:
+            self._say(tr("Fehler: {0}", ex))
 
     def action_vpn(self) -> None:
         self.app.push_screen(VpnScreen())
@@ -139,7 +146,7 @@ class ConnectScreen(Screen):
             self._say(tr("Hole Fingerprint …"))
             try:
                 fp = await asyncio.to_thread(fetch_fingerprint, self._v("server"), int(self._v("port") or 8007))
-            except (ApiError, ValueError) as ex:
+            except (ApiError, ValueError, OSError) as ex:
                 self._say(tr("Fehler: {0}", ex))
                 return
             self.query_one("#fingerprint", Input).value = fp
@@ -170,8 +177,15 @@ class ConnectScreen(Screen):
             if not self.query_one(f"#{wid}", Input).value.strip():
                 self._say(tr("{0} fehlt.", name))
                 return False
+        try:
+            port = int(self._v("port") or 8007)
+        except ValueError:
+            port = 0
+        if not 1 <= port <= 65535:
+            self._say(tr("Ungültiger Port"))
+            return False
         c = self.app.cfg
-        c.server, c.port = self._v("server"), int(self._v("port") or 8007)
+        c.server, c.port = self._v("server"), port
         c.datastore, c.namespace, c.backup_id = self._v("datastore"), self._v("namespace"), self._v("backup-id")
         c.auth_id, c.fingerprint, c.keyfile = self._v("auth-id"), self._v("fingerprint"), self._v("keyfile")
         c.token = self.query_one("#token", Input).value
@@ -256,7 +270,7 @@ class MasterKeyScreen(Screen[str | None]):
         path = self.query_one("#pem", Input).value.strip()
         try:
             pem = Path(path).read_text()
-        except OSError as ex:
+        except (OSError, ValueError) as ex:          # ValueError: keine Textdatei
             self._say(tr("Fehler: {0}", ex))
             return
         pw_input = self.query_one("#pw", Input)
@@ -327,14 +341,22 @@ class VpnScreen(Screen):
             else:
                 self._say(tr("Keine passende Konfiguration gefunden. USB-Stick einstecken und erneut suchen oder Pfad eintragen."))
         elif bid == "state":
-            st = await asyncio.to_thread(vpn.status)
+            try:
+                st = await asyncio.to_thread(vpn.status)
+            except Exception as ex:
+                self._say(tr("Fehler: {0}", ex))
+                return
             self._say("   ".join(f"{vpn.LABELS[k]}: {v}" for k, v in st.items()))
         elif bid == "down":
             self._say(tr("Trenne …"))
             kind = self._kind()
             fn = {"wireguard": vpn.wireguard_down, "openvpn": vpn.openvpn_down, "netbird": vpn.netbird_down}[kind]
-            r = await asyncio.to_thread(fn)
-            self._say((r.text or "getrennt")[-300:])
+            try:
+                r = await asyncio.to_thread(fn)
+            except Exception as ex:
+                self._say(tr("Fehler: {0}", ex))
+                return
+            self._say((r.text or tr("getrennt"))[-300:])
         elif bid == "up":
             await self._up()
 
@@ -348,12 +370,13 @@ class VpnScreen(Screen):
                 r = await asyncio.to_thread(vpn.openvpn_up, self._v("file"), self._v("user"), self.query_one("#pw", Input).value)
             else:
                 r = await asyncio.to_thread(vpn.netbird_up, self.query_one("#setupkey", Input).value.strip(), self._v("url"))
-        except vpn.VpnError as ex:
+        except (vpn.VpnError, OSError) as ex:
             self._say(tr("Fehler: {0}", ex))
             return
-        self.query_one("#pw", Input).value = ""
-        self.query_one("#setupkey", Input).value = ""      # Geheimnisse nicht länger als nötig in der Oberfläche halten
-        self._say((("Verbunden. " if r.ok else "Fehler: ") + (r.text or ""))[-400:])
+        finally:
+            self.query_one("#pw", Input).value = ""
+            self.query_one("#setupkey", Input).value = ""      # Geheimnisse nicht länger als nötig in der Oberfläche halten
+        self._say(((tr("Verbunden. ") if r.ok else tr("Fehler: {0}", "")) + (r.text or ""))[-400:])
 
 
 class WebScreen(Screen):
@@ -423,7 +446,7 @@ class UpdateScreen(Screen):
         self.run_worker(self._work, thread=True)
 
     def _log(self, line: str) -> None:
-        self.app.call_from_thread(self.query_one("#log", RichLog).write, line)
+        self.app.call_from_thread(lambda: self.is_attached and self.query_one("#log", RichLog).write(line))
 
     def _work(self) -> None:
         res = updater.update(on_line=self._log, wait=15)
@@ -431,9 +454,11 @@ class UpdateScreen(Screen):
         self.app.call_from_thread(self._done, res)
 
     def _done(self, res) -> None:
+        if not self.is_attached:
+            return
         self.query_one("#status", Say).update(
             tr("Der Assistent wurde aktualisiert: bitte neu starten.") if res.restart_needed else
-            (tr("Kein Netzwerk: [n] Netzwerk oder [v] VPN einrichten, dann erneut versuchen.") if res.state == "offline" else
+            (tr("Kein Netzwerk: mit F2 das Netzwerk oder mit F3 ein VPN einrichten, dann erneut versuchen.") if res.state == "offline" else
              (tr("Fehler beim Aktualisieren.") if res.state == "fehler" else tr("Fertig."))))
         self.query_one("#restart", Button).disabled = not res.restart_needed
 
@@ -544,7 +569,7 @@ class VmDiskScreen(Screen):
             yield Label(tr("Schritt 3 von 4: Ziel-Platten und Reparaturen"), classes="title", markup=False)
             yield Static(tr("Jede Platte der VM bekommt eine Ziel-Platte; ihr Inhalt wird KOMPLETT überschrieben. Platten ohne Ziel werden nicht wiederhergestellt."), classes="warn", markup=False)
             for d in disks:
-                yield Label(f"{d.key}  ({d.image_size / 2**30:.1f} GiB)" + ("  Boot-Platte" if d.key == boot else ""), markup=False)
+                yield Label(f"{d.key}  ({d.image_size / 2**30:.1f} GiB)" + ("  " + tr("Boot-Platte") if d.key == boot else ""), markup=False)
                 yield Select(opts, allow_blank=True, prompt=tr("(nicht wiederherstellen)"), id=f"map-{d.key}")
             yield Label(tr("Danach automatisch reparieren"), classes="title", markup=False)
             yield Checkbox(tr("Partition und Dateisystem auf die Plattengröße vergrößern"), value=True, id="r-grow")
@@ -596,8 +621,8 @@ class VmPlanScreen(Screen):
         devs = " ".join(self.app.vm_targets)
         with VerticalScroll(id="panel"):
             yield Label(tr("Schritt 4 von 4: Bestätigen"), classes="title", markup=False)
-            yield Static(tr("VM-Backup:  {0}   ({1}, {2}, {3})\n", self.app.vm_snap.path, vc.name or 'ohne Namen', vc.ostype or '?', 'UEFI' if vc.uefi else 'BIOS') + "\n".join(p.summary) +
-                         ("\n\nWarnungen:\n" + "\n".join("  " + w for w in p.warnings) if p.warnings else ""), markup=False)
+            yield Static(tr("VM-Backup:  {0}   ({1}, {2}, {3})\n", self.app.vm_snap.path, vc.name or tr("ohne Namen"), vc.ostype or '?', 'UEFI' if vc.uefi else 'BIOS') + "\n".join(p.summary) +
+                         ("\n\n" + tr("Warnungen:") + "\n" + "\n".join("  " + w for w in p.warnings) if p.warnings else ""), markup=False)
             yield Static(tr("\nALLE DATEN AUF {0} GEHEN VERLOREN.\nZur Bestätigung alle Gerätenamen eintippen (mit Leerzeichen):", devs),
                          classes="warn", markup=False)
             yield Input(placeholder=devs, id="confirm")
@@ -701,9 +726,9 @@ class DiskScreen(Screen):
         if e.button.id == "back":
             self.app.pop_screen()
             return
-        if not self.disks:
+        d = self._selected()
+        if d is None:
             return
-        d = self.disks[self.query_one("#disks", DataTable).cursor_row]
         c = self.app.cfg
         c.target_disk = d["path"]
         c.encryption = self._mode()
@@ -736,7 +761,7 @@ class PlanScreen(Screen):
         with VerticalScroll(id="panel"):
             yield Label(tr("Schritt 4 von 4: Bestätigen"), classes="title", markup=False)
             yield Static(tr("Snapshot:  {0}\n", self.app.snap.path) + "\n".join(p.summary) +
-                         ("\n\nWarnungen:\n" + "\n".join("  " + w for w in p.warnings) if p.warnings else ""),
+                         ("\n\n" + tr("Warnungen:") + "\n" + "\n".join("  " + w for w in p.warnings) if p.warnings else ""),
                          markup=False)
             yield Static(tr("\nALLE DATEN AUF {0} GEHEN VERLOREN.\nZur Bestätigung den Gerätenamen eintippen:", c.target_disk),
                          classes="warn", markup=False)
@@ -764,7 +789,9 @@ class PlanScreen(Screen):
 
 
 class RunScreen(Screen):
-    BINDINGS = [("q", "app.quit", tr("Beenden"))]
+    BINDINGS = [("q", "leave", tr("Beenden"))]
+    running = True      # bis die Wiederherstellung fertig ist
+    asked = False       # „Beenden“ schon einmal gedrückt
 
     def compose(self) -> ComposeResult:
         with Vertical(id="panel"):
@@ -792,6 +819,7 @@ class RunScreen(Screen):
         self.app.call_from_thread(self._finished, ok)
 
     def _finished(self, ok: bool) -> None:
+        self.running = False
         self.query_one("#run-title", Label).update(tr("Fertig") if ok else tr("Fehlgeschlagen"))
         self.query_one("#status", Say).update(
             (tr("Trockenlauf beendet, nichts wurde verändert.") if self.app.dry_run else
@@ -803,7 +831,16 @@ class RunScreen(Screen):
         if e.button.id == "reboot":
             subprocess.run(["systemctl", "reboot"])
         else:
-            self.app.exit()
+            self.action_leave()
+
+    def action_leave(self) -> None:
+        """Beenden. Läuft die Wiederherstellung noch (kein Trockenlauf), erst beim zweiten Mal: ein Abbruch mittendrin
+        hinterlässt eine halb beschriebene Platte."""
+        if self.running and not self.app.dry_run and not self.asked:
+            self.asked = True
+            self.query_one("#status", Say).update(tr("Die Wiederherstellung läuft noch. Ein Abbruch hinterlässt eine unvollständige Ziel-Platte. Zum Abbrechen noch einmal „Beenden“."))
+            return
+        self.app.exit()
 
 
 class RescueApp(App):

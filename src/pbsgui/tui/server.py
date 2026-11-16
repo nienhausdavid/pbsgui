@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
-from textual.screen import ModalScreen
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
 from ..i18n import tr
@@ -11,9 +10,10 @@ from ..core.connection import change_connection
 from ..core.manager import ProfileManager
 from ..core.models import Profile
 from ..core.pbs_api import fetch_fingerprint
+from .screens import Dialog
 
 
-class ServerScreen(ModalScreen["object | None"]):
+class ServerScreen(Dialog["object | None"]):
     """Liefert das ConnectionResult bei Erfolg, sonst None."""
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
 
@@ -23,7 +23,7 @@ class ServerScreen(ModalScreen["object | None"]):
 
     def compose(self) -> ComposeResult:
         p = self.profile
-        with Vertical(id="dialog"):
+        with VerticalScroll(id="dialog"):
             yield Label(tr("Server ändern – {0}", p.name), markup=False)
             yield Static(tr("Wird mit dem Client geprüft, bevor gespeichert wird. Vorhandene Snapshots bleiben auf dem alten Ziel; das nächste Backup lädt am neuen Ziel alles neu hoch."), classes="hint", markup=False)
             yield Label("Server", markup=False); yield Input(p.server, id="srv-server")
@@ -37,11 +37,13 @@ class ServerScreen(ModalScreen["object | None"]):
             yield Label(tr("Token-Secret (leer = behalten; bei neuer Token-ID nötig)"), markup=False)
             yield Input("", id="srv-secret", password=True)
             yield Static("", id="srv-status", markup=False)
-            yield Button(tr("Prüfen und speichern"), variant="primary", id="srv-ok")
-            yield Button(tr("Abbrechen"), id="srv-cancel")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Abbrechen"), id="srv-cancel")
+                yield Button(tr("Prüfen und speichern"), variant="primary", id="srv-ok")
 
     def _say(self, text: str) -> None:
-        self.query_one("#srv-status", Static).update(text)
+        if self.alive():
+            self.query_one("#srv-status", Static).update(text)
 
     def _v(self, wid: str) -> str:
         return self.query_one(f"#{wid}", Input).value.strip()
@@ -68,6 +70,8 @@ class ServerScreen(ModalScreen["object | None"]):
         self.app.call_from_thread(self._got_fp, fp)
 
     def _got_fp(self, fp: str) -> None:
+        if not self.alive():
+            return
         self.query_one("#srv-fp", Input).value = fp
         ok = self.query_one("#srv-fp-ok", Checkbox)
         ok.disabled = fp == self.profile.fingerprint
@@ -94,5 +98,5 @@ class ServerScreen(ModalScreen["object | None"]):
             except Exception as ex:
                 self.app.call_from_thread(self._say, tr("Fehler: {0}", ex))
                 return
-            self.app.call_from_thread(self.dismiss, res)
+            self.app.call_from_thread(lambda: self.alive() and self.dismiss(res))
         self.run_worker(work, thread=True)

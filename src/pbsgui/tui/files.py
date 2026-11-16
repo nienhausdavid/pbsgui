@@ -35,7 +35,8 @@ class FilesScreen(ModalScreen[None]):
                 ("p", "preview", tr("Vorschau")), ("v", "versions", tr("Fassungen"))]
     DEFAULT_CSS = """
     FilesScreen { align: center middle; }
-    #files-box { width: 100; height: 90%; border: thick $accent; background: $surface; padding: 0 1; }
+    #files-box { width: 100; max-width: 95%; height: 90%; border: round $accent; border-title-color: $accent; border-title-style: bold; background: $surface; padding: 0 1; }
+    #files-info { color: $text-muted; }
     #files-tree { height: 1fr; }
     """
 
@@ -47,8 +48,9 @@ class FilesScreen(ModalScreen[None]):
         self._sessions: dict = {}                  # Archiv -> PreviewSession (einmal eingehängt, bis der Dialog zu ist)
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="files-box"):
-            yield Static(tr("Dateien in {0}", self.snapshot.path), markup=False)
+        box = Vertical(id="files-box")
+        box.border_title = escape(tr("Dateien in {0}", self.snapshot.path))
+        with box:
             yield Tree(tr("Archive"), id="files-tree")
             yield Static(tr("Lade Dateiliste …"), id="files-info", markup=False)
         yield Footer()
@@ -71,6 +73,8 @@ class FilesScreen(ModalScreen[None]):
         self.app.call_from_thread(self._loaded, {k: v for k, v in cats.items() if k != "recovery.pxar"})
 
     def _loaded(self, cats: dict[str, Catalog]) -> None:
+        if not self.is_attached:
+            return
         self.cats = cats
         tree = self.query_one("#files-tree", Tree)
         for name in sorted(cats):
@@ -94,7 +98,8 @@ class FilesScreen(ModalScreen[None]):
         return Text(("[x] " if (archive, path) in self.marks else "[ ] ") + text)
 
     def _say(self, text: str) -> None:
-        self.query_one("#files-info", Static).update(text)
+        if self.is_attached:          # Ergebnis aus dem Hintergrund nach dem Schließen: verwerfen
+            self.query_one("#files-info", Static).update(text)
 
     # -- Auswahl ------------------------------------------------------------------
     def selected(self) -> tuple[str, list[str]] | None:
@@ -146,7 +151,8 @@ class FilesScreen(ModalScreen[None]):
         if res.skipped:
             text += tr(" Übersprungen: {0}.", len(res.skipped))
         self._say(text)
-        self.app.notify(escape(text), timeout=12)
+        if self.is_attached:
+            self.app.notify(escape(text), timeout=12)
 
     def _fail(self, msg: str) -> None:
         self._say(tr("Fehler: {0}", msg))

@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QMimeData, QTimer
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
                                QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout)
 
+from ..core.keys import write_private
 from ..core.manager import ProfileManager
 from ..core.models import Profile, Snapshot
 from ..i18n import tr
@@ -15,22 +16,42 @@ from .insight import Runner
 CLEAR_MS = 120_000
 
 
-def copy_secret(text: str) -> None:
-    """In die Zwischenablage legen und nach zwei Minuten leeren, falls dort noch unser Text steht."""
+_pending: set[str] = set()      # kopierte Geheimnisse, die noch in der Zwischenablage liegen können
+
+
+def _clear_if_ours(text: str) -> None:
+    _pending.discard(text)
     cb = QApplication.clipboard()
-    cb.setText(text)
-    QTimer.singleShot(CLEAR_MS, lambda: cb.text() == text and cb.clear())
+    if cb.text() == text:
+        cb.clear()
+
+
+def copy_secret(text: str, clear_ms: int = CLEAR_MS) -> None:
+    """Geheimnis in die Zwischenablage legen. Es wird nach zwei Minuten und beim Beenden des Programms wieder entfernt, falls
+    dort noch unser Text steht, und ist für Zwischenablage-Verläufe (KDE Klipper und andere) als Geheimnis markiert, damit
+    sie es nicht aufbewahren."""
+    app = QApplication.instance()
+    if not app.property("pbsgui_clip_hook"):
+        app.setProperty("pbsgui_clip_hook", True)
+        app.aboutToQuit.connect(lambda: [_clear_if_ours(t) for t in list(_pending)])
+    mime = QMimeData()
+    mime.setText(text)
+    mime.setData("x-kde-passwordManagerHint", b"secret")
+    QApplication.clipboard().setMimeData(mime)
+    _pending.add(text)
+    QTimer.singleShot(clear_ms, lambda: _clear_if_ours(text))
 
 
 def save_secret(parent, text: str, title: str, default_name: str) -> str | None:
-    import os
+    """Geheimnis in eine gewählte Datei schreiben (0600, einem Link am Ziel wird nicht gefolgt). None bei Abbruch oder Fehler."""
     dest, _ = QFileDialog.getSaveFileName(parent, title, str(Path.home() / default_name))
     if not dest:
         return None
-    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(text)
-    os.chmod(dest, 0o600)
+    try:
+        write_private(dest, text)
+    except OSError as e:
+        QMessageBox.warning(parent, tr("Speichern fehlgeschlagen"), str(e))
+        return None
     return dest
 
 
@@ -112,7 +133,11 @@ class MasterKeySetupDialog(QDialog):
         self.finish_btn.setEnabled(bool(self.key and self.saved and self.ack.isChecked()))
 
     def _finish(self) -> None:
-        self.mgr.confirm_master_key_backup(self.profile)
+        try:
+            self.mgr.confirm_master_key_backup(self.profile)
+        except Exception as e:
+            QMessageBox.warning(self, tr("Fehler"), str(e))
+            return
         self.accept()
 
     def reject(self) -> None:
@@ -176,8 +201,8 @@ class RecoverKeyDialog(QDialog):
 
     def _go(self) -> None:
         try:
-            pem = Path(self.priv.text()).read_text()
-        except OSError as e:
+            pem = Path(self.priv.text()).expanduser().read_text()
+        except (OSError, ValueError) as e:          # ValueError: keine Textdatei
             self.status.setText(tr("Fehler: {0}", e))
             return
         snap, pw = self.snaps[self.snap.currentIndex()], self.pw.text()

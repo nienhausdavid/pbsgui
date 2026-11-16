@@ -137,6 +137,21 @@ def make_handler(app: App):
         def log_message(self, fmt, *args):    # nichts an stderr (kein Geheimnis in Pfaden); wichtige Ereignisse loggt der Guard
             pass
 
+        def send_error(self, code, message=None, explain=None):
+            """Unbekannte Methoden (TRACE, PROPFIND …) und unlesbare Anfragen beantwortet sonst die Bibliothek mit einer eigenen
+            Fehlerseite, am Schutz vorbei. Hier: zählen wie jede Anfrage, knapp antworten, Verbindung schließen."""
+            self.close_connection = True
+            try:
+                ip = self._ip()
+                if guard.blocked_for(ip) <= 0:
+                    guard.allow_request(ip)
+                self.send_response(code)
+                self.send_header("Content-Length", "0")
+                self.send_header("Connection", "close")
+                self.end_headers()
+            except OSError:
+                pass
+
         # -- Hilfen
         def _ip(self) -> str:
             return auth.client_key(self.client_address[0])

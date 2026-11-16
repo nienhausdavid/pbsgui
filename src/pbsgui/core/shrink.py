@@ -112,6 +112,13 @@ def _tokens(text: str) -> list:
 
 
 def parse_lvm(text: str) -> dict:
+    try:
+        return _parse_lvm(text)
+    except IndexError:                       # Datei bricht mitten in einem Block oder einer Liste ab
+        raise _err(tr("LVM-Metadaten nicht lesbar")) from None
+
+
+def _parse_lvm(text: str) -> dict:
     toks, pos = _tokens(text), [0]
 
     def value():
@@ -176,6 +183,13 @@ class VgGeometry:
 
 
 def read_vg(text: str, vg: str) -> VgGeometry:
+    try:
+        return _read_vg(text, vg)
+    except (KeyError, ValueError, TypeError, AttributeError):      # Felder fehlen oder haben den falschen Typ
+        raise _err(tr("LVM-Metadaten nicht lesbar")) from None
+
+
+def _read_vg(text: str, vg: str) -> VgGeometry:
     data = parse_lvm(text)
     if vg not in data or not isinstance(data[vg], dict):
         raise _err(tr("Volume Group {0} fehlt in den LVM-Metadaten", vg))
@@ -346,7 +360,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
         n = p["node"]
         if fixed_partition(p):
             fixed_total += math.ceil(p["size"] / ALIGN_SECTORS) * ALIGN_SECTORS * ss
-            plan_rows[p["num"]] = ("fest", p["bytes"])
+            plan_rows[p["num"]] = (tr("fest"), p["bytes"])
         elif swap(n):
             new = swap_size(p["bytes"], target_size, src.size, unit)
             fixed_total += math.ceil(new / unit) * unit
@@ -365,7 +379,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
                     x = lv_nodes.get(name)
                     fs = [y for y in x.walk() if y.fstype] if x else []
                     if x is None or not fs:
-                        fixed_lv[name] = (size, "fest")
+                        fixed_lv[name] = (size, tr("fest"))
                     elif swap(fs[0]):
                         new = math.ceil(swap_size(size, target_size, src.size, geo.extent) / geo.extent) * geo.extent
                         fixed_lv[name] = (new, "Swap")
@@ -392,7 +406,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
         res.min_disk = needed
         raise _err(tr("Ziel-Platte zu klein, auch mit 'Größe anpassen': {0} vorhanden, mindestens {1} nötig (belegter Platz plus 20 % Reserve, mindestens 2 GiB je Dateisystem; EFI, /boot und Swap-Minimum eingerechnet)", fmt(target_size), fmt(math.ceil(needed / GIB) * GIB))) from None
     for num, size in new_sizes.items():
-        plan_rows[num] = ("" if size == next(p["bytes"] for p in parts if p["num"] == num) else "angepasst", size)
+        plan_rows[num] = ("" if size == next(p["bytes"] for p in parts if p["num"] == num) else tr("angepasst"), size)
 
     # neue Positionen (lückenlos hintereinander, 1-MiB-ausgerichtet)
     pos, new_geo = first_start, {}
@@ -428,7 +442,7 @@ def compute_shrink(rec, src, dump: str, target_size: int, encryption: str = "kee
         for name, old in geo.lvs.items():
             x = info["nodes"].get(name)
             fs = [y for y in x.walk() if y.fstype][0] if x and any(y.fstype for y in x.walk()) else None
-            note = info["fixed"][name][1] if name in info["fixed"] else ("" if new_lvs[name] == old else "angepasst")
+            note = info["fixed"][name][1] if name in info["fixed"] else ("" if new_lvs[name] == old else tr("angepasst"))
             desc = f"{fs.fstype} {mp_of(fs)}".strip() if fs else ""
             rows.append(Resize("lv", f"{geo.vg}/{name}", desc, old, new_lvs[name], note))
         lv_rows[num] = rows

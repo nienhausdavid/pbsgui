@@ -72,7 +72,14 @@ def generate_key(binary: str | None = None) -> tuple[str, str]:
 
 def export_key(content: str, dest: str) -> None:
     """Schreibt eine Kopie des Keys (0600) an einen vom Benutzer gewählten Ort."""
-    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    write_private(dest, content)
+
+
+def write_private(dest: str, content: str, exclusive: bool = False) -> None:
+    """Schreibt ein Geheimnis in eine Datei mit Rechten 0600. Einem symbolischen Link am Ziel wird nicht gefolgt (sonst ließe
+    sich das Geheimnis an einen fremden Ort umleiten); `exclusive` verlangt eine neue Datei."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_EXCL if exclusive else os.O_TRUNC)
+    fd = os.open(dest, flags, 0o600)
     with os.fdopen(fd, "w") as f:
         os.fchmod(f.fileno(), 0o600)      # auch bei einer schon vorhandenen, offener berechtigten Datei
         f.write(content)

@@ -5,9 +5,9 @@ import os
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSettings, QTimer, Qt
+from PySide6.QtCore import QEvent, QSettings, QSize, Qt
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGroupBox, QHeaderView, QProgressBar, QCheckBox, QComboBox,
-                               QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
+                               QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QApplication, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
@@ -24,7 +24,8 @@ from .add_server import AddServerDialog
 from .db_dialog import DbDumpDialog
 from .edit_server import EditServerDialog
 from .files_dialog import FilesDialog
-from .master_dialogs import MasterKeySetupDialog, RecoverKeyDialog
+from .flow import flow
+from .master_dialogs import MasterKeySetupDialog, RecoverKeyDialog, copy_secret
 from .insight import DashboardTab, DiffDialog, HistoryTab, RestoreTestDialog, SearchAllDialog
 from .mounts_widget import MountList
 from . import style
@@ -58,7 +59,7 @@ class MainWindow(QMainWindow):
         self.allow_close = False                      # True: Schließen beendet das Programm (nie in den Hintergrund)
         self.tray = None                              # TrayController, gesetzt von gui.main
 
-        self.plist = QListWidget(); self.plist.setObjectName("profiles")
+        self.plist = QListWidget(); self.plist.setObjectName("profiles"); self.plist.setIconSize(QSize(14, 14))
         add = QPushButton(tr("＋  Server hinzufügen")); add.setObjectName("primary"); add.clicked.connect(self.add_server)
         rem = QPushButton(tr("Entfernen")); rem.clicked.connect(self.remove_profile)
         left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(12, 12, 6, 12); ll.setSpacing(8)
@@ -116,6 +117,7 @@ class MainWindow(QMainWindow):
         style.save_mode(mode)
         style.apply(QApplication.instance(), mode)
         self._refresh_chrome()
+        self.refresh_dots()
 
     def _refresh_chrome(self) -> None:
         if self.titlebar is not None:
@@ -186,15 +188,35 @@ class MainWindow(QMainWindow):
         self.plist.clear()
         profiles = self.mgr.profiles()
         for p in profiles:
-            self.plist.addItem(p.name)
+            self.plist.addItem(QListWidgetItem(p.name))
+        self.refresh_dots(profiles)
         names = [p.name for p in profiles]
         self.plist.setCurrentRow(names.index(select) if select in names else (0 if names else -1))
         self.plist.blockSignals(False)      # erst jetzt wieder melden, sonst wird zweimal geladen
         self._select(self.plist.currentRow())
 
+    def refresh_dots(self, profiles: list[Profile] | None = None) -> None:
+        """Punkt vor jedem Profil: grün = letzter Lauf gelungen, rot = fehlgeschlagen, blau = läuft gerade, grau = noch keiner."""
+        profiles = self.mgr.profiles() if profiles is None else profiles
+        for i, p in enumerate(profiles[:self.plist.count()]):
+            try:
+                last = read_status(Paths.for_scope(p.scope), p)
+            except Exception:
+                last = None
+            if p.name in self.running_profiles:
+                key, tip = "accent", tr("Backup läuft")
+            elif not last:
+                key, tip = "idle", tr("Noch kein Backup gelaufen")
+            else:
+                key, tip = ("ok", tr("Letzter Lauf erfolgreich")) if last.get("ok") else ("danger", tr("Letzter Lauf fehlgeschlagen"))
+            self.plist.item(i).setIcon(style.dot_icon(key))
+            self.plist.item(i).setToolTip(tip)
+
     def _select(self, row: int) -> None:
         profiles = self.mgr.profiles()
         self.current = profiles[row] if 0 <= row < len(profiles) else None
+        self._snaps = []                                      # die geladenen Snapshots gehörten zum vorherigen Profil
+        self.snap_table.setRowCount(0); self._snap_hint()
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if w not in (self.dashboard, self.history):          # Überblick und Verlauf gelten für alle Profile
@@ -206,7 +228,7 @@ class MainWindow(QMainWindow):
         full = p.backup_mode == FULL
         self.head.setText(p.name)
         self.subhead.setText(f"{p.server} · {p.datastore}{'/' + p.namespace if p.namespace else ''} · "
-                             f"{'Ganzes System' if full else 'Nur Home'}")
+                             + (tr("Ganzes System") if full else tr("Nur Home")))
         self.f_id.setText(p.backup_id); self.f_ns.setText(p.namespace)
         self.f_server.setText(f"{p.server}:{p.port} · {p.datastore} · {p.auth_id}")
         self.sources.clear(); self.sources.addItems(p.effective_sources)
@@ -225,7 +247,6 @@ class MainWindow(QMainWindow):
         self.refresh_key_info()
         self.f_sched.setText(p.schedule); self.f_ac.setChecked(p.require_ac)
         self.f_scope.setCurrentIndex(1 if p.scope == "system" else 0)
-        self.snap_table.setRowCount(0)
         self.refresh_status()
 
     # -- Tab Backup ---------------------------------------------------------
@@ -269,7 +290,8 @@ class MainWindow(QMainWindow):
         g_id = QGroupBox(tr("Ziel")); f = QFormLayout(g_id)
         self.f_server = QLabel(""); self.f_server.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.server_btn = QPushButton(tr("Server ändern …")); self.server_btn.clicked.connect(self.edit_server)
-        f.addRow("Server", self.f_server); f.addRow("", self.server_btn)
+        srow = QHBoxLayout(); srow.addWidget(self.server_btn); srow.addStretch()
+        f.addRow("Server", self.f_server); f.addRow("", srow)
         f.addRow("Backup-ID", self.f_id); f.addRow(tr("Namespace"), self.f_ns)
 
         g_chg = QGroupBox(tr("Geschwindigkeit")); cl = QVBoxLayout(g_chg)
@@ -287,17 +309,15 @@ class MainWindow(QMainWindow):
         self.excludes = QPlainTextEdit(); self.excludes.setMaximumHeight(80)
         self.excludes.setPlaceholderText(tr("Ein Muster pro Zeile, z. B. *.tmp"))
         g_src = QGroupBox(tr("Was wird gesichert?")); sl = QVBoxLayout(g_src)
-        srow = QHBoxLayout(); srow.addWidget(self.src_add); srow.addWidget(self.src_rm); srow.addStretch()
-        sl.addWidget(self.mode_info); sl.addWidget(self.sources); sl.addLayout(srow)
+        sl.addWidget(self.mode_info); sl.addWidget(self.sources); sl.addLayout(flow(self.src_add, self.src_rm))
         sl.addWidget(self.mount_label); sl.addWidget(self.mount_list)
         sl.addWidget(QLabel(tr("Ausschlüsse"))); sl.addWidget(self.excludes)
 
         g_enc = QGroupBox(tr("Verschlüsselung")); el = QVBoxLayout(g_enc)
         el.addWidget(self.f_enc); el.addWidget(self.key_info)
-        krow = QHBoxLayout(); krow.addWidget(self.key_btn); krow.addWidget(self.sheet_btn); krow.addStretch()
-        krow2 = QHBoxLayout(); krow2.addWidget(self.key_copy_btn); krow2.addWidget(self.kit_copy_btn); krow2.addWidget(self.sheet_copy_btn); krow2.addStretch()
-        krow3 = QHBoxLayout(); krow3.addWidget(self.master_btn); krow3.addWidget(self.master_use_btn); krow3.addWidget(self.recover_btn); krow3.addStretch()
-        el.addLayout(krow); el.addLayout(krow2); el.addLayout(krow3)
+        self.kit_copy_btn.setObjectName("primary")
+        el.addLayout(flow(self.kit_copy_btn, self.key_copy_btn, self.sheet_copy_btn, self.key_btn, self.sheet_btn))
+        el.addLayout(flow(self.master_btn, self.master_use_btn, self.recover_btn))
         kf = QFormLayout(); kf.addRow(tr("Eigene Schlüsseldatei"), self.f_key); kf.addRow("Master-Public-Key", self.f_master)
         el.addLayout(kf)
 
@@ -307,7 +327,7 @@ class MainWindow(QMainWindow):
         dl.addWidget(self.f_dbdump); dl.addWidget(hint)
         drow = QHBoxLayout(); drow.addWidget(self.db_btn); drow.addStretch(); dl.addLayout(drow)
 
-        inner = QWidget(); il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 8, 0); il.setSpacing(10)
+        inner = QWidget(); il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 10, 0); il.setSpacing(12)
         for g in (g_id, g_chg, g_src, g_enc, g_db):
             il.addWidget(g)
         il.addStretch()
@@ -433,7 +453,11 @@ class MainWindow(QMainWindow):
             return
         dest, _ = QFileDialog.getSaveFileName(self, tr("Notfallblatt speichern"), str(Path.home() / f"notfallblatt-{p.slug}.txt"))
         if dest:
-            Path(dest).write_text(render_sheet(p))
+            try:
+                Path(dest).write_text(render_sheet(p))
+            except OSError as e:
+                QMessageBox.warning(self, tr("Speichern fehlgeschlagen"), str(e))
+                return
             self.statusBar().showMessage(tr("Notfallblatt gespeichert: {0} (enthält keine Geheimnisse)", dest))
 
     CLIPBOARD_CLEAR_MS = 120_000
@@ -451,14 +475,13 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, tr("Kopieren fehlgeschlagen"), str(e))
             return False
-        cb = QApplication.clipboard()
-        cb.setText(text)
         if what != "sheet":
+            copy_secret(text, self.CLIPBOARD_CLEAR_MS)
             self.mgr.mark_key_exported(p)
             self.refresh_key_info()
-            QTimer.singleShot(self.CLIPBOARD_CLEAR_MS, lambda: cb.text() == text and cb.clear())
             self.statusBar().showMessage(tr("Kopiert. Jetzt im Passwortmanager einfügen und speichern (die Zwischenablage wird in 2 Minuten geleert)."))
         else:
+            QApplication.clipboard().setText(text)
             self.statusBar().showMessage(tr("Notfallblatt kopiert (enthält keine Geheimnisse)"))
         return True
 
@@ -477,7 +500,7 @@ class MainWindow(QMainWindow):
             return
         try:
             fp = self.mgr.use_master_pubkey(p, Path(f).read_text())
-        except Exception as e:
+        except Exception as e:          # auch: keine Textdatei
             QMessageBox.warning(self, tr("Fehler"), str(e))
             return
         self.statusBar().showMessage(tr("Öffentlicher Master-Schlüssel eingetragen. Fingerprint: {0}", fp))
@@ -539,6 +562,7 @@ class MainWindow(QMainWindow):
             self.current = p
         self.log.clear()
         self.running_profiles.add(p.name)
+        self.refresh_dots()
         if self.tray:
             self.tray.poll()
         self.backup_btn.setEnabled(False)
@@ -552,6 +576,7 @@ class MainWindow(QMainWindow):
 
         def done(code):
             self.running_profiles.discard(p.name)
+            self.refresh_dots()
             if self.tray:
                 self.tray.poll()
             self.backup_btn.setEnabled(True)
@@ -562,7 +587,7 @@ class MainWindow(QMainWindow):
             self.refresh_snapshots()
 
         w = self.run_async(work, done, self.backup_line)
-        w.failed.connect(lambda _m: (self.running_profiles.discard(p.name), self.backup_btn.setEnabled(True),
+        w.failed.connect(lambda _m: (self.running_profiles.discard(p.name), self.refresh_dots(), self.backup_btn.setEnabled(True),
                                      self.bar.setVisible(False), self.bar_text.setVisible(False)))
 
     def backup_line(self, line: str) -> None:
@@ -582,23 +607,18 @@ class MainWindow(QMainWindow):
     # -- Tab Snapshots ------------------------------------------------------
     def _build_snapshots_tab(self) -> QWidget:
         w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 10, 0, 0)
-        row = QHBoxLayout()
         r = QPushButton(tr("Aktualisieren")); r.clicked.connect(self.refresh_snapshots)
         rs = QPushButton(tr("Wiederherstellen …")); rs.clicked.connect(self.restore_selected)
         rf = QPushButton(tr("Dateien durchsuchen …")); rf.clicked.connect(self.browse_files)
         rd = QPushButton(tr("Vergleichen …")); rd.setToolTip(tr("Gewählten Snapshot mit dem vorherigen vergleichen")); rd.clicked.connect(self.compare_snapshots)
         rt = QPushButton(tr("Restore-Test …")); rt.setToolTip(tr("Zufällige Dateien wiederherstellen und prüfen")); rt.clicked.connect(self.restore_test)
         ra = QPushButton(tr("Suche in allen Snapshots …")); ra.clicked.connect(self.search_all)
-        for b in (r, rs, rf):
-            row.addWidget(b)
-        row.addStretch()
-        row2 = QHBoxLayout()               # zweite Zeile: das Fenster soll weiter schmal bleiben können
-        for b in (rd, rt, ra):
-            row2.addWidget(b)
-        row2.addStretch()
+        r.setObjectName("primary")
+        row = flow(r, rs, rf, rd, rt, ra)  # bricht um: das Fenster soll weiter schmal bleiben können
         self.snap_table = QTableWidget(0, 4)
         self.snap_table.setHorizontalHeaderLabels([tr("Zeit"), "ID", tr("Größe"), tr("Archive")])
         hh = self.snap_table.horizontalHeader(); hh.setStretchLastSection(True)
+        hh.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter); hh.setHighlightSections(False)
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -606,9 +626,20 @@ class MainWindow(QMainWindow):
         self.snap_table.setShowGrid(False)
         self.snap_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.snap_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        lay.addLayout(row); lay.addLayout(row2); lay.addWidget(self.snap_table)
+        self.snap_empty = QLabel(""); self.snap_empty.setObjectName("empty"); self.snap_empty.setWordWrap(True)
+        self.snap_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addLayout(row); lay.addWidget(self.snap_table, 1); lay.addWidget(self.snap_empty, 1)
         self._snaps = []
+        self._snap_hint()
         return w
+
+    def _snap_hint(self, text: str | None = None) -> None:
+        """Leere Liste: statt einer leeren Tabelle sagen, was zu tun ist."""
+        if not hasattr(self, "snap_empty"):
+            return
+        empty = self.snap_table.rowCount() == 0
+        self.snap_empty.setText(text or tr("Noch keine Snapshots geladen. „Aktualisieren“ holt die Liste vom Server."))
+        self.snap_empty.setVisible(empty); self.snap_table.setVisible(not empty)
 
     def refresh_snapshots(self) -> None:
         p = self.current
@@ -617,6 +648,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(tr("Lade Snapshots …"))
 
         def done(snaps):
+            if not self.current or self.current.name != p.name:      # inzwischen ein anderes Profil gewählt: Antwort verwerfen
+                return
             self._snaps = snaps
             self.snap_table.setRowCount(len(snaps))
             for i, s in enumerate(snaps):
@@ -624,6 +657,7 @@ class MainWindow(QMainWindow):
                         fmt_size(s.size), ", ".join(s.files)]
                 for j, v in enumerate(vals):
                     self.snap_table.setItem(i, j, QTableWidgetItem(v))
+            self._snap_hint(tr("Auf dem Server liegen noch keine Snapshots dieses Profils."))
             self.statusBar().showMessage(tr("{0} Snapshots", len(snaps)))
 
         self.run_async(lambda _l: self.mgr.snapshots(p), done)
@@ -668,6 +702,14 @@ class MainWindow(QMainWindow):
             return
         target = QFileDialog.getExistingDirectory(self, tr("Zielordner (leer / neu empfohlen)"), str(Path.home()))
         if not target:
+            return
+        try:
+            occupied = any(Path(target).iterdir())
+        except OSError:
+            occupied = False
+        if occupied and QMessageBox.question(
+                self, tr("Zielordner ist nicht leer"),
+                tr("{0} enthält schon Dateien. Die Wiederherstellung schreibt das Archiv dort hinein; vorhandene Dateien werden nicht überschrieben, daran kann sie scheitern. Besser ist ein leerer Ordner.\n\nTrotzdem in diesen Ordner wiederherstellen?", target)) != QMessageBox.StandardButton.Yes:
             return
         p = self.current
         self.statusBar().showMessage(tr("Stelle wieder her …"))
@@ -721,12 +763,12 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.sched_status.setText(tr("Status nicht lesbar: {0}", e))
             return
-        parts = [tr("Zeitplan: {0}", 'aktiv' if st['active'] else (tr("installiert, inaktiv") if st['installed'] else tr("nicht eingerichtet")))]
+        parts = [tr("Zeitplan: {0}", tr("aktiv") if st['active'] else (tr("installiert, inaktiv") if st['installed'] else tr("nicht eingerichtet")))]
         if st["next"] and st["next"] != "n/a":
             parts.append(tr("Nächster Lauf: {0}", st['next']))
         if last:
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(last["time"]))
-            parts.append(tr("Letzter Lauf: {0} – {1}", when, 'OK' if last['ok'] else 'FEHLER: ' + last['message']))
+            parts.append(tr("Letzter Lauf: {0} – {1}", when, 'OK' if last['ok'] else tr("FEHLER") + ": " + str(last.get('message', ''))))
         self.sched_status.setText("\n".join(parts))
         self.linger_box.setVisible(p.scope == "user" and not linger_enabled())
 
@@ -769,7 +811,7 @@ class MainWindow(QMainWindow):
 
     # -- Profilverwaltung ---------------------------------------------------
     def add_server(self) -> None:
-        dlg = AddServerDialog(self)
+        dlg = AddServerDialog(self, taken=self.mgr.name_taken)
         if dlg.exec() and dlg.profile:
             p = dlg.profile
             try:
@@ -777,6 +819,7 @@ class MainWindow(QMainWindow):
                 created = self.mgr.enable_encryption(p)  # Verschlüsselung ist Standard: Key automatisch erzeugen
             except Exception as e:
                 QMessageBox.warning(self, tr("Speichern fehlgeschlagen"), str(e))
+                self.reload(select=p.name)         # das Profil kann schon angelegt sein (nur der Schlüssel fehlt noch)
                 return
             self.reload(select=p.name)
             if created:

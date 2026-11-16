@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from pathlib import Path
 
 from rich.markup import escape
 from rich.text import Text
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import (Button, Checkbox, DataTable, Footer, Header, Input, OptionList, ProgressBar, RichLog, Static, TabbedContent,
                              TabPane)
@@ -19,31 +21,87 @@ from ..cli.main import fmt_size, fmt_time, last_run_text, schedule_text, table
 from ..core.manager import ProfileManager, can_use_admin
 from ..core.models import METADATA, Profile
 from ..core.modes import FULL, describe, plan_mounts
+from ..core.paths import Paths
 from ..core.recovery import needs_key_export, render_sheet
+from ..core.runner import read_status
 from ..core.scheduler import SchedulerError, validate_calendar
 from .files import FilesScreen
 from .insight import DiffScreen, RestoreTestScreen, SearchAllScreen
 from .master import MasterScreen, RecoverKeyScreen
 from .server import ServerScreen
-from .screens import AddServerScreen, ConfirmScreen, DbDumpScreen, DetectScreen, MountsScreen, PromptScreen
+from .screens import AddServerScreen, ConfirmScreen, DbDumpScreen, DetectScreen, KeysScreen, MountsScreen, PromptScreen
+
+
+_ROW = re.compile(r"^([^:\n]{1,28}:)\s+(.*)$", re.S)
+_HINT = re.compile(r"\((?:mit|with) \[.\][^)]*\)")
+
+
+def overview_text(sections: list[tuple[str, list[str]]]) -> Text:
+    """Übersicht als zwei Spalten mit Abschnitten: Bezeichnung in einer festen Breite, Auffälliges farbig."""
+    rows = [[(m.group(1), m.group(2)) if (m := _ROW.match(line)) else ("", line) for line in lines] for _t, lines in sections]
+    width = max((len(label) for sec in rows for label, _v in sec), default=0) + 2
+    bad = (tr("NEIN"), tr("NOCH NICHT"), tr("FEHLER"), "FEHLER", tr("gesperrt"))
+    out = Text()
+    for (title, _lines), sec in zip(sections, rows):
+        if not sec:
+            continue
+        out.append(("\n" if out else "") + title.upper() + "\n", style="bold dim")
+        for label, value in sec:
+            v = Text(value)
+            v.highlight_regex(_HINT, "dim")
+            v.highlight_words(bad, "bold red")
+            v.highlight_regex(r"\bOK\b", "bold green")
+            out.append(label.ljust(width), style="bold")
+            out.append_text(v)
+            out.append("\n")
+    out.rstrip()
+    return out
 
 
 class PbsTui(App):
     TITLE = tr("pbsgui – Proxmox Backup")
     SUB_TITLE = ""
     CSS = """
-    #profiles { width: 30; border: round $primary; }
-    #main { border: round $primary; }
-    #dialog { width: 90%; max-width: 100; max-height: 90%; overflow-x: hidden; margin: 1 2; padding: 1 2; border: thick $accent; background: $surface; }
+    #profiles { width: 32; height: 1fr; border: round $primary; border-title-color: $text; border-title-style: bold; padding: 0 1; }
+    #profiles:focus { border: round $accent; }
+    #main { height: 1fr; border: round $primary; padding: 0 1; }
+    #overview { height: auto; margin-top: 1; }
+    #key-buttons { height: auto; margin-top: 1; }
+    #key-buttons Button { margin-right: 1; }
+    #dashboard { margin-top: 1; }
+    #hist-filter { height: 3; }
+    #hist-text { width: 1fr; }
+    #hist-table { height: 1fr; min-height: 4; }
+    #hist-log { height: 1fr; border-top: solid $primary; }
+    #bar { margin-top: 1; }
+    #dialog { width: 90%; max-width: 100; height: auto; max-height: 90%; overflow-x: hidden; margin: 1 2; padding: 1 2;
+              border: round $accent; border-title-color: $accent; border-title-style: bold; background: $surface; }
+    #dialog Label { text-style: bold; margin-top: 1; }
+    #dialog Input { border: round $primary; border-title-color: $text-muted; }
+    #dialog Input:focus { border: round $accent; border-title-color: $accent; }
+    #dialog Button { margin-top: 1; }
+    .buttons { height: auto; align-horizontal: right; }
+    .buttons Button { margin-left: 2; }
     ModalScreen { align: center middle; }
     .hint { color: $text-muted; }
     """
-    BINDINGS = [("a", "add", tr("Hinzufügen")), ("b", "backup", "Backup"), ("r", "refresh", "Snapshots"),
-                ("t", "restore", tr("Restore")), ("f", "files", tr("Dateien")), ("s", "schedule", tr("Zeitplan")), ("m", "scope", tr("Modus")),
-                ("v", "encrypt", tr("Verschl.")), ("k", "key", tr("Key sichern")), ("y", "copy_key", tr("Key kopieren")), ("M", "master", tr("Master-Key")), ("K", "recover_key", tr("Key zurückholen")), ("n", "sheet", tr("Notfallblatt")), ("o", "sources", tr("Quellen")), ("u", "mounts", tr("Laufwerke")), ("p", "dbdump", "DB-Dumps"), ("c", "detect", tr("Änderungen")),
-                ("i", "server", tr("Server ändern")), ("x", "diff", tr("Vergleich")), ("w", "restore_test", "Restore-Test"), ("g", "find_all", tr("Suche alle")),
-                ("e", "dashboard", "Dashboard"), ("h", "history", tr("Verlauf")),
-                ("d", "delete", tr("Entfernen")), ("q", "quit", tr("Beenden"))]
+    # In der Fußzeile stehen nur die häufigen Tasten; alle zeigt [?] (KeysScreen), nach Gruppen sortiert.
+    BINDINGS = [Binding("a", "add", tr("Hinzufügen")), Binding("b", "backup", "Backup"), Binding("r", "refresh", "Snapshots"),
+                Binding("t", "restore", tr("Restore")), Binding("f", "files", tr("Dateien")), Binding("s", "schedule", tr("Zeitplan"), show=False),
+                Binding("m", "scope", tr("Modus"), show=False), Binding("v", "encrypt", tr("Verschl."), show=False),
+                Binding("k", "key", tr("Key sichern"), show=False), Binding("y", "copy_key", tr("Key kopieren"), show=False),
+                Binding("M", "master", tr("Master-Key"), show=False), Binding("K", "recover_key", tr("Key zurückholen"), show=False),
+                Binding("n", "sheet", tr("Notfallblatt"), show=False), Binding("o", "sources", tr("Quellen"), show=False),
+                Binding("u", "mounts", tr("Laufwerke"), show=False), Binding("p", "dbdump", "DB-Dumps", show=False),
+                Binding("c", "detect", tr("Änderungen"), show=False), Binding("i", "server", tr("Server ändern"), show=False),
+                Binding("x", "diff", tr("Vergleich"), show=False), Binding("w", "restore_test", "Restore-Test", show=False),
+                Binding("g", "find_all", tr("Suche alle"), show=False), Binding("e", "dashboard", "Dashboard", show=False),
+                Binding("h", "history", tr("Verlauf"), show=False), Binding("d", "delete", tr("Entfernen"), show=False),
+                Binding("question_mark", "keys", tr("Alle Tasten"), key_display="?"), Binding("q", "quit", tr("Beenden"))]
+    KEY_GROUPS = ((tr("Backup und Snapshots"), ("backup", "refresh", "restore", "files", "diff", "restore_test", "find_all")),
+                  (tr("Profil"), ("add", "server", "sources", "mounts", "detect", "dbdump", "schedule", "scope", "delete")),
+                  (tr("Schlüssel"), ("encrypt", "copy_key", "key", "sheet", "master", "recover_key")),
+                  (tr("Ansicht"), ("dashboard", "history", "keys", "quit")))
 
     def __init__(self, manager: ProfileManager | None = None):
         super().__init__()
@@ -67,13 +125,15 @@ class PbsTui(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
-            yield OptionList(id="profiles")
+            lst = OptionList(id="profiles")
+            lst.border_title = tr("Profile")
+            yield lst
             with TabbedContent(id="main"):
                 with TabPane(tr("Übersicht"), id="tab-overview"):
                     yield Static("", id="overview", markup=False)
                     with Horizontal(id="key-buttons"):
-                        yield Button(tr("Schlüssel kopieren"), id="btn-copy-key")
                         yield Button(tr("Schlüssel + Notfallblatt kopieren"), id="btn-copy-kit", variant="primary")
+                        yield Button(tr("Schlüssel kopieren"), id="btn-copy-key")
                         yield Button(tr("Notfallblatt kopieren"), id="btn-copy-sheet")
                         yield Button(tr("In Datei speichern …"), id="btn-key-file")
                 with TabPane("Snapshots", id="tab-snaps"):
@@ -97,7 +157,7 @@ class PbsTui(App):
         from .. import __version__
         self.sub_title = tr("Version {0}", __version__)
         self._q("#snaps", DataTable).add_columns("#", tr("Zeit"), "ID", tr("Größe"), tr("Dateien"))
-        self._q("#hist-table", DataTable).add_columns(tr("Lauf"), "Start", tr("Profil"), tr("Ergebnis"), tr("Dauer"), tr("Meldung"))
+        self._q("#hist-table", DataTable).add_columns("Start", tr("Profil"), tr("Ergebnis"), tr("Dauer"), tr("Meldung"))
         self._runs: list = []
         self.reload()
 
@@ -106,15 +166,32 @@ class PbsTui(App):
         lst = self._q("#profiles", OptionList)
         profiles = self.mgr.profiles()
         lst.clear_options()
-        lst.add_options([Option(Text(p.name), id=p.slug) for p in profiles])  # Text: kein Markup
+        lst.add_options([Option(self._profile_label(p), id=p.slug) for p in profiles])  # Text: kein Markup
         idx = next((i for i, p in enumerate(profiles) if p.name == select), 0) if profiles else None
         if idx is not None:
             lst.highlighted = idx
         self.current = profiles[idx] if idx is not None else None
         self.show_overview()
 
+    def _refresh_dots(self) -> None:
+        lst = self._q("#profiles", OptionList)
+        for p in self.mgr.profiles():
+            try:
+                lst.replace_option_prompt(p.slug, self._profile_label(p))
+            except Exception:  # nosec B110  (Profil inzwischen entfernt: die Liste wird ohnehin neu geladen)
+                pass
+
+    def _profile_label(self, p: Profile) -> Text:
+        """Name mit Punkt für den letzten Lauf: grün = gelungen, rot = fehlgeschlagen, grau = noch keiner."""
+        try:
+            last = read_status(Paths.for_scope(p.scope), p)
+        except Exception:
+            last = None
+        color = "grey50" if not last else ("green" if last.get("ok") else "red")
+        return Text.assemble(("● ", color), p.name)
+
     def on_option_list_option_highlighted(self, e: OptionList.OptionHighlighted) -> None:
-        if not self.screen_stack:  # App fährt gerade herunter
+        if not self.screen_stack or e.option_list.id != "profiles":  # App fährt gerade herunter, oder Liste eines Dialogs
             return
         profiles = self.mgr.profiles()
         self.current = profiles[e.option_index] if 0 <= e.option_index < len(profiles) else None
@@ -124,6 +201,10 @@ class PbsTui(App):
 
     def show_overview(self) -> None:
         p, w = self.current, self._q("#overview", Static)
+        can_copy = bool(p and p.encrypt and not p.keyfile and self.mgr.secrets.exists(p.slug, "key"))
+        self._q("#key-buttons").display = bool(p)
+        for bid in ("#btn-copy-kit", "#btn-copy-key", "#btn-key-file"):      # ohne automatischen Schlüssel gibt es nichts zu kopieren
+            self._q(bid, Button).display = can_copy
         if not p:
             w.update(tr("Keine Profile. Mit [a] einen Server hinzufügen."))
             return
@@ -133,29 +214,35 @@ class PbsTui(App):
             key = tr("automatischer Schlüssel, Fingerprint {0}", p.key_fingerprint)
         else:
             key = tr("kein Schlüssel")
-        w.update("\n".join([
-            tr("Profil:        {0}", p.name), tr("Server:        {0}:{1}", p.server, p.port),
-            tr("Datastore:     {0}", p.datastore) + (tr(" / Namespace {0}", p.namespace) if p.namespace else ""),
-            tr("Zugang:        {0}", p.auth_id), tr("Backup-ID:     {0}", p.backup_id),
-            tr("Umfang:        {0}", describe(p.backup_mode)),
-            tr("Quellen:       {0}", ', '.join(p.effective_sources) or '-'),
-            *([tr("Laufwerke:     {0}", ', '.join(plan_mounts(p.full_mounts)[0]) or 'keine (nur Root-Dateisystem)')]
-              if p.backup_mode == FULL else []),
-            tr("Ausschlüsse:   {0}", ', '.join(p.excludes) or '-'),
-            tr("Verschlüsselt: {0}  ({1})", tr("ja") if p.encrypt else tr("NEIN – Backups liegen unverschlüsselt auf dem Server"), key),
-            *([(tr("Schlüssel-Export: ") + (tr("am {0}", p.key_exported_at) if p.key_exported_at else
-                tr("NOCH NICHT") + (tr(" – Vollbackup gesperrt! Mit [k] sichern") if needs_key_export(p) else "")))]
-              if p.encrypt and not p.keyfile else []),
-            *([tr("Master-Schlüssel: {0}  (mit [M] einrichten)", tr("ja, Fingerprint {0}; privater Teil gesichert: {1}", p.master_fingerprint[:23], p.master_key_ack_at or tr("NEIN")) if p.master_pubkey else tr("nein"))]
-              if p.encrypt and not p.keyfile else []),
-            tr("Lesen:        {0}  (mit [c] ändern)", 'nur Geändertes (Metadaten-Vergleich)' if p.change_detection == METADATA else 'alles jedes Mal (klassisch)'),
-            *([tr("Prüflauf:     {0}", (tr("wöchentlich alles neu lesen: ") + p.data_schedule) if p.weekly_data else tr("aus"))
-               + ("" if p.schedule or not p.weekly_data else tr(" (braucht einen Zeitplan)"))]
-              if p.change_detection == METADATA else []),
-            tr("Datenbank-Dumps: {0}  (mit [p] einrichten)", tr("an") if p.db_dump else tr("aus")),
-            tr("Zeitplan:      {0}  [{1}, {2}]", p.schedule or '-', p.scope, schedule_text(self.mgr, p))
-            + (tr(" – wartet auf den Schlüssel-Export ([k])") if self._schedule_waits(p) else ""),
-            tr("Letzter Lauf:  {0}", last_run_text(p))]))
+        auto_key = p.encrypt and not p.keyfile
+        sections = [
+            (tr("Ziel"), [
+                tr("Profil:        {0}", p.name), tr("Server:        {0}:{1}", p.server, p.port),
+                tr("Datastore:     {0}", p.datastore) + (tr(" / Namespace {0}", p.namespace) if p.namespace else ""),
+                tr("Zugang:        {0}", p.auth_id), tr("Backup-ID:     {0}", p.backup_id)]),
+            (tr("Umfang"), [
+                tr("Umfang:        {0}", describe(p.backup_mode)),
+                tr("Quellen:       {0}", ', '.join(p.effective_sources) or '-'),
+                *([tr("Laufwerke:     {0}", ', '.join(plan_mounts(p.full_mounts)[0]) or tr("keine (nur Root-Dateisystem)"))]
+                  if p.backup_mode == FULL else []),
+                tr("Ausschlüsse:   {0}", ', '.join(p.excludes) or '-'),
+                tr("Lesen:        {0}  (mit [c] ändern)", tr("nur Geändertes (Metadaten-Vergleich)") if p.change_detection == METADATA else tr("alles jedes Mal (klassisch)")),
+                *([tr("Prüflauf:     {0}", (tr("wöchentlich alles neu lesen: ") + p.data_schedule) if p.weekly_data else tr("aus"))
+                   + ("" if p.schedule or not p.weekly_data else tr(" (braucht einen Zeitplan)"))]
+                  if p.change_detection == METADATA else []),
+                tr("Datenbank-Dumps: {0}  (mit [p] einrichten)", tr("an") if p.db_dump else tr("aus"))]),
+            (tr("Verschlüsselung"), [
+                tr("Verschlüsselt: {0}  ({1})", tr("ja") if p.encrypt else tr("NEIN – Backups liegen unverschlüsselt auf dem Server"), key),
+                *([(tr("Schlüssel-Export: ") + (tr("am {0}", p.key_exported_at) if p.key_exported_at else
+                    tr("NOCH NICHT") + (tr(" – Vollbackup gesperrt! Mit [k] sichern") if needs_key_export(p) else "")))]
+                  if auto_key else []),
+                *([tr("Master-Schlüssel: {0}  (mit [M] einrichten)", tr("ja, Fingerprint {0}; privater Teil gesichert: {1}", p.master_fingerprint[:23], p.master_key_ack_at or tr("NEIN")) if p.master_pubkey else tr("nein"))]
+                  if auto_key else [])]),
+            (tr("Zeitplan"), [
+                tr("Zeitplan:      {0}  [{1}, {2}]", p.schedule or '-', p.scope, schedule_text(self.mgr, p))
+                + (tr(" – wartet auf den Schlüssel-Export ([k])") if self._schedule_waits(p) else ""),
+                tr("Letzter Lauf:  {0}", last_run_text(p))])]
+        w.update(overview_text(sections))
 
     def _schedule_waits(self, p: Profile) -> bool:
         try:
@@ -214,7 +301,7 @@ class PbsTui(App):
                 self.action_dbdump(after=after)
             elif after:
                 after()
-        self.push_screen(AddServerScreen(), done)
+        self.push_screen(AddServerScreen(taken=self.mgr.name_taken), done)
 
     def action_backup(self) -> None:
         p = self._need()
@@ -236,7 +323,11 @@ class PbsTui(App):
         self._q("#bar-text", Static).update(tr("Starte …"))
 
         def work():
-            code = self.mgr.run_backup(p, on_line=lambda l: self.call_from_thread(self.backup_line, l))
+            try:
+                code = self.mgr.run_backup(p, on_line=lambda l: self.call_from_thread(self.backup_line, l))
+            except Exception as e:
+                self.call_from_thread(self.write_log, tr("Fehler: {0}", e))
+                code = 1
             self.call_from_thread(self._backup_done, code)
 
         self.run_worker(work, thread=True)
@@ -262,6 +353,7 @@ class PbsTui(App):
         self._q("#bar-text", Static).update(tr("Fertig.") if code == 0 else tr("Fehlgeschlagen."))
         self._notify(tr("Backup erfolgreich") if code == 0 else tr("Backup fehlgeschlagen (Exitcode {0})", code),
                     severity="information" if code == 0 else "error")
+        self._refresh_dots()
         self.show_overview()
 
     def action_refresh(self) -> None:
@@ -299,7 +391,7 @@ class PbsTui(App):
         if not p:
             return
         if not self._snaps or t.cursor_row >= len(self._snaps):
-            self.notify(tr("Erst mit [r] Snapshots laden und einen auswählen"), severity="warning")
+            self._notify(tr("Erst mit [r] Snapshots laden und einen auswählen"), severity="warning")
             return
         self.push_screen(FilesScreen(self.mgr, p, self._snaps[t.cursor_row]))
 
@@ -400,12 +492,18 @@ class PbsTui(App):
         t = self._q("#hist-table", DataTable)
         t.clear()
         for r in self._runs:
-            t.add_row(*run_row(r, names))
+            t.add_row(*self._run_cells(r, names))
         self._q("#hist-log", RichLog).clear()
         if self._runs:
             self._show_run_log(0)
         else:
             self._q("#hist-log", RichLog).write(tr("Keine passenden Läufe."))
+
+    @staticmethod
+    def _run_cells(r, names: dict) -> list:
+        """Zeile im Verlauf (ohne die Lauf-Nummer): Fehlschläge rot, Erfolge mit grünem Ergebnis."""
+        cells = run_row(r, names)[1:]
+        return [Text(c, style="red") for c in cells] if not r.ok else [cells[0], cells[1], Text(cells[2], style="green"), *cells[3:]]
 
     def _show_run_log(self, row: int) -> None:
         log = self._q("#hist-log", RichLog)
@@ -453,7 +551,12 @@ class PbsTui(App):
             if not target or not self._start():
                 return
             tp = Path(target).expanduser()
-            if tp.exists() and any(tp.iterdir()):
+            try:
+                occupied = tp.exists() and (not tp.is_dir() or any(tp.iterdir()))
+            except OSError as e:
+                self._fail(str(e))
+                return
+            if occupied:
                 self._busy = False
                 self._notify(tr("Zielordner ist nicht leer – bitte neuen wählen"), severity="error")
                 return
@@ -505,7 +608,7 @@ class PbsTui(App):
         if not p:
             return
         if p.backup_mode == FULL:
-            self.notify(tr("Ein Vollbackup braucht den System-Modus und kann nicht gewechselt werden"), severity="warning")
+            self._notify(tr("Ein Vollbackup braucht den System-Modus und kann nicht gewechselt werden"), severity="warning")
             return
         new = "system" if p.scope == "user" else "user"
         if new == "system" and not can_use_admin():
@@ -532,7 +635,11 @@ class PbsTui(App):
             def off(yes):
                 if yes:
                     p.encrypt = False
-                    self.mgr.save(p)
+                    try:
+                        self.mgr.save(p)
+                    except Exception as e:
+                        p.encrypt = True
+                        self._notify(str(e), severity="error", timeout=10)
                     self.show_overview()
             self.push_screen(ConfirmScreen(tr("Verschlüsselung ausschalten? Neue Backups liegen dann UNVERSCHLÜSSELT auf dem Server.")), off)
             return
@@ -678,10 +785,14 @@ class PbsTui(App):
                 return
             d = Path(dest).expanduser()
             if d.exists():
-                self.notify(tr("{0} existiert bereits", d), severity="error")
+                self._notify(tr("{0} existiert bereits", d), severity="error")
                 return
-            d.write_text(render_sheet(p))
-            self.notify(tr("Notfallblatt gespeichert: {0} (ohne Geheimnisse)", d))
+            try:
+                d.write_text(render_sheet(p))
+            except OSError as e:
+                self._notify(str(e), severity="error", timeout=10)
+                return
+            self._notify(tr("Notfallblatt gespeichert: {0} (ohne Geheimnisse)", d))
         self.push_screen(PromptScreen(tr("Notfallblatt speichern nach:"), str(Path.home() / f"notfallblatt-{p.slug}.txt"),
                                       tr("Enthält Server, Fingerprint und Anleitung, aber keine Geheimnisse.")), got)
 
@@ -690,14 +801,18 @@ class PbsTui(App):
         if not p:
             return
         if p.backup_mode == FULL:
-            self.notify(tr("Beim Vollbackup ist die Quelle fest `/` (Ausschlüsse im Profil anpassen)"), severity="warning")
+            self._notify(tr("Beim Vollbackup ist die Quelle fest `/` (Ausschlüsse im Profil anpassen)"), severity="warning")
             return
 
         def got(text):
             if text is None:
                 return
-            p.sources = [s.strip() for s in text.split(",") if s.strip()]
-            self.mgr.save(p)
+            old, p.sources = p.sources, [s.strip() for s in text.split(",") if s.strip()]
+            try:
+                self.mgr.save(p)
+            except Exception as e:
+                p.sources = old
+                self._notify(str(e), severity="error", timeout=10)
             self.show_overview()
         self.push_screen(PromptScreen(tr("Quellordner (durch Komma getrennt)"), ", ".join(p.sources)), got)
 
@@ -706,7 +821,7 @@ class PbsTui(App):
         if not p:
             return
         if p.backup_mode != FULL:
-            self.notify(tr("Laufwerke gibt es nur bei einem Vollbackup"), severity="warning")
+            self._notify(tr("Laufwerke gibt es nur bei einem Vollbackup"), severity="warning")
             return
 
         def got(sel):
@@ -716,7 +831,7 @@ class PbsTui(App):
             try:
                 self.mgr.save(p)
             except Exception as e:
-                self.notify(str(e), severity="error", timeout=10)
+                self._notify(str(e), severity="error", timeout=10)
                 return
             self.show_overview()
         self.push_screen(MountsScreen(p.full_mounts), got)
@@ -758,6 +873,11 @@ class PbsTui(App):
                 self._notify(tr("Gespeichert. Das nächste Backup liest einmal alles, danach nur noch Geändertes."),
                              timeout=10)
         self.push_screen(DetectScreen(p), got)
+
+    def action_keys(self) -> None:
+        by_action = {b.action: b for b in self.BINDINGS}
+        self.push_screen(KeysScreen([(title, [(by_action[a].key_display or by_action[a].key, by_action[a].description) for a in actions])
+                                     for title, actions in self.KEY_GROUPS]))
 
     def action_delete(self) -> None:
         p = self._need()

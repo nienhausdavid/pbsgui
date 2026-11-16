@@ -65,7 +65,7 @@ def overview_details(ov: Overview) -> list[str]:
     if ov.last_run is not None:
         r = ov.last_run
         out.append(tr("{0}: letzter Lauf {1}, {2}, ", ov.profile.name, fmt_time(r.start), fmt_duration(r.duration))
-                   + ("erfolgreich" if r.ok else tr("FEHLGESCHLAGEN ({0})", r.message)))
+                   + (tr("erfolgreich") if r.ok else tr("FEHLGESCHLAGEN ({0})", r.message)))
     if ov.logical_total and ov.snapshots > 1:
         out.append(tr("{0}: {1} Snapshots, zusammen {2} logisch (ohne Deduplizierung; der tatsächliche Platz ist deutlich kleiner)", ov.profile.name, ov.snapshots, fmt_size(ov.logical_total)))
     if ov.error:
@@ -98,13 +98,13 @@ def diff_lines(res: DiffResult, limit: int = 200) -> list[str]:
                 extra = f"  ({fmt_size(it.size)})"
             out.append(f"{marks[change]} {it.path}{'/' if it.kind == 'd' else ''}{extra}")
         if len(items) > limit:
-            out.append(tr("  … {0} weitere {1} Einträge", len(items) - limit, ('neue', 'geänderte', 'gelöschte')[('added', 'changed', 'removed').index(change)]))
+            out.append(tr("  … {0} weitere {1} Einträge", len(items) - limit, (tr('neue'), tr('geänderte'), tr('gelöschte'))[('added', 'changed', 'removed').index(change)]))
     return out
 
 
 def restore_test_lines(res: RestoreTestResult) -> list[str]:
-    icons = {"ok": "OK       ", "gelesen": "gelesen  ", "abweichung": "ABWEICHUNG", "groesse": "GRÖSSE   ", "fehler": "FEHLER   "}
-    lines = [f"{icons.get(s.status, s.status)} {s.path} ({fmt_size(s.size)}) – {s.detail}" for s in res.samples]
+    icons = {"ok": "OK", "gelesen": tr("gelesen"), "abweichung": tr("ABWEICHUNG"), "groesse": tr("GRÖSSE"), "fehler": tr("FEHLER")}
+    lines = [f"{icons.get(s.status, s.status):<10} {s.path} ({fmt_size(s.size)}) – {s.detail}" for s in res.samples]
     return [*lines, res.summary()]
 
 

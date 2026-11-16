@@ -74,7 +74,7 @@ async def test_history_lists_runs_and_filters(mgr, snaps, monkeypatch):
         await pilot.press("h")
         table = pilot.app.query_one("#hist-table", DataTable)
         assert await wait_for(pilot, lambda: table.row_count == 2)
-        assert [table.get_row_at(i)[3] for i in range(2)] == ["FEHLER", "OK"]
+        assert [str(table.get_row_at(i)[2]) for i in range(2)] == ["FEHLER", "OK"]
         assert "connection reset" in log_text(pilot.app.query_one("#hist-log", RichLog))          # Ausgabe des neuesten Laufs
         pilot.app.query_one("#hist-failed", Checkbox).value = True
         assert await wait_for(pilot, lambda: table.row_count == 1)
@@ -82,7 +82,7 @@ async def test_history_lists_runs_and_filters(mgr, snaps, monkeypatch):
         pilot.app.query_one("#hist-text", Input).value = "Backup erfolgreich"
         pilot.app.query_one("#hist-text", Input).focus()
         await pilot.press("enter")
-        assert await wait_for(pilot, lambda: table.row_count == 1 and table.get_row_at(0)[3] == "OK")
+        assert await wait_for(pilot, lambda: table.row_count == 1 and str(table.get_row_at(0)[2]) == "OK")
 
 
 async def test_diff_of_selected_snapshot_with_previous(mgr, snaps):

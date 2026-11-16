@@ -41,7 +41,9 @@ def mgr(fake_env, tmp_path, monkeypatch, profile):
 
 
 def text(widget: Static) -> str:
-    return str(widget.render())
+    """Text eines Widgets; die Spaltenbreite der Übersicht (Leerzeichen nach der Bezeichnung) ist dabei egal."""
+    import re
+    return re.sub(r":[ ]{2,}", ": ", str(widget.render()))
 
 
 async def test_overview_shows_profile_and_warns_when_unencrypted(mgr):
@@ -200,7 +202,7 @@ async def test_overview_shows_scope_and_full_locks_sources(mgr):
     async with PbsTui(mgr).run_test() as pilot:
         await pilot.pause()
         ov = text(pilot.app.query_one("#overview", Static))
-        assert "Vollständiges System" in ov and "Quellen:       /" in ov
+        assert "Vollständiges System" in ov and "Quellen: /" in ov
         await pilot.press("o")
         await pilot.pause()
         assert pilot.app.screen.__class__.__name__ != "PromptScreen"  # Quellen sind beim Vollbackup fest
@@ -223,7 +225,7 @@ async def test_overview_and_edit_mounts_in_full_mode(mgr, fake_mounts, monkeypat
     mgr.profiles_store.save(p)
     async with PbsTui(mgr).run_test(size=(140, 50)) as pilot:
         await pilot.pause()
-        assert "Laufwerke:     /boot, /data" in text(pilot.app.query_one("#overview", Static))
+        assert "Laufwerke: /boot, /data" in text(pilot.app.query_one("#overview", Static))
         await pilot.press("u")
         await pilot.pause()
         sel = pilot.app.screen.query_one("#mounts", SelectionList)
@@ -498,6 +500,7 @@ async def test_db_screen_wrong_credentials_keep_dialog_open(mgr, dock):
         lst = scr.query_one("#db-list", OptionList)
         lst.highlighted = next(i for i in range(3) if "firefly_db" in str(lst.get_option_at_index(i).prompt))
         await pilot.pause()
+        assert pilot.app.current and pilot.app.current.name == prof.name      # die Liste im Dialog wählt kein anderes Profil
         scr.query_one("#cred", Button).press()
         assert await wait_for(pilot, lambda: pilot.app.screen.__class__.__name__ == "DbCredScreen")
         cred = pilot.app.screen

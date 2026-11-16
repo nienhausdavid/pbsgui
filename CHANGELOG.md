@@ -9,6 +9,28 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+### Changed
+- pbstui: the overview is a two-column table with sections, problems are shown in red, a successful last run in green. Each profile has a dot for its last run. The footer shows the common keys only; `?` lists all keys by group. Dialogs carry their title in the frame, every input field keeps its name in the frame while you type, and the buttons sit side by side. The history tab no longer wastes half the screen on the filter row.
+- pbstui: a confirmation starts on "No" (an accidental Enter confirms nothing) and takes `y`/`j` and `n`.
+- pbsgui: profiles show a dot for the last run (green, red, blue while running, grey for none). Dashboard and history mark the result with colour and a dot. Button rows wrap instead of setting the minimum width of the window (the right edge of the boxes was cut off). The snapshot tab says what to do while the list is empty. Table headers are left-aligned, selection boxes have a proper arrow, buttons show the keyboard focus. "Add server" scrolls on small screens. Qt's own texts (Yes/No/Cancel, file dialogs) follow the language of the interface.
+
+### Security
+- Key files: exporting a key or the private master key no longer follows a symbolic link at the target (GUI, TUI, command line), and the file gets mode 0600 before the secret is written.
+- pbsgui: a copied key is marked as a secret for clipboard managers (KDE Klipper and others do not keep it in their history) and is also removed from the clipboard when the program quits, not only after two minutes.
+- pbsgui: the folder for the drawn icons in `/tmp` is checked (own, mode 0700, no link). Before, another local user could prepare it as a link and have files of this user overwritten.
+- Web interface of the rescue ISO: methods the HTTP library does not know (TRACE, PROPFIND …) and unreadable requests are counted by the rate limit and get an empty answer instead of the library's error page. The lists of locked addresses are bounded.
+- Restore to a smaller disk: damaged LVM metadata in the backup yields an error message instead of ending the wizard.
+
+### Fixed
+- pbsgui and pbstui: "Add server" with the name of an existing profile silently replaced that profile and its token (the default name is the host name, so the second server of a computer hit this). The name is now refused before the access is created.
+- pbsgui: after switching the profile, the snapshots of the previous profile could still be used ("Recover key" took them; a late answer filled the table of the new profile). They are dropped now.
+- pbstui: choosing a database container in the database dialog changed the selected profile behind the dialog (with a single profile, none was selected afterwards).
+- pbstui: several errors ended the program instead of showing a message: saving the private master key or the recovered key to a folder that does not exist or is not writable (the unsaved master key was lost with it), a port that is not a number, a master key file that is not text, a restore target that is a file, an unexpected error during a backup.
+- pbstui: messages with square brackets (`[r]`, `[k]`) were shown without the bracketed part.
+- Rescue wizard: "Quit" during a running restore asks once more (an abort leaves a half-written disk). A missing `nmtui` and a failing VPN disconnect show a message. The hint after a failed update names the right keys (F2, F3).
+- pbsgui: saving the emergency sheet or a key to a place without write permission shows a message. Restoring a snapshot into a folder that is not empty asks first.
+- English interface: several texts were still German (state of the schedule, scope of the profile, notes when shrinking a disk, results of the restore test, which were also not coloured).
+
 ## [0.9.5] - 2026-11-16
 
 ### Added

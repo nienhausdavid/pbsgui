@@ -256,3 +256,107 @@ def test_discard_keeps_a_confirmed_master_key(env, capsys, server):   # noqa: F8
     mgr.confirm_master_key_backup(mgr.profiles()[0])
     assert mgr.discard_master_key(key.fingerprint) == 0 and mgr.profiles()[0].master_pubkey
     assert mgr.discard_master_key("") == 0
+
+
+# -- Zweite Durchsicht: Schlüsseldateien, Profilnamen, LVM-Daten, Sperrlisten ----------------------------------------
+def test_secret_files_do_not_follow_a_link(tmp_path):
+    from pbsgui.core.keys import export_key, write_private
+    victim = tmp_path / "fremd.txt"
+    victim.write_text("bleibt")
+    link = tmp_path / "key.json"
+    link.symlink_to(victim)
+    with pytest.raises(OSError):
+        export_key("geheim", str(link))
+    assert victim.read_text() == "bleibt"
+    dest = tmp_path / "neu.json"
+    dest.write_text("alt")
+    os.chmod(dest, 0o644)
+    write_private(str(dest), "geheim")
+    assert dest.read_text() == "geheim" and dest.stat().st_mode & 0o777 == 0o600
+    with pytest.raises(FileExistsError):
+        write_private(str(dest), "x", exclusive=True)
+
+
+def test_a_second_profile_with_the_same_slug_is_recognised(env, capsys, server):   # noqa: F811
+    assert add_b(capsys, server)[0] == 0
+    mgr = mgr_for(env)
+    name = mgr.profiles()[0].name
+    assert mgr.name_taken(name) and mgr.name_taken(name.upper()) and mgr.name_taken(f" {name}!")      # derselbe Slug
+    assert not mgr.name_taken("etwas-anderes")
+
+
+@pytest.mark.parametrize("text", ["vg0 {", "vg0 { physical_volumes { pv0 { dev_size = ", "vg0 { extent_size = [1, 2",
+                                  'vg0 { extent_size = 8192 physical_volumes { pv0 { pe_start = "x" pe_count = 1 dev_size = 1 } } }',
+                                  "vg0 { physical_volumes { pv0 { } } }"])
+def test_broken_lvm_metadata_is_an_ordinary_error(text):
+    from pbsgui.core import shrink
+    with pytest.raises(rescue.RescueError):
+        shrink.read_vg(text, "vg0")
+
+
+def test_guard_forgets_expired_addresses(monkeypatch):
+    from pbsgui.web import auth
+    now = [0.0]
+    g = auth.Guard("richtig", clock=lambda: now[0], fails_before_lock=1, lock_seconds=10, honeypot_ban_seconds=10)
+    monkeypatch.setattr(g, "MAX_TRACKED", 50)
+    for i in range(200):
+        g.check_login(f"10.0.{i // 250}.{i % 250}", "falsch")
+        now[0] += 1000                                    # jede Sperre ist längst abgelaufen, wenn die nächste Adresse kommt
+    assert len(g._locks) <= 51 and len(g._fails) <= 51
+    g.honeypot("10.9.9.9", "/admin")
+    assert g.blocked_for("10.9.9.9") > 0                  # eine laufende Sperre bleibt
+
+
+def test_tui_refuses_to_save_a_secret_over_an_existing_file_or_into_nowhere(tmp_path):
+    from pbsgui.tui.master import save_secret
+    old = tmp_path / "da.pem"
+    old.write_text("alt")
+    for bad in ("", "   ", str(old)):
+        with pytest.raises(ValueError):
+            save_secret(bad, "geheim")
+    with pytest.raises(OSError):
+        save_secret(str(tmp_path / "gibts" / "nicht" / "k.pem"), "geheim")
+    dest = save_secret(str(tmp_path / "neu.pem"), "geheim")
+    assert dest.read_text() == "geheim" and dest.stat().st_mode & 0o777 == 0o600 and old.read_text() == "alt"
+
+
+async def test_tui_confirmation_starts_on_no_and_takes_letters():
+    from textual.widgets import Button
+    from pbsgui.tui.app import PbsTui
+    from pbsgui.tui.screens import ConfirmScreen
+    got = []
+    async with PbsTui().run_test(size=(120, 40)) as pilot:
+        pilot.app.push_screen(ConfirmScreen("Wirklich?"), got.append)
+        await pilot.pause()
+        assert pilot.app.screen.focused is pilot.app.screen.query_one("#no", Button)
+        await pilot.press("enter")                        # ein versehentliches Enter bestätigt nichts
+        await pilot.pause()
+        pilot.app.push_screen(ConfirmScreen("Wirklich?"), got.append)
+        await pilot.pause()
+        await pilot.press("j")
+        await pilot.pause()
+    assert got == [False, True]
+
+
+async def test_tui_add_dialog_rejects_a_bad_port_and_a_taken_name():
+    from textual.widgets import Checkbox, Input, Static
+    from pbsgui.tui.app import PbsTui
+    from pbsgui.tui.screens import AddServerScreen
+    async with PbsTui().run_test(size=(120, 50)) as pilot:
+        scr = AddServerScreen(taken=lambda name: name == "Laptop")
+        pilot.app.push_screen(scr)
+        await pilot.pause()
+        scr.query_one("#server", Input).value = "pbs.example"
+        scr.query_one("#port", Input).value = "abc"
+        await scr._fetch_fp()                              # früher: ValueError erst im Hintergrund, bei „Prüfen“ ein Absturz
+        assert "Port" in str(scr.query_one("#status", Static).render())
+        scr.query_one("#fp", Static).update("AA:BB")
+        scr.query_one("#fp-ok", Checkbox).value = True
+        await scr._check()
+        assert "Port" in str(scr.query_one("#status", Static).render())
+        scr.query_one("#port", Input).value = "8007"
+        scr.query_one("#name", Input).value = "Laptop"
+        scr.query_one("#datastore", Input).value = "store1"
+        await pilot.pause()
+        await scr._setup()
+        assert "schon ein Profil" in str(scr.query_one("#status", Static).render())

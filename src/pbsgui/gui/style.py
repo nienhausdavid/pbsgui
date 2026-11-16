@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QSettings, Qt
-from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QApplication
 from ..i18n import tr
 
@@ -22,13 +22,13 @@ THEMES = {
         "bg": "#eef0f4", "surface": "#ffffff", "alt": "#f3f5f9", "text": "#0f172a", "muted": "#475569",
         "border": "#6b7587", "soft": "#c3cad8", "accent": "#1d4ed8", "accent_hover": "#1e40af", "accent_text": "#ffffff",
         "button": "#e2e7ef", "button_hover": "#d3dae6", "disabled": "#6b7585", "danger": "#b91c1c",
-        "titlebar": "#dde2ec", "tab_sel": "#1d4ed8",
+        "titlebar": "#dde2ec", "tab_sel": "#1d4ed8", "ok": "#166534", "warn": "#92400e", "idle": "#8a94a6", "pressed": "#c3cad8",
     },
     "dark": {
         "bg": "#14171c", "surface": "#1c2027", "alt": "#222731", "text": "#f1f5f9", "muted": "#b6c0d0",
         "border": "#6b7686", "soft": "#394150", "accent": "#3b82f6", "accent_hover": "#5b9bff", "accent_text": "#0b1220",
         "button": "#2b3240", "button_hover": "#363f50", "disabled": "#8a94a6", "danger": "#ff7b7b",
-        "titlebar": "#0f1216", "tab_sel": "#6aa3ff",
+        "titlebar": "#0f1216", "tab_sel": "#6aa3ff", "ok": "#4ade80", "warn": "#fbbf24", "idle": "#6b7686", "pressed": "#434d60",
     },
 }
 
@@ -49,19 +49,26 @@ QGroupBox {{ border: 1px solid {border}; border-radius: 8px; margin-top: 14px; p
 QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 6px; font-weight: 700; color: {text}; background: {bg}; }}
 QPushButton {{ padding: 6px 14px; border-radius: 6px; border: 1px solid {border}; background: {button}; color: {text}; }}
 QPushButton:hover {{ background: {button_hover}; }}
+QPushButton:pressed {{ background: {pressed}; }}
+QPushButton:focus {{ border: 2px solid {accent}; padding: 5px 13px; }}
 QPushButton:disabled {{ color: {disabled}; border-color: {soft}; background: {alt}; }}
 QPushButton#primary {{ background: {accent}; color: {accent_text}; border-color: {accent}; font-weight: 700; }}
 QPushButton#primary:hover {{ background: {accent_hover}; border-color: {accent_hover}; }}
+QPushButton#primary:focus {{ border: 2px solid {text}; }}
 QPushButton#primary:disabled {{ background: {soft}; color: {disabled}; border-color: {soft}; }}
 QLineEdit, QPlainTextEdit, QComboBox, QListWidget, QTableWidget, QTreeWidget, QTextEdit, QSpinBox {{
     border: 1px solid {border}; border-radius: 6px; padding: 4px 6px; background: {surface}; color: {text};
     selection-background-color: {accent}; selection-color: {accent_text}; }}
-QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {{ border: 2px solid {accent}; }}
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QSpinBox:focus {{ border: 2px solid {accent}; padding: 3px 5px; }}
+QComboBox {{ padding-right: 26px; }}
+QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: 24px; border: none; background: transparent; }}
+QComboBox::down-arrow {{ image: url("{arrow}"); width: 12px; height: 12px; }}
 QLineEdit:disabled, QComboBox:disabled, QListWidget:disabled {{ color: {disabled}; background: {alt}; }}
 QComboBox QAbstractItemView {{ background: {surface}; color: {text}; border: 1px solid {border};
     selection-background-color: {accent}; selection-color: {accent_text}; }}
 QListWidget#profiles {{ padding: 4px; outline: 0; }}
 QListWidget#profiles::item {{ padding: 8px 10px; border-radius: 6px; }}
+QListWidget#profiles::item:hover:!selected {{ background: {alt}; }}
 QListWidget#profiles::item:selected {{ background: {accent}; color: {accent_text}; }}
 QListWidget::item:selected, QTableWidget::item:selected, QTreeWidget::item:selected {{ background: {accent}; color: {accent_text}; }}
 QPlainTextEdit#log {{ font-family: monospace; font-size: 9.5pt; }}
@@ -71,8 +78,10 @@ QTabBar::tab:selected {{ border-bottom-color: {tab_sel}; font-weight: 700; color
 QTabBar::tab:hover:!selected {{ border-bottom-color: {border}; color: {text}; }}
 QProgressBar {{ border: 1px solid {border}; border-radius: 6px; text-align: center; height: 18px; background: {surface}; color: {text}; }}
 QProgressBar::chunk {{ background: {accent}; border-radius: 5px; }}
-QHeaderView::section {{ padding: 6px 8px; border: none; border-bottom: 1px solid {border}; background: {bg}; color: {text}; font-weight: 700; }}
-QTableWidget {{ alternate-background-color: {alt}; gridline-color: {soft}; }}
+QHeaderView::section {{ padding: 7px 10px; border: none; border-bottom: 1px solid {border}; background: {surface}; color: {muted}; font-weight: 700; }}
+QTableWidget {{ alternate-background-color: {alt}; gridline-color: {soft}; padding: 0; }}
+QTableWidget::item, QTreeWidget::item {{ padding: 5px 10px; }}
+QLabel#empty {{ color: {muted}; padding: 28px; }}
 QSplitter::handle {{ background: transparent; }}
 QScrollArea {{ background: transparent; border: none; }}
 QScrollBar:vertical {{ width: 12px; background: transparent; margin: 0; }}
@@ -80,7 +89,8 @@ QScrollBar::handle:vertical {{ background: {border}; border-radius: 5px; min-hei
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QScrollBar:horizontal {{ height: 12px; background: transparent; }}
 QScrollBar::handle:horizontal {{ background: {border}; border-radius: 5px; min-width: 30px; margin: 2px; }}
-QStatusBar {{ color: {muted}; background: {bg}; }}
+QStatusBar {{ color: {muted}; background: {bg}; border-top: 1px solid {soft}; }}
+QStatusBar::item {{ border: none; }}
 QToolTip {{ background: {surface}; color: {text}; border: 1px solid {border}; padding: 4px; }}
 QMenu {{ background: {surface}; color: {text}; border: 1px solid {border}; padding: 4px; }}
 QMenu::item {{ padding: 6px 20px; border-radius: 4px; }}
@@ -127,11 +137,25 @@ def current_mode() -> str:
     return m if m in MODES else "system"
 
 
+def _icon_dir() -> Path:
+    """Eigener Ordner (0700) für die gezeichneten Symbole. Liegt dort schon etwas Fremdes (anderer Besitzer, Link), wird ein
+    frischer zufälliger Ordner benutzt: sonst könnte ein anderer Benutzer die Bilder der Oberfläche austauschen."""
+    import os
+    d = Path(tempfile.gettempdir()) / f"pbsgui-style-{os.getuid()}"
+    try:
+        d.mkdir(mode=0o700, exist_ok=True)
+        st = d.lstat()
+        import stat
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o022:
+            raise OSError("fremder Ordner")
+    except OSError:
+        d = Path(tempfile.mkdtemp(prefix="pbsgui-style-"))
+    return d
+
+
 def _check_icon(theme: str) -> str:
     """Zeichnet das Häkchen (Farbe passend zur Akzentfläche) und liefert den Dateipfad für das Stylesheet."""
-    d = Path(tempfile.gettempdir()) / f"pbsgui-style-{Path.home().name}"
-    d.mkdir(exist_ok=True)
-    f = d / f"check-{theme}.png"
+    f = _icon_dir() / f"check-{theme}.png"
     pm = QPixmap(32, 32); pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm); p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = QPen(QColor(THEMES[theme]["accent_text"]), 4); pen.setCapStyle(Qt.PenCapStyle.RoundCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -142,13 +166,37 @@ def _check_icon(theme: str) -> str:
     return f.as_posix()
 
 
+def _arrow_icon(theme: str) -> str:
+    """Zeichnet den Pfeil der Auswahlfelder in der Textfarbe und liefert den Dateipfad für das Stylesheet."""
+    f = _icon_dir() / f"arrow-{theme}.png"
+    pm = QPixmap(24, 24); pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(THEMES[theme]["muted"]), 3); pen.setCapStyle(Qt.PenCapStyle.RoundCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.drawPolyline([QPointF(5, 9), QPointF(12, 16), QPointF(19, 9)])
+    p.end()
+    pm.save(str(f))
+    return f.as_posix()
+
+
+def dot_icon(color_key: str, theme: str | None = None) -> QIcon:
+    """Kleiner farbiger Punkt (Zustand eines Profils): „ok“, „danger“, „warn“, „accent“ oder „idle“."""
+    theme = theme or (QApplication.instance().property("pbsgui_theme") or "light")
+    pm = QPixmap(24, 24); pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(QPen(QColor(THEMES[theme]["surface"]), 2.5)); p.setBrush(QColor(THEMES[theme][color_key]))      # Rand: auch auf der Auswahlfarbe sichtbar
+    p.drawEllipse(QPointF(12, 12), 7, 7)
+    p.end()
+    return QIcon(pm)
+
+
 def apply(app: QApplication, mode: str | None = None) -> str:
     """Wendet den Modus an und gibt das tatsächlich verwendete Thema („light“/„dark“) zurück."""
     mode = mode if mode in MODES else current_mode()
     theme = effective(mode)
     app.setStyle("Fusion")
     app.setPalette(palette(theme))
-    app.setStyleSheet(STYLE.format(check=_check_icon(theme), **THEMES[theme]))
+    app.setStyleSheet(STYLE.format(check=_check_icon(theme), arrow=_arrow_icon(theme), **THEMES[theme]))
     app.setProperty("pbsgui_theme", theme)
     return theme
 

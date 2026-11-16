@@ -24,7 +24,7 @@ from .history import RunRecord, find_run, list_runs, load_restore_test, save_res
 from .dbdump import Database, check_credentials, create_dump_user, dump_credentials, parse_credentials
 from .files import Catalog, CopyResult, load_catalog, restore_to_folder, restore_to_original
 from .keys import export_key, generate_key
-from .models import Profile, Snapshot
+from .models import Profile, Snapshot, slugify
 from .modes import FULL
 from .recovery import RecoveryError, ensure_recoverable, render_kit
 from .runner import run_profile
@@ -58,6 +58,12 @@ class ProfileManager:
     # -- Lesen --------------------------------------------------------------
     def profiles(self) -> list[Profile]:
         return self.profiles_store.list()
+
+    def name_taken(self, name: str) -> bool:
+        """Gibt es schon ein Profil mit diesem Namen? Verglichen wird der Slug: er ist Dateiname und Schlüssel der Geheimnisse,
+        ein zweites Profil mit demselben Slug würde das erste samt Token überschreiben."""
+        slug = slugify(name)
+        return any(p.slug == slug for p in self.profiles())
 
     def client(self, profile: Profile) -> PbsClient:
         token = self.secrets.get(profile.slug, "token")

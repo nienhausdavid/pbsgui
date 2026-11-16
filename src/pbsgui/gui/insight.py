@@ -43,6 +43,8 @@ def make_table(headers: list[str], stretch_last: bool = True) -> QTableWidget:
     t.setHorizontalHeaderLabels(headers)
     hh = t.horizontalHeader()
     hh.setStretchLastSection(stretch_last)
+    hh.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    hh.setHighlightSections(False)
     for i in range(len(headers) - (1 if stretch_last else 0)):
         hh.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
     t.verticalHeader().setVisible(False)
@@ -192,7 +194,7 @@ class VersionsDialog(QDialog):
         self.runner.run(lambda _l: self.mgr.restore_files(self.profile, v.newest, arch, [path], target=target),
                         lambda r: (self.info.setText(tr("Fertig: {0} Datei(en) nach {1}", r.copied, target)),
                                    QMessageBox.information(self, tr("Wiederhergestellt"), tr("{0} Datei(en) nach\n{1}", r.copied, target)
-                                                           + ("\n\nÜbersprungen: " + ", ".join(r.skipped) if r.skipped else ""))))
+                                                           + ("\n\n" + tr("Übersprungen: {0}", ", ".join(r.skipped)) if r.skipped else ""))))
 
 
 # -- Suche in allen Snapshots ---------------------------------------------------------------------------------
@@ -408,9 +410,10 @@ class DashboardTab(QWidget):
         self.ovs, usages, tests = data
         fill_table(self.table, [overview_row(o) for o in self.ovs])
         for i, o in enumerate(self.ovs):
-            color = {"error": "danger", "running": "accent", "warning": "danger"}.get(o.state)
-            if color:
-                self.table.item(i, 1).setForeground(QBrush(theme_color(color)))
+            color = {"ok": "ok", "error": "danger", "running": "accent", "warning": "warn", "none": "idle"}.get(o.state, "idle")
+            self.table.item(i, 1).setForeground(QBrush(theme_color(color)))
+            self.table.item(i, 1).setIcon(style.dot_icon(color))
+            bold = self.table.item(i, 0).font(); bold.setBold(True); self.table.item(i, 0).setFont(bold)
         while self.usage_box.count():
             w = self.usage_box.takeAt(0).widget()
             if w:
@@ -497,11 +500,11 @@ class HistoryTab(QWidget):
         fill_table(self.table, [[fmt_time(r.start), self.names.get(r.profile, r.profile), "OK" if r.ok else tr("FEHLER"),
                                  fmt_duration(r.duration) + (" (data)" if r.mode == "data" else ""), r.message] for r in runs])
         for i, r in enumerate(runs):
-            if not r.ok:
-                for j in range(self.table.columnCount()):
-                    self.table.item(i, j).setForeground(QBrush(theme_color("danger")))
+            self.table.item(i, 2).setIcon(style.dot_icon("ok" if r.ok else "danger"))
+            for j in (range(self.table.columnCount()) if not r.ok else (2,)):
+                self.table.item(i, j).setForeground(QBrush(theme_color("ok" if r.ok else "danger")))
         self.log.clear()
-        self.info.setText(tr("{0} Läufe", len(runs)) + (tr(" (die neuesten 200)") if len(runs) >= 200 else ""))
+        self.info.setText((tr("1 Lauf") if len(runs) == 1 else tr("{0} Läufe", len(runs))) + (tr(" (die neuesten 200)") if len(runs) >= 200 else ""))
         if runs:
             self.table.selectRow(0)
 

@@ -1,21 +1,33 @@
 """Master-Schlüssel in der Terminal-Oberfläche: einrichten und den privaten Teil sichern lassen."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
-from textual.screen import ModalScreen
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Button, Checkbox, Input, Label, Static, TextArea
 
+from ..core.keys import write_private
 from ..core.manager import ProfileManager
 from ..core.models import Profile
 from ..i18n import tr
+from .screens import Dialog
 
 
-class MasterScreen(ModalScreen[bool]):
+def save_secret(path_text: str, content: str) -> Path:
+    """Geheimnis in eine NEUE Datei mit Rechten 0600 schreiben; ValueError/OSError mit lesbarer Meldung, wenn das nicht geht."""
+    if not path_text.strip():
+        raise ValueError(tr("Neue Datei angeben (die Datei darf noch nicht existieren)"))
+    dest = Path(path_text.strip()).expanduser()
+    if dest.exists() or dest.is_symlink():
+        raise ValueError(tr("Neue Datei angeben (die Datei darf noch nicht existieren)"))
+    write_private(str(dest), content, exclusive=True)
+    return dest
+
+
+class MasterScreen(Dialog[bool]):
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
+    TITLE_TEXT = tr("Master-Schlüssel einrichten")
 
     def __init__(self, mgr: ProfileManager, profile: Profile):
         super().__init__()
@@ -25,7 +37,6 @@ class MasterScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="dialog"):
-            yield Label(tr("Master-Schlüssel einrichten"), markup=False)
             yield Static(tr("Versicherung gegen Schlüsselverlust: Jedes Backup enthält danach eine Kopie des Verschlüsselungs-Schlüssels, die nur der PRIVATE Master-Schlüssel öffnet. Den privaten Teil und die Passphrase getrennt vom Rechner aufbewahren (Passwortmanager, Tresor); pbsgui speichert ihn nie."), classes="hint", markup=False)
             yield Label(tr("Passphrase (mindestens 8 Zeichen, leer = ohne Passphrase)"), markup=False); yield Input("", id="mk-pw", password=True)
             yield Label(tr("Passphrase wiederholen"), markup=False); yield Input("", id="mk-pw2", password=True)
@@ -37,16 +48,16 @@ class MasterScreen(ModalScreen[bool]):
             yield Input("", id="mk-path", placeholder=tr("Datei zum Speichern (neue Datei, Rechte 0600)"), disabled=True)
             yield Button(tr("In Datei speichern"), id="mk-save", disabled=True)
             yield Checkbox(tr("Ich habe den privaten Master-Schlüssel (und die Passphrase, falls vergeben) gesichert"), False, id="mk-ack", disabled=True)
-            yield Button(tr("Fertig"), id="mk-done", disabled=True)
-            yield Button(tr("Abbrechen"), id="mk-cancel")
+            with Horizontal(classes="buttons"):
+                yield Button(tr("Abbrechen"), id="mk-cancel")
+                yield Button(tr("Fertig"), id="mk-done", variant="primary", disabled=True)
 
     def _say(self, text: str) -> None:
         self.query_one("#mk-status", Static).update(text)
 
     def action_cancel(self) -> None:
         if self.key and not self.query_one("#mk-done", Button).disabled:      # gesichert und bestätigt: gilt als fertig
-            self.mgr.confirm_master_key_backup(self.profile)
-            self.dismiss(True)
+            self._finish()
             return
         if self.key:      # erzeugt, aber das Sichern nie bestätigt: nicht als eingerichtet stehen lassen
             try:
@@ -55,6 +66,14 @@ class MasterScreen(ModalScreen[bool]):
                 self._say(tr("Fehler: {0}", ex))
                 return
         self.dismiss(False)
+
+    def _finish(self) -> None:
+        try:
+            self.mgr.confirm_master_key_backup(self.profile)
+        except Exception as ex:
+            self._say(tr("Fehler: {0}", ex))
+            return
+        self.dismiss(True)
 
     def on_checkbox_changed(self, e: Checkbox.Changed) -> None:
         self._update_done()
@@ -76,19 +95,16 @@ class MasterScreen(ModalScreen[bool]):
 
             self.app.copy_text_out(self.key.private_pem, done)
         elif bid == "mk-save" and self.key:
-            dest = Path(self.query_one("#mk-path", Input).value).expanduser()
-            if not str(dest) or dest.exists():
-                self._say(tr("Neue Datei angeben (die Datei darf noch nicht existieren)"))
+            try:
+                dest = save_secret(self.query_one("#mk-path", Input).value, self.key.private_pem)
+            except (OSError, ValueError) as ex:      # Ordner fehlt, keine Rechte …: melden, der Schlüssel bleibt im Dialog
+                self._say(tr("Fehler: {0}", ex))
                 return
-            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w") as f:
-                f.write(self.key.private_pem)
             self.saved = True
             self._say(tr("Gespeichert in {0} (Rechte 0600).", dest))
             self._update_done()
         elif bid == "mk-done":
-            self.mgr.confirm_master_key_backup(self.profile)
-            self.dismiss(True)
+            self._finish()
 
     def _make(self) -> None:
         pw, pw2 = self.query_one("#mk-pw", Input).value, self.query_one("#mk-pw2", Input).value
@@ -110,10 +126,18 @@ class MasterScreen(ModalScreen[bool]):
         self.run_worker(work, thread=True)
 
     def _failed(self, msg: str) -> None:
+        if not self.alive():
+            return
         self._say(tr("Fehler: {0}", msg))
         self.query_one("#mk-make", Button).disabled = False
 
     def _made(self, key) -> None:
+        if not self.alive():      # Dialog während des Erzeugens geschlossen: nicht als eingerichtet stehen lassen
+            try:
+                self.mgr.discard_master_key(key.fingerprint)
+            except Exception:  # nosec B110
+                pass
+            return
         self.key = key
         self.query_one("#mk-pw", Input).value = ""
         self.query_one("#mk-pw2", Input).value = ""
@@ -125,9 +149,10 @@ class MasterScreen(ModalScreen[bool]):
         self._say(tr("Fertig erzeugt (Fingerprint {0}). Jetzt den PRIVATEN Schlüssel sichern und die Passphrase (falls vergeben) getrennt notieren.", key.fingerprint))
 
 
-class RecoverKeyScreen(ModalScreen[bool]):
+class RecoverKeyScreen(Dialog[bool]):
     """Verschlüsselungs-Schlüssel mit dem privaten Master-Schlüssel aus dem neuesten Snapshot mit Schlüsselkopie zurückholen."""
     BINDINGS = [("escape", "cancel", tr("Abbrechen"))]
+    TITLE_TEXT = tr("Schlüssel zurückholen")
 
     def __init__(self, mgr: ProfileManager, profile: Profile):
         super().__init__()
@@ -136,7 +161,6 @@ class RecoverKeyScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="dialog"):
-            yield Label(tr("Schlüssel zurückholen"), markup=False)
             yield Static(tr("Holt den Verschlüsselungs-Schlüssel mit dem privaten Master-Schlüssel aus einem Snapshot zurück. Es gibt nur in Snapshots eine Schlüsselkopie, die mit eingerichtetem Master-Schlüssel erstellt wurden."), classes="hint", markup=False)
             yield Label(tr("Privater Master-Schlüssel"), markup=False)
             yield Input("", id="rk-pem", placeholder=tr("Datei mit dem privaten Master-Schlüssel (master-private.pem)"))
@@ -165,13 +189,11 @@ class RecoverKeyScreen(ModalScreen[bool]):
             self.app.copy_text_out(self.key_json, lambda shown: self._say(
                 tr("Jetzt im Passwortmanager einfügen und speichern.") if shown else tr("Kopiert. Jetzt im Passwortmanager einfügen und speichern.")))
         elif bid == "rk-save" and self.key_json:
-            dest = Path(self.query_one("#rk-path", Input).value).expanduser()
-            if not str(dest) or dest.exists():
-                self._say(tr("Neue Datei angeben (die Datei darf noch nicht existieren)"))
+            try:
+                dest = save_secret(self.query_one("#rk-path", Input).value, self.key_json)
+            except (OSError, ValueError) as ex:
+                self._say(tr("Fehler: {0}", ex))
                 return
-            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w") as f:
-                f.write(self.key_json)
             self._say(tr("Gespeichert in {0} (Rechte 0600).", dest))
         elif bid == "rk-install" and self.key_json:
             try:
@@ -185,7 +207,7 @@ class RecoverKeyScreen(ModalScreen[bool]):
         from ..core.masterkey import ENCRYPTED_NAMES
         try:
             pem = Path(self.query_one("#rk-pem", Input).value.strip()).expanduser().read_text()
-        except OSError as ex:
+        except (OSError, ValueError) as ex:          # ValueError: keine Textdatei
             self._say(tr("Fehler: {0}", ex))
             return
         pw_input = self.query_one("#rk-pw", Input)
@@ -206,10 +228,14 @@ class RecoverKeyScreen(ModalScreen[bool]):
         self.run_worker(work, thread=True)
 
     def _failed(self, msg: str) -> None:
+        if not self.alive():
+            return
         self._say(tr("Fehler: {0}", msg))
         self.query_one("#rk-go", Button).disabled = False
 
     def _got(self, key_json: str) -> None:
+        if not self.alive():
+            return
         self.key_json = key_json
         self.query_one("#rk-go", Button).disabled = False
         for wid in ("#rk-copy", "#rk-path", "#rk-save", "#rk-install"):

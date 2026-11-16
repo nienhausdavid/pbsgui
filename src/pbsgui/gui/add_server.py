@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import socket
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QLabel,
-                               QLineEdit, QMessageBox, QPushButton, QRadioButton, QSpinBox, QStackedWidget,
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QGroupBox, QLabel,
+                               QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QSpinBox, QStackedWidget,
                                QVBoxLayout, QWidget)
 
 from ..i18n import tr
@@ -27,8 +28,9 @@ from .workers import Worker
 
 
 class AddServerDialog(QDialog):
-    def __init__(self, parent=None, admin_ok: bool | None = None):
+    def __init__(self, parent=None, admin_ok: bool | None = None, taken=None):
         super().__init__(parent)
+        self._taken = taken or (lambda _name: False)      # gibt es schon ein Profil mit diesem Namen?
         self.admin_ok = can_use_admin() if admin_ok is None else admin_ok
         self.setWindowTitle(tr("Server hinzufügen"))
         self.setMinimumWidth(520)
@@ -121,13 +123,22 @@ class AddServerDialog(QDialog):
         self.status = QLabel(""); self.status.setWordWrap(True)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Einrichten"))
+        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setObjectName("primary")
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("Abbrechen"))
         self.buttons.accepted.connect(self._start)
         self.buttons.rejected.connect(self.reject)
 
+        # Der Inhalt scrollt: auf kleinen Bildschirmen (Laptop, 768 Pixel hoch) wären „Einrichten“ und der Status sonst unerreichbar.
+        inner = QWidget(); il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 10, 0)
+        il.addLayout(form); il.addWidget(self.stack); il.addLayout(sel); il.addWidget(box); il.addWidget(run_box); il.addStretch()
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(inner)
+        scroll.setMinimumWidth(inner.sizeHint().width() + scroll.verticalScrollBar().sizeHint().width() + 6)   # nur senkrecht scrollen
         lay = QVBoxLayout(self)
-        lay.addLayout(form); lay.addWidget(self.stack); lay.addLayout(sel); lay.addWidget(box)
-        lay.addWidget(run_box)
-        lay.addWidget(self.status); lay.addWidget(self.buttons)
+        lay.addWidget(scroll, 1); lay.addWidget(self.status); lay.addWidget(self.buttons)
+        screen = self.screen().availableGeometry() if self.screen() else None
+        self.resize(self.sizeHint().width(), min(860, screen.height() - 80) if screen else 760)
 
         self.mode.currentIndexChanged.connect(self._mode_changed)
         self.fp_btn.clicked.connect(self._fetch_fp)
@@ -304,6 +315,9 @@ class AddServerDialog(QDialog):
         ds, ns = self.datastore.currentText().strip(), self.namespace.currentText().strip().strip("/")
         if not (self.name.text().strip() and self.server.text().strip() and ds):
             self.status.setText(tr("Name, Server und Datastore sind Pflicht."))
+            return
+        if self._taken(self.name.text().strip()):      # vor dem Anlegen des Zugangs: sonst überschriebe das neue Profil das vorhandene samt Token
+            self.status.setText(tr("Es gibt schon ein Profil mit dem Namen '{0}': bitte einen anderen Profilnamen wählen.", self.name.text().strip()))
             return
         if not self._fp_confirmed():
             return

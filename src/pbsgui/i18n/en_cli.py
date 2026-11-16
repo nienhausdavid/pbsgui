@@ -447,4 +447,9 @@ EN.update({
     'Snapshot-Pfad; Standard: neuester mit Schlüsselkopie': 'snapshot path; default: newest with a key copy',
     'Schlüssel zurückgeholt und in {0} gespeichert (Rechte 0600). Jetzt mit --keyfile {0} wiederherstellen.': 'Key recovered and saved to {0} (permissions 0600). Now restore with --keyfile {0}.',
     '{0}. Der Master-Schlüssel wurde nicht eingerichtet.': '{0}. The master key was not set up.',
+    'gelesen': 'read',
+    'erfolgreich': 'successful',
+    'neue': 'new',
+    'geänderte': 'changed',
+    'gelöschte': 'deleted',
 })

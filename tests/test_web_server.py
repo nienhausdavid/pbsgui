@@ -182,6 +182,11 @@ def test_unknown_methods_and_paths(web):
     assert c.req("GET", "/api/gibts-nicht")[0] == 404
 
 
+def test_methods_the_library_does_not_know_get_no_error_page(web):
+    status, r, text = Client(web).req("TRACE", "/")
+    assert status == 501 and text == "" and "Python" not in (r.getheader("Server") or "")
+
+
 def test_full_restore_flow_over_http_with_typed_confirmation(web, lab, monkeypatch):    # noqa: F811
     c = Client(web); c.login()
     conn = {"server": "pbs.example", "port": 8007, "datastore": "store1", "auth_id": "u@pbs!t", "token": "geheim",

@@ -9,6 +9,28 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+### Geändert
+- pbstui: Die Übersicht ist eine zweispaltige Tabelle mit Abschnitten, Probleme stehen in Rot, ein gelungener letzter Lauf in Grün. Jedes Profil hat einen Punkt für seinen letzten Lauf. Die Fußzeile zeigt nur die häufigen Tasten; `?` listet alle Tasten nach Gruppen. Dialoge tragen ihren Titel im Rahmen, jedes Eingabefeld behält seinen Namen im Rahmen, auch beim Tippen, und die Knöpfe stehen nebeneinander. Im Verlauf belegt die Filterzeile nicht mehr den halben Bildschirm.
+- pbstui: Eine Rückfrage beginnt auf „Nein“ (ein versehentliches Enter bestätigt nichts) und nimmt `j`/`y` und `n` an.
+- pbsgui: Profile zeigen einen Punkt für den letzten Lauf (grün, rot, blau während eines Laufs, grau ohne Lauf). Dashboard und Verlauf kennzeichnen das Ergebnis mit Farbe und Punkt. Knopfreihen brechen um, statt die Mindestbreite des Fensters zu bestimmen (der rechte Rand der Kästen war abgeschnitten). Der Snapshot-Tab sagt bei leerer Liste, was zu tun ist. Tabellenköpfe sind linksbündig, Auswahlfelder haben einen sauberen Pfeil, Knöpfe zeigen den Tastaturfokus. „Server hinzufügen“ scrollt auf kleinen Bildschirmen. Qts eigene Texte (Ja/Nein/Abbrechen, Dateiauswahl) folgen der Sprache der Oberfläche.
+
+### Sicherheit
+- Schlüsseldateien: Der Export eines Schlüssels oder des privaten Master-Schlüssels folgt keinem symbolischen Link am Ziel mehr (GUI, TUI, Kommandozeile), und die Datei bekommt die Rechte 0600, bevor das Geheimnis geschrieben wird.
+- pbsgui: Ein kopierter Schlüssel ist für Zwischenablage-Verläufe als Geheimnis markiert (KDE Klipper und andere bewahren ihn nicht auf) und wird auch beim Beenden des Programms aus der Zwischenablage entfernt, nicht nur nach zwei Minuten.
+- pbsgui: Der Ordner für die gezeichneten Symbole in `/tmp` wird geprüft (eigener Ordner, Rechte 0700, kein Link). Vorher konnte ein anderer lokaler Benutzer ihn als Link vorbereiten und so Dateien dieses Benutzers überschreiben lassen.
+- Web-Oberfläche der Rettungs-ISO: Methoden, die die HTTP-Bibliothek nicht kennt (TRACE, PROPFIND …), und unlesbare Anfragen zählen für das Rate Limit und bekommen eine leere Antwort statt der Fehlerseite der Bibliothek. Die Listen der gesperrten Adressen sind begrenzt.
+- Wiederherstellung auf eine kleinere Platte: Beschädigte LVM-Metadaten im Backup ergeben eine Fehlermeldung, statt den Assistenten zu beenden.
+
+### Behoben
+- pbsgui und pbstui: „Server hinzufügen“ mit dem Namen eines vorhandenen Profils ersetzte dieses Profil samt Token stillschweigend (der vorgeschlagene Name ist der Rechnername, der zweite Server eines Rechners traf also genau das). Der Name wird jetzt abgelehnt, bevor der Zugang angelegt wird.
+- pbsgui: Nach einem Profilwechsel konnten noch die Snapshots des vorherigen Profils benutzt werden („Schlüssel zurückholen“ nahm sie; eine späte Antwort füllte die Tabelle des neuen Profils). Sie werden jetzt verworfen.
+- pbstui: Die Auswahl eines Datenbank-Containers im Datenbank-Dialog änderte das gewählte Profil hinter dem Dialog (bei nur einem Profil war danach keines mehr gewählt).
+- pbstui: Mehrere Fehler beendeten das Programm, statt eine Meldung zu zeigen: das Speichern des privaten Master-Schlüssels oder des zurückgeholten Schlüssels in einen Ordner, den es nicht gibt oder der nicht beschreibbar ist (der ungesicherte Master-Schlüssel ging dabei verloren), ein Port, der keine Zahl ist, eine Master-Schlüssel-Datei, die kein Text ist, ein Restore-Ziel, das eine Datei ist, ein unerwarteter Fehler während eines Backups.
+- pbstui: Meldungen mit eckigen Klammern (`[r]`, `[k]`) erschienen ohne den Teil in Klammern.
+- Rettungs-Assistent: „Beenden“ während einer laufenden Wiederherstellung fragt noch einmal nach (ein Abbruch hinterlässt eine halb beschriebene Platte). Ein fehlendes `nmtui` und ein scheiterndes Trennen des VPN zeigen eine Meldung. Der Hinweis nach einem gescheiterten Update nennt die richtigen Tasten (F2, F3).
+- pbsgui: Das Speichern des Notfallblatts oder eines Schlüssels an einem Ort ohne Schreibrecht zeigt eine Meldung. Das Wiederherstellen eines Snapshots in einen nicht leeren Ordner fragt vorher nach.
+- Englische Oberfläche: Einige Texte waren noch deutsch (Zustand des Zeitplans, Umfang des Profils, Hinweise beim Verkleinern einer Platte, Ergebnisse des Restore-Tests, die dadurch auch nicht eingefärbt waren).
+
 ## [0.9.5] - 2026-11-16
 
 ### Hinzugefügt

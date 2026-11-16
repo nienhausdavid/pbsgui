@@ -145,6 +145,16 @@ class Guard:
     def log(self, kind: str, who: str, detail: str = "") -> None:
         self.events.append(Event(self.wall(), kind, clean_text(who, 60), clean_text(detail)))
 
+    MAX_TRACKED = 5000      # so viele Adressen höchstens merken (ein Angreifer mit vielen Adressen füllt sonst den Speicher)
+
+    def _prune(self, now: float) -> None:
+        """Abgelaufene Sperren und alte Fehlversuche verwerfen, sobald zu viele Adressen gemerkt sind. Nur mit self._mu aufrufen."""
+        if len(self._locks) + len(self._bans) + len(self._fails) <= self.MAX_TRACKED:
+            return
+        self._bans = {k: v for k, v in self._bans.items() if v > now}
+        self._locks = {k: v for k, v in self._locks.items() if v.until > now or k in self._bans}
+        self._fails = {k: q for k, q in self._fails.items() if q and q[-1] > now - 600}
+
     # -- Sperrstatus
     def blocked_for(self, key: str) -> float:
         """Restsekunden, die diese Adresse noch gesperrt ist (0 = frei)."""
@@ -175,6 +185,7 @@ class Guard:
             lk.strikes += 1
             dur = self.honeypot_ban_seconds * min(8, 2 ** (lk.strikes - 1))
             self._bans[key] = self.clock() + dur
+            self._prune(self.clock())
         self.log("honeypot", key, what)
         self.log("ban", key, tr("{0:.0f} h gesperrt", dur / 3600))
         return dur
@@ -206,9 +217,10 @@ class Guard:
                 lk.strikes += 1
                 lk.until = now + self.lock_seconds * min(16, 2 ** (lk.strikes - 1))
                 q.clear()
+            self._prune(now)
         self.log("login-fail", key, tr("{0} Fehlversuche insgesamt", gf))
         if lock_now:
-            self.log("lock", key, "gesperrt")
+            self.log("lock", key, tr("gesperrt"))
         if gf >= self.GLOBAL_FAIL_LIMIT and not self.shut_down:
             self.shut_down = True
             self.log("shutdown", "-", tr("zu viele Fehlversuche: Web-Oberfläche abgeschaltet"))
