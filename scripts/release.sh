@@ -1,6 +1,6 @@
 #!/bin/sh
 # Bereitet ein Release vor: Version erhöhen, CHANGELOG abschließen, Tests, Commit und Tag.
-# Aufruf:  scripts/release.sh X.Y.Z [--push]
+# Aufruf:  scripts/release.sh X.Y.Z[.N] [--push]     (.N: kleine Nachlieferung zu X.Y.Z, z. B. 0.9.8.1)
 # Ohne --push bleibt alles lokal (zum Prüfen); mit --push startet der Tag den GitHub-Workflow "Release"
 # (baut .deb und ISO, legt das Release an und aktualisiert das APT-Repository).
 set -eu
@@ -8,7 +8,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 new=${1:?Version angeben, z. B. scripts/release.sh 0.4.0}
 push=${2:-}
-echo "$new" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Keine gültige Version (X.Y.Z): $new" >&2; exit 1; }
+echo "$new" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' || { echo "Keine gültige Version (X.Y.Z oder X.Y.Z.N): $new" >&2; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = main ] || { echo "Bitte auf dem Branch main arbeiten." >&2; exit 1; }
 [ -z "$(git status --porcelain)" ] || { echo "Arbeitsverzeichnis nicht sauber: erst committen." >&2; exit 1; }
 git fetch -q origin

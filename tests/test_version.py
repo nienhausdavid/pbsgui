@@ -12,7 +12,7 @@ def pyproject_version() -> str:
 
 
 def test_semver_format():
-    assert re.fullmatch(r"\d+\.\d+\.\d+", pyproject_version())
+    assert re.fullmatch(r"\d+\.\d+\.\d+(\.\d+)?", pyproject_version())   # vierte Stelle: Nachlieferung
 
 
 def test_changelog_has_entry_for_current_version_and_unreleased_section():
@@ -20,7 +20,7 @@ def test_changelog_has_entry_for_current_version_and_unreleased_section():
     assert "## [Unreleased]" in text
     assert re.search(rf"^## \[{re.escape(pyproject_version())}\] - \d{{4}}-\d{{2}}-\d{{2}}$", text, re.M)
     assert f"[{pyproject_version()}]: https://github.com/" in text
-    versions = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", text, re.M)
+    versions = re.findall(r"^## \[(\d+(?:\.\d+){2,3})\]", text, re.M)
     assert versions[0] == pyproject_version()                                    # neueste Version steht oben
 
 
