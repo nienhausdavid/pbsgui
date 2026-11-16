@@ -9,6 +9,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.8.1] - 2026-11-16
+
 ### Behoben
 - Die erste Suche nach einem neuen Backup hielt die ganze Dateiliste des neuen Snapshots im Speicher (rund 1,3 GiB auf einem Server mit 940.000 Einträgen). Die Liste läuft jetzt vom Client direkt in die gepackte Datei des Zwischenspeichers: 184 MiB auf demselben Rechner.
 
@@ -366,7 +368,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.8...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.8.1...HEAD
+[0.9.8.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.8.1
 [0.9.8]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.8
 [0.9.7]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.7
 [0.9.6]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.6

@@ -9,6 +9,8 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+## [0.9.8.1] - 2026-11-16
+
 ### Fixed
 - The first search after a new backup held the whole file list of the new snapshot in memory (about 1.3 GiB on a server with 940,000 entries). The list now runs from the client straight into the compressed cache file: 184 MiB on the same machine.
 
@@ -364,7 +366,8 @@ First published version. (The intermediate states 0.1.0 and 0.2.0 were internal 
 - System-scope schedules and root password login with 2FA are only tested to a limited extent in practice.
 - The rescue ISO brings no FUSE; the file browser is not intended there.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.8...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.8.1...HEAD
+[0.9.8.1]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.8.1
 [0.9.8]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.8
 [0.9.7]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.7
 [0.9.6]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.6
