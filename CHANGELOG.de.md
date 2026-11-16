@@ -9,6 +9,8 @@ Version 0.x: die Schnittstellen (Profilformat, Befehle) können sich noch änder
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-11-16
+
 ### Behoben
 - Restore-Test: Der Vergleich mit dem Original fand nie statt („0 mit dem Original verglichen“), weil der Client die Ortszeit in den Katalog schreibt und pbsgui sie mit UTC verglich. Unveränderte Dateien werden jetzt wieder per SHA-256 verglichen.
 - Restore-Test und Dateien zurückholen bei einem Vollbackup ohne Administrator-Rechte: Dateien, die nur root lesen darf, wurden als „nicht im Archiv“ gemeldet und als Fehler gezählt; der Test schlug fehl, obwohl das Backup in Ordnung war. Sie werden jetzt als gesperrt gezeigt, sind kein Fehler, und der Test zieht stattdessen andere Dateien. Ein Test, bei dem nichts lesbar war, gilt nicht als bestanden.
@@ -349,7 +351,8 @@ Erste veröffentlichte Version. (Die Zwischenstände 0.1.0 und 0.2.0 waren nur i
 - System-Scope-Zeitpläne und Root-Passwort-Login mit 2FA sind nur eingeschränkt praktisch getestet.
 - Die Rettungs-ISO bringt kein FUSE mit; der Dateibrowser dort ist nicht vorgesehen.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.6...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.7...HEAD
+[0.9.7]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.7
 [0.9.6]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.6
 [0.9.5]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.5
 [0.9.4]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.4

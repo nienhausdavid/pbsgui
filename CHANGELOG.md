@@ -9,6 +9,8 @@ Version 0.x: the interfaces (profile format, commands) may still change.
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-11-16
+
 ### Fixed
 - Restore test: the comparison with the original never took place ("0 compared with the original"), because the client writes local time into the catalog and pbsgui compared it with UTC. Unchanged files are now compared by SHA-256 again.
 - Restore test and file restore of a full backup without administrator rights: files that only root may read were reported as "not in the archive" and counted as errors, so the test failed although the backup was fine. They are now shown as locked, are not an error, and the test draws other files instead. A test in which nothing could be read does not pass.
@@ -347,7 +349,8 @@ First published version. (The intermediate states 0.1.0 and 0.2.0 were internal 
 - System-scope schedules and root password login with 2FA are only tested to a limited extent in practice.
 - The rescue ISO brings no FUSE; the file browser is not intended there.
 
-[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.6...HEAD
+[Unreleased]: https://github.com/nienhausdavid/pbsgui/compare/v0.9.7...HEAD
+[0.9.7]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.7
 [0.9.6]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.6
 [0.9.5]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.5
 [0.9.4]: https://github.com/nienhausdavid/pbsgui/releases/tag/v0.9.4
